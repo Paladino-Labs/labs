@@ -497,8 +497,12 @@ def _start_escolhendo_horario(
             for i, s in enumerate(slots)]
     rows.append({"rowId": "opt_outra_data", "title": "📅 Outra data", "description": ""})
 
+    # Payload codifica "start_at|professional_id" para que, quando o usuário
+    # escolheu "Qualquer disponível", o professional_id correto seja resolvido
+    # ao selecionar o slot, antes de chegar ao CONFIRMANDO.
     ctx["last_list"] = (
-        [{"row_id": f"slot_{i}", "payload": s.start_at.isoformat(),
+        [{"row_id": f"slot_{i}",
+          "payload": f"{s.start_at.isoformat()}|{s.professional_id}",
           "label": s.start_at.strftime("%d/%m %H:%M")}
          for i, s in enumerate(slots)]
         + [{"row_id": "opt_outra_data", "payload": "outra_data"}]
@@ -524,8 +528,16 @@ def _handle_escolhendo_horario(
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
 
-    # Payload é um ISO datetime string
-    ctx["slot_start_at"] = payload
+    # Payload codificado como "start_at|professional_id" (ver _start_escolhendo_horario)
+    if "|" in payload:
+        start_str, prof_id_str = payload.split("|", 1)
+        ctx["slot_start_at"] = start_str
+        # Se o usuário escolheu "qualquer disponível", resolve o profissional real agora
+        if not ctx.get("professional_id"):
+            ctx["professional_id"] = prof_id_str
+    else:
+        ctx["slot_start_at"] = payload
+
     ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
     session.context = ctx
     session.state = STATE_CONFIRMANDO
@@ -627,8 +639,16 @@ def _handle_confirmando(
     start_at = datetime.fromisoformat(ctx["slot_start_at"])
     idempotency_key = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
 
+    # Segurança: professional_id deve estar resolvido neste ponto
+    professional_id_raw = ctx.get("professional_id")
+    if not professional_id_raw:
+        logger.error("CONFIRMANDO sem professional_id no context — whatsapp_id=%s", whatsapp_id)
+        _send_text(instance, whatsapp_id, "❌ Erro interno ao confirmar. Tente novamente.")
+        _reset_session(session)
+        return
+
     data = AppointmentCreate(
-        professional_id=UUID(ctx["professional_id"]),
+        professional_id=UUID(professional_id_raw),
         client_id=UUID(ctx["customer_id"]),
         services=[{"service_id": UUID(ctx["service_id"])}],
         start_at=start_at,
@@ -816,7 +836,12 @@ def _handle_reagendando(
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
 
-    new_start = datetime.fromisoformat(payload)
+    # Decode "start_at|professional_id" se necessário
+    if "|" in payload:
+        start_str, prof_id_str = payload.split("|", 1)
+        new_start = datetime.fromisoformat(start_str)
+    else:
+        new_start = datetime.fromisoformat(payload)
     appt_id = UUID(ctx["managing_appointment_id"])
 
     from app.modules.appointments.schemas import RescheduleRequest
