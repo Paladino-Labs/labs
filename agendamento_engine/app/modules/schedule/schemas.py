@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import time, datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class WorkingHourCreate(BaseModel):
@@ -21,8 +21,7 @@ class WorkingHourResponse(BaseModel):
     closing_time: time
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduleBlockCreate(BaseModel):
@@ -40,5 +39,4 @@ class ScheduleBlockResponse(BaseModel):
     end_at: datetime
     reason: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

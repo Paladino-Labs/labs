@@ -2,7 +2,7 @@ from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ServiceRequest(BaseModel):
@@ -24,16 +24,14 @@ class AppointmentServiceSnapshot(BaseModel):
     duration_snapshot: Decimal
     price_snapshot: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfessionalSummary(BaseModel):
     id: UUID
     name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomerSummary(BaseModel):
@@ -41,8 +39,7 @@ class CustomerSummary(BaseModel):
     name: str
     phone: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AppointmentResponse(BaseModel):
@@ -61,8 +58,7 @@ class AppointmentResponse(BaseModel):
     professional: Optional[ProfessionalSummary]
     customer: Optional[CustomerSummary]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RescheduleRequest(BaseModel):
