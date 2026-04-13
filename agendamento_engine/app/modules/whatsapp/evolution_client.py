@@ -92,6 +92,7 @@ def set_webhook(instance_name: str, webhook_url: str) -> dict:
     """
     url = f"{_base()}/webhook/set/{instance_name}"
     payload = {
+        "enabled": True,
         "url": webhook_url,
         "webhook_by_events": False,
         "webhook_base64": False,

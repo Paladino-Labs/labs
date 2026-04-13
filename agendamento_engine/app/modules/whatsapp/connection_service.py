@@ -116,9 +116,16 @@ def connect(db: Session, company_id: UUID) -> ConnectionResponse:
     try:
         evolution_client.set_webhook(conn.instance_name, webhook_url)
     except Exception as e:
+        # Extrai body da resposta para diagnóstico
+        body = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                body = e.response.text
+            except Exception:
+                pass
         raise HTTPException(
             status_code=502,
-            detail=f"Não foi possível configurar o webhook na Evolution API: {e}",
+            detail=f"Não foi possível configurar o webhook na Evolution API: {e} | body: {body}",
         )
 
     # Busca QR Code
