@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import WhatsAppConnection
 from app.modules.whatsapp import evolution_client
 from app.modules.whatsapp.schemas import ConnectionResponse, QRCodeResponse
+from app.core.config import settings
 
 # TTL do QR Code em segundos (padrão Evolution API)
 QR_TTL_SECONDS = 60
@@ -106,9 +107,19 @@ def connect(db: Session, company_id: UUID) -> ConnectionResponse:
     # Tenta criar instância (Evolution API ignora se já existir)
     try:
         evolution_client.create_instance(conn.instance_name)
-    except Exception as e:
+    except Exception:
         # Instância pode já existir — tenta buscar QR diretamente
         pass
+
+    # Registra (ou atualiza) o webhook na Evolution API
+    webhook_url = f"{settings.WEBHOOK_BASE_URL.rstrip('/')}/whatsapp/webhook"
+    try:
+        evolution_client.set_webhook(conn.instance_name, webhook_url)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Não foi possível configurar o webhook na Evolution API: {e}",
+        )
 
     # Busca QR Code
     try:

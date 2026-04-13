@@ -877,7 +877,20 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     """
     Ponto de entrada chamado pelo router quando chega um evento messages.upsert.
     Roteamento: instance_name → company_id → sessão do usuário.
+
+    A Evolution API v2 pode enviar o payload em dois formatos:
+      - Flat:  data = { "key": {...}, "message": {...} }
+      - Batch: data = { "messages": [{ "key": {...}, "message": {...} }], "type": "notify" }
+    Normalizamos para o formato flat antes de processar.
     """
+    # Normaliza batch → flat (Evolution API v2 envolve mensagens em array)
+    if isinstance(data, dict) and "messages" in data:
+        messages = data.get("messages") or []
+        if not messages:
+            logger.debug("messages.upsert com array vazio, instance=%s", instance_name)
+            return
+        data = messages[0]
+
     # Ignora mensagens enviadas pelo próprio bot (fromMe=True)
     key = data.get("key", {})
     if key.get("fromMe"):
@@ -886,6 +899,8 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     message_id = key.get("id", "")
     remote_jid = key.get("remoteJid", "")
     if not remote_jid:
+        logger.warning("messages.upsert sem remoteJid — instance=%s data_keys=%s",
+                       instance_name, list(data.keys()))
         return
 
     # Normaliza número: "5511999999999@s.whatsapp.net" → "5511999999999"
@@ -906,6 +921,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         CompanySettings.company_id == company_id
     ).first()
     if not settings or not settings.bot_enabled:
+        logger.debug("bot desabilitado para company_id=%s", company_id)
         return
 
     # Busca nome da empresa para mensagens de boas-vindas

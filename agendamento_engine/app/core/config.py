@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     EVOLUTION_API_URL: str = "http://localhost:8080"
     EVOLUTION_API_KEY: str = "evolution-api-key"
 
+    # URL pública do backend acessível pela Evolution API (sem barra final)
+    # Exemplo: https://api.seudominio.com
+    WEBHOOK_BASE_URL: str = "http://localhost:8000"
+
     class Config:
         env_file = ".env"
 

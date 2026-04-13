@@ -84,6 +84,28 @@ def delete_instance(instance_name: str) -> None:
     resp.raise_for_status()
 
 
+def set_webhook(instance_name: str, webhook_url: str) -> dict:
+    """
+    Configura o webhook da instância na Evolution API.
+    Deve ser chamado após criar a instância para que eventos de mensagens,
+    conexão e QR Code sejam enviados ao backend.
+    """
+    url = f"{_base()}/webhook/set/{instance_name}"
+    payload = {
+        "url": webhook_url,
+        "webhook_by_events": False,
+        "webhook_base64": False,
+        "events": [
+            "MESSAGES_UPSERT",
+            "CONNECTION_UPDATE",
+            "QRCODE_UPDATED",
+        ],
+    }
+    resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
 # ---------------------------------------------------------------------------
 # Envio de mensagens
 # ---------------------------------------------------------------------------
