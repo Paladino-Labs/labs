@@ -1071,6 +1071,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         return
 
     # Normaliza número: "5511999999999@s.whatsapp.net" → "5511999999999"
+    # evolution_client._normalize_number() re-adiciona @s.whatsapp.net ao enviar
     whatsapp_id = remote_jid.split("@")[0]
 
     # Resolve company_id pelo instance_name

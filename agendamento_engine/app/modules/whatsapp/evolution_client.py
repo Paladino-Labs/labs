@@ -8,8 +8,11 @@ Configuração via variáveis de ambiente:
     EVOLUTION_API_URL    URL base (ex: http://localhost:8080)
     EVOLUTION_API_KEY    API key global da instância Evolution
 """
+import logging
 import httpx
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _headers() -> dict:
@@ -103,6 +106,11 @@ def set_webhook(instance_name: str, webhook_url: str) -> dict:
         }
     }
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    if not resp.is_success:
+        logger.error(
+            "set_webhook error status=%s body=%s | instance=%s",
+            resp.status_code, resp.text[:500], instance_name,
+        )
     resp.raise_for_status()
     return resp.json()
 
@@ -111,14 +119,31 @@ def set_webhook(instance_name: str, webhook_url: str) -> dict:
 # Envio de mensagens
 # ---------------------------------------------------------------------------
 
+def _normalize_number(number: str) -> str:
+    """
+    Normaliza número para envio: garante que está no formato JID completo.
+    "5511999999999" → "5511999999999@s.whatsapp.net"
+    "5511999999999@s.whatsapp.net" → inalterado
+    """
+    if "@" not in number:
+        return f"{number}@s.whatsapp.net"
+    return number
+
+
 def send_text(instance_name: str, to: str, text: str) -> None:
     """Envia mensagem de texto simples."""
     url = f"{_base()}/message/sendText/{instance_name}"
+    number = _normalize_number(to)
     payload = {
-        "number": to,
-        "textMessage": {"text": text},
+        "number": number,
+        "text": text,
     }
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    if not resp.is_success:
+        logger.error(
+            "send_text error status=%s body=%s | instance=%s number=%s",
+            resp.status_code, resp.text[:500], instance_name, number,
+        )
     resp.raise_for_status()
 
 
@@ -134,8 +159,9 @@ def send_buttons(
     buttons format: [{"buttonId": "opt_1", "buttonText": {"displayText": "Label"}}]
     """
     url = f"{_base()}/message/sendButtons/{instance_name}"
+    number = _normalize_number(to)
     payload = {
-        "number": to,
+        "number": number,
         "buttonsMessage": {
             "text": body_text,
             "footer": footer_text,
@@ -143,6 +169,11 @@ def send_buttons(
         },
     }
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    if not resp.is_success:
+        logger.error(
+            "send_buttons error status=%s body=%s | instance=%s number=%s",
+            resp.status_code, resp.text[:500], instance_name, number,
+        )
     resp.raise_for_status()
 
 
@@ -160,8 +191,9 @@ def send_list(
     Ideal para serviços, profissionais e horários.
     """
     url = f"{_base()}/message/sendList/{instance_name}"
+    number = _normalize_number(to)
     payload = {
-        "number": to,
+        "number": number,
         "listMessage": {
             "title": title,
             "description": description,
@@ -176,4 +208,9 @@ def send_list(
         },
     }
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    if not resp.is_success:
+        logger.error(
+            "send_list error status=%s body=%s | instance=%s number=%s",
+            resp.status_code, resp.text[:500], instance_name, number,
+        )
     resp.raise_for_status()
