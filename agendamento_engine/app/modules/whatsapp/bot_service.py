@@ -152,17 +152,47 @@ def _send_text(instance: str, to: str, text: str) -> None:
 
 
 def _send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
+    """
+    Envia botões interativos. Se a Evolution API rejeitar, faz fallback
+    para texto numerado — o usuário digita o número da opção.
+    """
     try:
         evolution_client.send_buttons(instance, to, text, buttons)
     except Exception as e:
-        logger.error("send_buttons failed to=%s: %s", to, e)
+        logger.warning("send_buttons falhou, usando fallback texto. to=%s: %s", to, e)
+        lines = [text, ""]
+        for i, btn in enumerate(buttons, start=1):
+            label = btn.get("buttonText", {}).get("displayText", btn.get("buttonId", str(i)))
+            lines.append(f"*{i}.* {label}")
+        lines.append("\n_Digite o número da opção desejada._")
+        _send_text(instance, to, "\n".join(lines))
 
 
 def _send_list(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:
+    """
+    Envia lista interativa. Se a Evolution API rejeitar (conta pessoal,
+    tipo de número ou restrição de versão), faz fallback para texto numerado.
+    O usuário digita o número da opção — _resolve_input já suporta isso.
+    """
     try:
         evolution_client.send_list(instance, to, title, description, "Ver opções", rows)
     except Exception as e:
-        logger.error("send_list failed to=%s: %s", to, e)
+        logger.warning("send_list falhou, usando fallback texto. to=%s: %s", to, e)
+        _send_list_as_text(instance, to, title, description, rows)
+
+
+def _send_list_as_text(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:
+    """Fallback de lista como mensagem de texto com opções numeradas."""
+    lines = [f"*{title}*"]
+    if description:
+        lines.append(description)
+    lines.append("")
+    for i, row in enumerate(rows, start=1):
+        label = row.get("title", row.get("rowId", str(i)))
+        desc  = row.get("description", "")
+        lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
+    lines.append("\n_Digite o número da opção desejada._")
+    _send_text(instance, to, "\n".join(lines))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
