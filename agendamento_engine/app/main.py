@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,10 +16,38 @@ from app.modules.appointments.router import router as appointments_router
 from app.modules.availability.router import router as availability_router
 from app.modules.whatsapp.router import router as whatsapp_router
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gerencia o ciclo de vida da aplicação (substitui @on_event deprecated)."""
+    from app.workers.session_cleanup_worker import run_session_cleanup_worker
+    from app.workers.reminder_worker import run_reminder_worker
+
+    tasks = [
+        asyncio.create_task(run_session_cleanup_worker(), name="session_cleanup_worker"),
+        asyncio.create_task(run_reminder_worker(), name="reminder_worker"),
+    ]
+    logger.info("Background workers iniciados: session_cleanup, reminder")
+
+    yield  # aplicação em execução
+
+    # Shutdown: cancela os workers ao desligar
+    for task in tasks:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Background workers encerrados")
+
+
 app = FastAPI(
     title="Paladino Labs API",
     version="0.2.0",
     description="Sistema de gestão para barbearias — Sprint 2 (WhatsApp Bot)",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -40,4 +72,4 @@ app.include_router(whatsapp_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}

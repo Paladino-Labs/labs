@@ -26,11 +26,12 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
-# Sobrescreve a URL com DATABASE_URL do .env (evita problemas com caracteres
-# especiais na senha dentro do alembic.ini)
-database_url = os.environ.get("DATABASE_URL")
+# Sobrescreve a URL com DATABASE_URL do .env.
+# ConfigParser interpreta '%' como interpolação, então escapamos antes de
+# passar via set_main_option (ex: %23 → %%23).
+database_url = os.environ.get("DATABASE_URL", "")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

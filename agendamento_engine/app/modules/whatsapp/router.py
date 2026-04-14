@@ -102,7 +102,20 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         elif event == "messages.upsert":
             # Importação tardia para evitar circular import entre bot e router
             from app.modules.whatsapp.bot_service import handle_inbound_message
-            await handle_inbound_message(db, instance_name, data)
+            # Descarta mensagens de grupo (@g.us) — bot atende apenas conversas individuais
+            _data = data if not isinstance(data, dict) else data
+            remote_jid = ""
+            if isinstance(_data, dict):
+                remote_jid = _data.get("key", {}).get("remoteJid", "") or ""
+                # Formato batch: {"messages": [...]}
+                if not remote_jid and "messages" in _data:
+                    msgs = _data.get("messages") or []
+                    if msgs:
+                        remote_jid = msgs[0].get("key", {}).get("remoteJid", "") or ""
+            if remote_jid.endswith("@g.us"):
+                logger.debug("webhook: ignorando mensagem de grupo jid=%s", remote_jid)
+            else:
+                await handle_inbound_message(db, instance_name, data)
 
     except Exception:
         logger.exception("webhook processing error event=%s instance=%s", event, instance_name)

@@ -8,6 +8,7 @@ Responsabilidades:
   - Processar eventos de connection.update e qrcode.updated
   - Lógica de reconexão automática
 """
+import logging
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
@@ -19,8 +20,7 @@ from app.modules.whatsapp import evolution_client
 from app.modules.whatsapp.schemas import ConnectionResponse, QRCodeResponse
 from app.core.config import settings
 
-# TTL do QR Code em segundos (padrão Evolution API)
-QR_TTL_SECONDS = 60
+logger = logging.getLogger(__name__)
 
 # Motivos que NÃO acionam reconexão automática
 _NO_RECONNECT_REASONS = {"logout", "manual_disconnect"}
@@ -67,13 +67,14 @@ def get_connection(db: Session, company_id: UUID) -> ConnectionResponse:
                 conn.connected_at = datetime.now(timezone.utc)
                 conn.qr_code = None
                 db.commit()
-        except Exception:
-            pass  # silencioso; status permanece CONNECTING
+        except Exception as e:
+            logger.warning("Falha ao verificar estado da conexão Evolution API instance=%s: %s",
+                           conn.instance_name, e)
 
     qr_expires_in = None
     if conn.qr_code and conn.qr_generated_at:
         elapsed = (datetime.now(timezone.utc) - conn.qr_generated_at.replace(tzinfo=timezone.utc)).seconds
-        remaining = QR_TTL_SECONDS - elapsed
+        remaining = settings.WHATSAPP_QR_TTL_SECONDS - elapsed
         qr_expires_in = max(0, remaining)
         if remaining <= 0:
             # QR expirado — limpa para o frontend exibir botão "Gerar novo QR"
@@ -107,9 +108,10 @@ def connect(db: Session, company_id: UUID) -> ConnectionResponse:
     # Tenta criar instância (Evolution API ignora se já existir)
     try:
         evolution_client.create_instance(conn.instance_name)
-    except Exception:
+    except Exception as e:
         # Instância pode já existir — tenta buscar QR diretamente
-        pass
+        logger.warning("create_instance falhou (pode já existir) instance=%s: %s",
+                       conn.instance_name, e)
 
     # Registra (ou atualiza) o webhook na Evolution API
     webhook_url = f"{settings.WEBHOOK_BASE_URL.rstrip('/')}/whatsapp/webhook"
@@ -147,7 +149,7 @@ def connect(db: Session, company_id: UUID) -> ConnectionResponse:
     return ConnectionResponse(
         status="CONNECTING",
         qr_code=qr_base64,
-        qr_expires_in=QR_TTL_SECONDS,
+        qr_expires_in=settings.WHATSAPP_QR_TTL_SECONDS,
     )
 
 
@@ -176,7 +178,7 @@ def refresh_qr(db: Session, company_id: UUID) -> QRCodeResponse:
     conn.status = "CONNECTING"
     db.commit()
 
-    return QRCodeResponse(qr_code=qr_base64, expires_in=QR_TTL_SECONDS)
+    return QRCodeResponse(qr_code=qr_base64, expires_in=settings.WHATSAPP_QR_TTL_SECONDS)
 
 
 def disconnect(db: Session, company_id: UUID) -> None:
@@ -190,8 +192,8 @@ def disconnect(db: Session, company_id: UUID) -> None:
 
     try:
         evolution_client.logout_instance(conn.instance_name)
-    except Exception:
-        pass  # mesmo que falhe na API, marca como desconectado localmente
+    except Exception as e:
+        logger.warning("logout_instance falhou instance=%s: %s", conn.instance_name, e)
 
     conn.status = "DISCONNECTED"
     conn.phone_number = None

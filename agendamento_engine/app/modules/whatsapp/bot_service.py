@@ -32,11 +32,10 @@ from app.modules.services import service as service_svc
 from app.modules.appointments import service as appointment_svc
 from app.modules.appointments.schemas import AppointmentCreate
 from app.modules.availability import service as availability_svc
+from app.core.config import settings
+from app.modules.appointments.polices import PolicyViolationError
 
 logger = logging.getLogger(__name__)
-
-# TTL de sessão (em minutos) — resetado a cada mensagem recebida
-SESSION_TTL_MINUTES = 30
 
 # Estados
 STATE_INICIO                  = "INICIO"
@@ -49,6 +48,7 @@ STATE_ESCOLHENDO_DATA         = "ESCOLHENDO_DATA"
 STATE_CONFIRMANDO             = "CONFIRMANDO"
 STATE_VER_AGENDAMENTOS        = "VER_AGENDAMENTOS"
 STATE_GERENCIANDO_AGENDAMENTO = "GERENCIANDO_AGENDAMENTO"
+STATE_CANCELANDO              = "CANCELANDO"
 STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
 
@@ -96,7 +96,7 @@ def _reset_session(session: BotSession, keep_customer: bool = True) -> None:
 
 
 def _save_session(db: Session, session: BotSession) -> None:
-    session.expires_at = datetime.now(timezone.utc) + timedelta(minutes=SESSION_TTL_MINUTES)
+    session.expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOT_SESSION_TTL_MINUTES)
     db.commit()
 
 
@@ -228,7 +228,7 @@ def _handle_inicio(
             if slots:
                 svc_name = last_appt.services[0].service_name
                 prof_name = last_appt.professional.name if last_appt.professional else "Profissional"
-                expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+                expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES)
                 predicted = {
                     "start_at": slots[0].start_at.isoformat(),
                     "service_id": str(svc_id),
@@ -465,22 +465,24 @@ def _start_escolhendo_horario(
             for p in professional_svc.list_by_service(db, company_id, service_id):
                 s = availability_svc.get_available_slots(db, company_id, p.id, service_id, target_date)
                 slots.extend(s)
-                if len(slots) >= 6:
+                if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
     else:
         # Sem data — próximos slots disponíveis
         slots = []
         if prof_id_raw:
             slots = availability_svc.get_next_available_slots(
-                db, company_id, UUID(prof_id_raw), service_id, days=7, limit=6
+                db, company_id, UUID(prof_id_raw), service_id, days=7,
+                limit=settings.BOT_MAX_SLOTS_DISPLAYED,
             )
         else:
+            half = max(1, settings.BOT_MAX_SLOTS_DISPLAYED // 2)
             for p in professional_svc.list_by_service(db, company_id, service_id):
                 s = availability_svc.get_next_available_slots(
-                    db, company_id, p.id, service_id, days=7, limit=3
+                    db, company_id, p.id, service_id, days=7, limit=half,
                 )
                 slots.extend(s)
-                if len(slots) >= 6:
+                if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
 
     if not slots:
@@ -745,9 +747,21 @@ def _handle_ver_agendamentos_input(
 
     ctx["managing_appointment_id"] = payload
     session.context = ctx
+    _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
+
+
+def _start_gerenciando_agendamento(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, appt,
+) -> None:
+    """Exibe o menu de gerenciamento de um agendamento específico."""
+    ctx = session.context or {}
     session.state = STATE_GERENCIANDO_AGENDAMENTO
 
-    can_reschedule = (appt.start_at - datetime.now(timezone.utc)) > timedelta(hours=2)
+    can_reschedule = (
+        appt.start_at - datetime.now(timezone.utc)
+    ) > timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE)
+
     slot_label = appt.start_at.strftime("%d/%m às %H:%M")
     text = f"Agendamento: {slot_label}\nStatus: {appt.status}\n\nO que deseja fazer?"
 
@@ -780,15 +794,9 @@ def _handle_gerenciando_agendamento(
         return
 
     if payload == "opt_cancelar_appt":
-        appt_id = UUID(ctx["managing_appointment_id"])
-        try:
-            appointment_svc.cancel_appointment(
-                db, company_id, appt_id, user_id=None, reason="Cancelado via WhatsApp"
-            )
-            _send_text(instance, whatsapp_id, "✅ Agendamento cancelado com sucesso.")
-        except Exception:
-            _send_text(instance, whatsapp_id, "❌ Não foi possível cancelar. Tente novamente.")
-        _reset_session(session)
+        # Vai para CANCELANDO para confirmar antes de executar + verificar política
+        session.state = STATE_CANCELANDO
+        _start_cancelando(db, session, company_id, whatsapp_id, instance)
         return
 
     if payload == "opt_reagendar":
@@ -799,9 +807,11 @@ def _handle_gerenciando_agendamento(
             _reset_session(session)
             return
 
-        if (appt.start_at - datetime.now(timezone.utc)) <= timedelta(hours=2):
+        remaining = appt.start_at - datetime.now(timezone.utc)
+        if remaining <= timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE):
             _send_text(instance, whatsapp_id,
-                       "😬 O prazo para reagendamento já passou (mínimo 2h antes).\n"
+                       "😬 O prazo para reagendamento já passou (mínimo "
+                       f"{settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE}h antes).\n"
                        "Você pode apenas confirmar presença ou cancelar.")
             return
 
@@ -818,6 +828,107 @@ def _handle_gerenciando_agendamento(
 
     # Input inválido
     _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CANCELANDO — confirmação de cancelamento com aviso de política
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _start_cancelando(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str,
+) -> None:
+    """
+    Exibe a tela de confirmação de cancelamento.
+    Verifica a política de 2h antes de mostrar a opção de confirmar —
+    se já passou do prazo, avisa e volta para GERENCIANDO.
+    """
+    ctx = session.context or {}
+    appt_id_str = ctx.get("managing_appointment_id")
+    if not appt_id_str:
+        _reset_session(session)
+        return
+
+    try:
+        appt = appointment_svc.get_appointment_or_404(db, company_id, UUID(appt_id_str))
+    except Exception:
+        _reset_session(session)
+        return
+
+    from app.modules.appointments.polices import check_cancellation_policy
+    allowed, msg = check_cancellation_policy(
+        start_at=appt.start_at,
+        now=datetime.now(timezone.utc),
+        min_hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL,
+    )
+
+    slot_label = appt.start_at.strftime("%d/%m às %H:%M")
+
+    if not allowed:
+        # Fora do prazo → avisa e volta para GERENCIANDO sem executar
+        _send_text(
+            instance, whatsapp_id,
+            f"⚠️ Não é possível cancelar este agendamento.\n\n{msg}",
+        )
+        _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
+        return
+
+    text = (
+        f"Confirma o *cancelamento* do agendamento?\n\n"
+        f"📅 {slot_label}\n\n"
+        f"⚠️ Esta ação não pode ser desfeita."
+    )
+    buttons = [
+        {"buttonId": "opt_confirmar_cancel", "buttonText": {"displayText": "✅ Sim, cancelar"}},
+        {"buttonId": "opt_voltar_gerenciando", "buttonText": {"displayText": "← Não, voltar"}},
+    ]
+    last_list = [
+        {"row_id": "opt_confirmar_cancel",    "payload": "confirmar_cancel"},
+        {"row_id": "opt_voltar_gerenciando",  "payload": "voltar_gerenciando"},
+    ]
+    ctx["last_list"] = last_list
+    session.context = ctx
+    _send_buttons(instance, whatsapp_id, text, buttons)
+
+
+def _handle_cancelando(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, user_input: str,
+) -> None:
+    ctx = session.context or {}
+    payload = _resolve_input(user_input, ctx.get("last_list", []))
+
+    if payload == "voltar_gerenciando":
+        appt_id_str = ctx.get("managing_appointment_id", "")
+        try:
+            appt = appointment_svc.get_appointment_or_404(db, company_id, UUID(appt_id_str))
+            _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
+        except Exception:
+            _reset_session(session)
+        return
+
+    if payload == "confirmar_cancel":
+        appt_id_str = ctx.get("managing_appointment_id")
+        if not appt_id_str:
+            _reset_session(session)
+            return
+        try:
+            appointment_svc.cancel_appointment(
+                db, company_id, UUID(appt_id_str),
+                user_id=None, reason="Cancelado via WhatsApp",
+            )
+            _send_text(instance, whatsapp_id, "✅ Agendamento cancelado com sucesso.")
+        except PolicyViolationError as e:
+            # Defense-in-depth: policy também enforçada no service layer
+            _send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
+        except Exception:
+            logger.exception("Erro ao cancelar agendamento id=%s", appt_id_str)
+            _send_text(instance, whatsapp_id, "❌ Não foi possível cancelar. Tente novamente.")
+        _reset_session(session)
+        return
+
+    # Input inválido
+    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções acima.")
 
 
 def _handle_reagendando(
@@ -854,6 +965,8 @@ def _handle_reagendando(
         slot_label = new_start.strftime("%d/%m às %H:%M")
         _send_text(instance, whatsapp_id,
                    f"✅ Agendamento remarcado para *{slot_label}*!\nTe esperamos! 💈")
+    except PolicyViolationError as e:
+        _send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
     except Exception as e:
         status = getattr(e, "status_code", None)
         if status == 409:
@@ -952,7 +1065,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     state = session.state
 
     try:
-        if state in (STATE_INICIO, STATE_OFERTA_RECORRENTE) and state == STATE_INICIO:
+        if state == STATE_INICIO:
             # Guarda input para uso dentro de _handle_inicio quando menu já foi mostrado
             ctx = session.context or {}
             ctx["_pending_input"] = user_input
@@ -985,6 +1098,9 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
 
         elif state == STATE_GERENCIANDO_AGENDAMENTO:
             _handle_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance_name, user_input)
+
+        elif state == STATE_CANCELANDO:
+            _handle_cancelando(db, session, company_id, whatsapp_id, instance_name, user_input)
 
         elif state == STATE_REAGENDANDO:
             _handle_reagendando(db, session, company_id, whatsapp_id, instance_name, user_input)

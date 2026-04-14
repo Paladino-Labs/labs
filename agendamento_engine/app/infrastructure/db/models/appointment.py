@@ -1,6 +1,7 @@
 import uuid
+import sqlalchemy as sa
 from sqlalchemy import (
-    Column, String, ForeignKey, Numeric, Integer,
+    Boolean, Column, String, ForeignKey, Numeric, Integer,
     TIMESTAMP, CheckConstraint, UniqueConstraint, DateTime,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -42,6 +43,10 @@ class Appointment(Base, TimestampMixin):
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     cancel_reason = Column(String(500), nullable=True)
+
+    # Flags de idempotência para workers de lembrete
+    reminder_24h_sent = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))
+    reminder_2h_sent  = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))
 
     # Relacionamentos
     professional = relationship("Professional", back_populates="appointments")

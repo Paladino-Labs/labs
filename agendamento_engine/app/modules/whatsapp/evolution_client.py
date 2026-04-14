@@ -92,15 +92,15 @@ def set_webhook(instance_name: str, webhook_url: str) -> dict:
     """
     url = f"{_base()}/webhook/set/{instance_name}"
     payload = {
-        "enabled": True,
-        "url": webhook_url,
-        "webhook_by_events": False,
-        "webhook_base64": False,
-        "events": [
-            "MESSAGES_UPSERT",
-            "CONNECTION_UPDATE",
-            "QRCODE_UPDATED",
-        ],
+        "webhook": {
+            "enabled": True,
+            "url": webhook_url,
+            "events": [
+                "MESSAGES_UPSERT",
+                "CONNECTION_UPDATE",
+                "QRCODE_UPDATED",
+            ],
+        }
     }
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
     resp.raise_for_status()

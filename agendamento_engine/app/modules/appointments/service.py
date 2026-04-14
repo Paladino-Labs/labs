@@ -13,6 +13,12 @@ from app.domain.enums import AppointmentStatus, FinancialStatus
 from app.modules.appointments.schemas import AppointmentCreate, RescheduleRequest
 from app.modules.appointments.snapshots import build_snapshots
 from app.modules.appointments.transitions import transition
+from app.modules.appointments.polices import (
+    PolicyViolationError,
+    CANCELLATION_TOO_LATE, RESCHEDULE_TOO_LATE,
+    check_cancellation_policy, check_reschedule_policy,
+)
+from app.core.config import settings
 
 
 def _assert_slot_available(
@@ -222,12 +228,22 @@ def create_appointment(
 
 def cancel_appointment(
     db: Session, company_id: UUID, appointment_id: UUID,
-    user_id: UUID | None = None, reason: str = None
+    user_id: UUID | None = None, reason: str = None,
+    skip_policy: bool = False,
 ) -> Appointment:
-    from datetime import datetime
     appointment = get_appointment_or_404(db, company_id, appointment_id)
+
+    if not skip_policy:
+        allowed, msg = check_cancellation_policy(
+            start_at=appointment.start_at,
+            now=datetime.now(timezone.utc),
+            min_hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL,
+        )
+        if not allowed:
+            raise PolicyViolationError(code=CANCELLATION_TOO_LATE, detail=msg)
+
     transition(db, appointment, AppointmentStatus.CANCELLED, changed_by_id=user_id, note=reason)
-    appointment.cancelled_at = datetime.utcnow()
+    appointment.cancelled_at = datetime.now(timezone.utc)
     appointment.cancelled_by = user_id
     appointment.cancel_reason = reason
     db.commit()
@@ -237,12 +253,22 @@ def cancel_appointment(
 
 def reschedule_appointment(
     db: Session, company_id: UUID, appointment_id: UUID,
-    data: RescheduleRequest, user_id: UUID | None = None
+    data: RescheduleRequest, user_id: UUID | None = None,
+    skip_policy: bool = False,
 ) -> Appointment:
     appointment = get_appointment_or_404(db, company_id, appointment_id)
 
     if AppointmentStatus(appointment.status).is_terminal:
         raise HTTPException(status_code=409, detail="Não é possível remarcar um agendamento encerrado")
+
+    if not skip_policy:
+        allowed, msg = check_reschedule_policy(
+            start_at=appointment.start_at,
+            now=datetime.now(timezone.utc),
+            min_hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE,
+        )
+        if not allowed:
+            raise PolicyViolationError(code=RESCHEDULE_TOO_LATE, detail=msg)
 
     total_minutes = sum(int(s.duration_snapshot) for s in appointment.services)
     new_end_at = data.start_at + timedelta(minutes=total_minutes)

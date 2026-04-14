@@ -15,6 +15,24 @@ class Settings(BaseSettings):
     # Exemplo: https://api.seudominio.com
     WEBHOOK_BASE_URL: str = "http://localhost:8000"
 
+    # Bot — sessão e UX
+    BOT_SESSION_TTL_MINUTES: int = 30           # TTL da sessão, resetado a cada mensagem
+    BOT_PREDICTIVE_OFFER_TTL_MINUTES: int = 5  # Expiração da oferta recorrente
+    BOT_MAX_SLOTS_DISPLAYED: int = 6            # Máximo de horários exibidos por página
+    BOT_FALLBACK_MAX_COUNT: int = 3             # Fallbacks antes de oferecer atendente humano
+
+    # Agendamentos — políticas de negócio
+    APPOINTMENT_MIN_HOURS_BEFORE_CANCEL: int = 2      # Prazo mínimo para cancelar
+    APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE: int = 2  # Prazo mínimo para remarcar
+
+    # WhatsApp
+    WHATSAPP_QR_TTL_SECONDS: int = 60  # TTL do QR Code
+
+    # Workers
+    BOT_SESSION_CLEANUP_BATCH_SIZE: int = 100  # Sessões deletadas por ciclo
+    BOT_REMINDER_ADVANCE_HOURS_FIRST: int = 24  # Primeiro lembrete (horas antes)
+    BOT_REMINDER_ADVANCE_HOURS_SECOND: int = 2  # Segundo lembrete (horas antes)
+
     class Config:
         env_file = ".env"
 
