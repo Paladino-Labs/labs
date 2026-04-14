@@ -1,19 +1,21 @@
 """
 Bot de agendamento via WhatsApp — máquina de estados.
 
-Fluxo: INICIO → AGUARDANDO_NOME → ESCOLHENDO_SERVICO → ESCOLHENDO_PROFISSIONAL
-       → ESCOLHENDO_HORARIO → ESCOLHENDO_DATA → CONFIRMANDO → (INICIO)
-       ├── VER_AGENDAMENTOS → GERENCIANDO_AGENDAMENTO → REAGENDANDO
-       └── HUMANO
+Fluxo:
+  INICIO → [AGUARDANDO_NOME] → [OFERTA_RECORRENTE]
+         → ESCOLHENDO_SERVICO → ESCOLHENDO_PROFISSIONAL
+         → ESCOLHENDO_HORARIO → [ESCOLHENDO_DATA] → ESCOLHENDO_HORARIO
+         → CONFIRMANDO → INICIO (reset)
+  INICIO → VER_AGENDAMENTOS → GERENCIANDO_AGENDAMENTO
+         → CANCELANDO | REAGENDANDO
 
-Regras críticas implementadas:
-  - SELECT FOR UPDATE na sessão (previne race condition de mensagens simultâneas)
+Regras críticas:
+  - SELECT FOR UPDATE NOWAIT (previne race condition de mensagens simultâneas)
   - last_message_id para idempotência de webhook (Evolution API re-entrega)
-  - expires_at resetado a cada mensagem (TTL de 30 minutos)
-  - Defense-in-depth: disponibilidade re-validada no CONFIRMANDO
+  - expires_at TTL de 30 min, resetado a cada mensagem
+  - Disponibilidade re-validada no CONFIRMANDO (defense-in-depth)
   - user_id=None em create/cancel/reschedule (bot não tem User no DB)
 """
-import asyncio
 import logging
 import uuid as uuidlib
 from datetime import datetime, timezone, timedelta
@@ -37,7 +39,7 @@ from app.modules.appointments.polices import PolicyViolationError
 
 logger = logging.getLogger(__name__)
 
-# Estados
+# ─── Estados ──────────────────────────────────────────────────────────────────
 STATE_INICIO                  = "INICIO"
 STATE_AGUARDANDO_NOME         = "AGUARDANDO_NOME"
 STATE_OFERTA_RECORRENTE       = "OFERTA_RECORRENTE"
@@ -52,16 +54,13 @@ STATE_CANCELANDO              = "CANCELANDO"
 STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
 
+_DIAS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
-# ────────────────────────────────���───────────────────────────��────────────────
-# Helpers de sessão
-# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Helpers de sessão ────────────────────────────────────────────────────────
 
 def _get_session_locked(db: Session, company_id: UUID, whatsapp_id: str) -> BotSession:
-    """
-    Busca ou cria a sessão com SELECT FOR UPDATE NOWAIT.
-    Levanta OperationalError se a linha já estiver bloqueada (mensagem sendo processada).
-    """
+    """SELECT FOR UPDATE NOWAIT — levanta OperationalError se linha já bloqueada."""
     session = (
         db.query(BotSession)
         .filter(
@@ -84,40 +83,38 @@ def _get_session_locked(db: Session, company_id: UUID, whatsapp_id: str) -> BotS
 
 
 def _reset_session(session: BotSession, keep_customer: bool = True) -> None:
-    """Reseta o contexto para o estado inicial, opcionalmente preservando dados do cliente."""
+    """Reseta contexto para INICIO, preservando opcionalmente dados do cliente."""
     ctx = session.context or {}
-    new_ctx = {}
+    preserved = {}
     if keep_customer:
-        for key in ("customer_id", "customer_name", "is_recurring"):
-            if key in ctx:
-                new_ctx[key] = ctx[key]
-    session.context = new_ctx
+        for k in ("customer_id", "customer_name", "company_name"):
+            if k in ctx:
+                preserved[k] = ctx[k]
+    session.context = preserved
     session.state = STATE_INICIO
 
 
 def _save_session(db: Session, session: BotSession) -> None:
-    session.expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOT_SESSION_TTL_MINUTES)
+    session.expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.BOT_SESSION_TTL_MINUTES
+    )
     db.commit()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Resolução de input do usuário
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Normalização de input ────────────────────────────────────────────────────
 
 def _resolve_input(user_input: str, last_list: list) -> Optional[str]:
     """
-    Resolve o payload correspondente ao input do usuário.
-    Aceita: row_id exato (Evolution lista/botão) ou input numérico ("1", "2"…).
-    Retorna None se não encontrado (→ fallback).
+    Resolve payload pelo input do usuário.
+    Aceita: row_id exato (botão/lista Evolution) ou número ("1", "2"...).
+    Retorna None se não encontrado → fallback.
     """
     if not last_list:
         return None
     cleaned = (user_input or "").strip()
-    # Match direto por row_id
     for item in last_list:
         if item.get("row_id") == cleaned:
             return item.get("payload")
-    # Match numérico ("1" → índice 0)
     if cleaned.isdigit():
         idx = int(cleaned) - 1
         if 0 <= idx < len(last_list):
@@ -128,21 +125,28 @@ def _resolve_input(user_input: str, last_list: list) -> Optional[str]:
 def _extract_user_text(data: dict) -> str:
     """Extrai texto da mensagem da Evolution API (texto, botão ou lista)."""
     msg = data.get("message") or {}
-    # Mensagem de lista
     list_resp = msg.get("listResponseMessage", {})
     if list_resp:
         return list_resp.get("singleSelectReply", {}).get("selectedRowId", "")
-    # Mensagem de botão
     btn_resp = msg.get("buttonsResponseMessage", {})
     if btn_resp:
         return btn_resp.get("selectedButtonId", "")
-    # Texto puro
     return msg.get("conversation", "") or msg.get("extendedTextMessage", {}).get("text", "")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers de envio
-# ─────────────────────────────────────────────────────────────────────────────
+def _is_universal_command(text: str) -> Optional[str]:
+    """Detecta comandos globais independente do estado atual."""
+    t = (text or "").strip().lower()
+    if t in ("0", "menu", "início", "inicio", "voltar", "sair", "cancelar"):
+        return "menu"
+    if t in ("ver agendamentos", "meus agendamentos", "agendamentos"):
+        return "ver_agendamentos"
+    if t in ("atendente", "humano", "ajuda", "suporte"):
+        return "humano"
+    return None
+
+
+# ─── Helpers de envio ─────────────────────────────────────────────────────────
 
 def _send_text(instance: str, to: str, text: str) -> None:
     try:
@@ -152,169 +156,222 @@ def _send_text(instance: str, to: str, text: str) -> None:
 
 
 def _send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
-    """
-    Envia botões interativos. Se a Evolution API rejeitar, faz fallback
-    para texto numerado — o usuário digita o número da opção.
-    """
+    """Envia botões interativos com fallback para texto numerado."""
     try:
         evolution_client.send_buttons(instance, to, text, buttons)
     except Exception as e:
-        logger.warning("send_buttons falhou, usando fallback texto. to=%s: %s", to, e)
+        logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
         lines = [text, ""]
         for i, btn in enumerate(buttons, start=1):
-            label = btn.get("buttonText", {}).get("displayText", btn.get("buttonId", str(i)))
+            label = btn.get("buttonText", {}).get("displayText", str(i))
             lines.append(f"*{i}.* {label}")
-        lines.append("\n_Digite o número da opção desejada._")
+        lines.append("\n_Digite o número da opção._")
         _send_text(instance, to, "\n".join(lines))
 
 
 def _send_list(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:
-    """
-    Envia lista interativa. Se a Evolution API rejeitar (conta pessoal,
-    tipo de número ou restrição de versão), faz fallback para texto numerado.
-    O usuário digita o número da opção — _resolve_input já suporta isso.
-    """
+    """Envia lista interativa com fallback para texto numerado."""
     try:
         evolution_client.send_list(instance, to, title, description, "Ver opções", rows)
     except Exception as e:
-        logger.warning("send_list falhou, usando fallback texto. to=%s: %s", to, e)
+        logger.warning("send_list falhou, fallback texto. to=%s: %s", to, e)
         _send_list_as_text(instance, to, title, description, rows)
 
 
 def _send_list_as_text(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:
-    """Fallback de lista como mensagem de texto com opções numeradas."""
     lines = [f"*{title}*"]
     if description:
         lines.append(description)
     lines.append("")
     for i, row in enumerate(rows, start=1):
-        label = row.get("title", row.get("rowId", str(i)))
+        label = row.get("title", str(i))
         desc  = row.get("description", "")
         lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
-    lines.append("\n_Digite o número da opção desejada._")
+    lines.append("\n_Digite o número da opção._")
     _send_text(instance, to, "\n".join(lines))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Handlers por estado
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Utilitários de formatação ────────────────────────────────────────────────
+
+def _label_date(d) -> str:
+    """Formata data com label contextual em português."""
+    today = datetime.now(timezone.utc).date()
+    if d == today:
+        return f"Hoje ({d.strftime('%d/%m')})"
+    if d == today + timedelta(days=1):
+        return f"Amanhã ({d.strftime('%d/%m')})"
+    weekday = _DIAS_PT[d.weekday()]
+    return f"{weekday} ({d.strftime('%d/%m')})"
+
+
+def _first_name(full_name: str) -> str:
+    """Retorna o primeiro nome para uso em mensagens."""
+    return (full_name or "").strip().split()[0] if full_name else ""
+
+
+# ─── INICIO ───────────────────────────────────────────────────────────────────
 
 def _handle_inicio(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, company_name: str,
+    user_input: str, push_name: str = "",
 ) -> None:
     ctx = session.context or {}
 
-    # Menu já foi mostrado — processa escolha 1/2/3
-    if ctx.get("menu_shown"):
-        last_list = ctx.get("last_list", [])
-        payload = _resolve_input(ctx.get("_pending_input", ""), last_list)
+    # Passo 1: cliente ainda não identificado → iniciar onboarding
+    if not ctx.get("customer_id"):
+        _identify_customer(db, session, company_id, whatsapp_id, instance,
+                           company_name, push_name)
+        return
+
+    # Passo 2: menu já foi apresentado → processa escolha
+    last_list = ctx.get("last_list", [])
+    if last_list:
+        payload = _resolve_input(user_input, last_list)
         if payload == "opt_agendar":
-            ctx["menu_shown"] = False
+            ctx["last_list"] = []
             session.context = ctx
             _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
             return
-        elif payload == "opt_ver":
-            ctx["menu_shown"] = False
+        if payload == "opt_ver":
+            ctx["last_list"] = []
             session.context = ctx
-            session.state = STATE_VER_AGENDAMENTOS
             _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
             return
-        elif payload == "opt_humano":
+        if payload == "opt_humano":
             session.state = STATE_HUMANO
             _send_text(instance, whatsapp_id,
-                       "Vou chamar um atendente. Aguarde um momento… ☎️")
+                       "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️")
             return
-        else:
-            _send_menu_principal(instance, whatsapp_id, company_name, ctx.get("customer_name"))
-            return
+        # Input inválido → reenvia menu
+        _show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
+                             ctx.get("customer_name"))
+        return
 
-    # ── Identificação do cliente ──────────────────────────────────────────
+    # Passo 3: menu ainda não foi apresentado → exibe
+    _show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
+                         ctx.get("customer_name"))
+
+
+def _identify_customer(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, company_name: str, push_name: str = "",
+) -> None:
+    """
+    Identifica o cliente pelo número de WhatsApp.
+    Novo → pede nome. Recorrente → oferta preditiva ou menu padrão.
+    """
     customer = customer_svc.get_by_phone(db, company_id, whatsapp_id)
 
     if not customer:
-        # Novo cliente: pede nome
+        # Cliente novo
         session.state = STATE_AGUARDANDO_NOME
-        _send_text(instance, whatsapp_id,
-                   f"Olá! 👋 Bem-vindo à {company_name}!\n\nPara começar, qual é o seu nome?")
+        ctx = session.context or {}
+        ctx["company_name"] = company_name
+        if push_name:
+            ctx["push_name_suggestion"] = push_name
+        session.context = ctx
+
+        greeting = f"Olá! 👋 Seja bem-vindo à *{company_name}*!"
+        if push_name:
+            _send_text(instance, whatsapp_id,
+                       f"{greeting}\n\nSeu nome é *{push_name}*? "
+                       f"Me confirme seu nome para continuar. 😊")
+        else:
+            _send_text(instance, whatsapp_id,
+                       f"{greeting}\n\nPara começar, qual é o seu nome?")
         return
 
-    ctx["customer_id"] = str(customer.id)
+    # Cliente existente
+    ctx = session.context or {}
+    ctx["customer_id"]   = str(customer.id)
     ctx["customer_name"] = customer.name
+    ctx["company_name"]  = company_name
+    session.context = ctx
 
-    # Verifica se é cliente recorrente
-    last_completed = appointment_svc.list_completed_by_client(db, company_id, customer.id, limit=1)
+    # Tenta oferta preditiva
+    last_completed = appointment_svc.list_completed_by_client(
+        db, company_id, customer.id, limit=1
+    )
     if last_completed:
-        ctx["is_recurring"] = True
         last_appt = last_completed[0]
-        # Tenta encontrar o próximo slot disponível com o mesmo combo
-        svc_id = last_appt.services[0].service_id if last_appt.services else None
+        svc_id  = last_appt.services[0].service_id if last_appt.services else None
         prof_id = last_appt.professional_id
-        predicted = None
         if svc_id and prof_id:
             slots = availability_svc.get_next_available_slots(
                 db, company_id, prof_id, svc_id, days=7, limit=1
             )
             if slots:
-                svc_name = last_appt.services[0].service_name
-                prof_name = last_appt.professional.name if last_appt.professional else "Profissional"
-                expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES)
-                predicted = {
-                    "start_at": slots[0].start_at.isoformat(),
-                    "service_id": str(svc_id),
-                    "service_name": svc_name,
-                    "professional_id": str(prof_id),
+                svc_name   = last_appt.services[0].service_name
+                prof_name  = last_appt.professional.name if last_appt.professional else "Profissional"
+                slot_dt    = slots[0].start_at
+                slot_label = slot_dt.strftime("%d/%m às %H:%M")
+                expires_at = datetime.now(timezone.utc) + timedelta(
+                    minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES
+                )
+                ctx["predicted_slot"] = {
+                    "start_at":          slot_dt.isoformat(),
+                    "service_id":        str(svc_id),
+                    "service_name":      svc_name,
+                    "professional_id":   str(prof_id),
                     "professional_name": prof_name,
-                    "expires_at": expires_at.isoformat(),
+                    "expires_at":        expires_at.isoformat(),
                 }
+                ctx["last_list"] = [
+                    {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
+                    {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
+                    {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
+                    {"row_id": "opt_ver",              "payload": "opt_ver"},
+                ]
+                session.context = ctx
+                session.state = STATE_OFERTA_RECORRENTE
 
-        if predicted:
-            ctx["predicted_slot"] = predicted
-            session.context = ctx
-            session.state = STATE_OFERTA_RECORRENTE
-            start_dt = datetime.fromisoformat(predicted["start_at"])
-            slot_label = start_dt.strftime("%d/%m às %H:%M")
-            text = (
-                f"Olá, {customer.name}! Tudo beleza? 👋\n\n"
-                f"Tenho um *{predicted['service_name']}* com *{predicted['professional_name']}* "
-                f"disponível para *{slot_label}* 🕒\n\n"
-                f"Reservado para você pelos próximos 5 minutos."
-            )
-            buttons = [
-                {"buttonId": "opt_confirmar_oferta", "buttonText": {"displayText": f"✅ Sim, agendar para {slot_label}"}},
-                {"buttonId": "opt_outro_horario",    "buttonText": {"displayText": "Escolher outro horário"}},
-                {"buttonId": "opt_outro_servico",    "buttonText": {"displayText": "Outro serviço"}},
-            ]
-            ctx["last_list"] = [
-                {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
-                {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
-                {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
-            ]
-            session.context = ctx
-            _send_buttons(instance, whatsapp_id, text, buttons)
-            return
+                nome = _first_name(customer.name)
+                text = (
+                    f"Olá, {nome}! Tudo bem? 👋\n\n"
+                    f"Tenho um *{svc_name}* com *{prof_name}* disponível às *{slot_label}* 🕒\n"
+                    f"_Reservado para você pelos próximos "
+                    f"{settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES} minutos._"
+                )
+                buttons = [
+                    {"buttonId": "opt_confirmar_oferta",
+                     "buttonText": {"displayText": f"✅ Agendar para {slot_label}"}},
+                    {"buttonId": "opt_outro_horario",
+                     "buttonText": {"displayText": "🕐 Escolher outro horário"}},
+                    {"buttonId": "opt_outro_servico",
+                     "buttonText": {"displayText": "🔁 Outro serviço"}},
+                ]
+                _send_buttons(instance, whatsapp_id, text, buttons)
+                return
 
-    # Menu padrão (cliente sem histórico ou sem slot preditivo)
-    _send_menu_principal(instance, whatsapp_id, company_name, customer.name)
-    ctx["menu_shown"] = True
-    ctx["last_list"] = [
-        {"row_id": "opt_1", "payload": "opt_agendar"},
-        {"row_id": "opt_2", "payload": "opt_ver"},
-        {"row_id": "opt_3", "payload": "opt_humano"},
-    ]
+    # Sem oferta preditiva → menu padrão
+    ctx["last_list"] = []
     session.context = ctx
+    _show_menu_principal(session, ctx, instance, whatsapp_id, company_name, customer.name)
 
 
-def _send_menu_principal(instance: str, to: str, company_name: str, name: Optional[str]) -> None:
-    greeting = f"Olá, {name}! 😊" if name else f"Olá! 👋 Bem-vindo à {company_name}!"
+def _show_menu_principal(
+    session: BotSession, ctx: dict,
+    instance: str, to: str, company_name: str, name: Optional[str],
+) -> None:
+    nome = _first_name(name) if name else ""
+    greeting = f"Olá, {nome}! 😊" if nome else f"Olá! 👋 Bem-vindo à *{company_name}*!"
     text = f"{greeting}\n\nO que você deseja fazer?"
     buttons = [
-        {"buttonId": "opt_1", "buttonText": {"displayText": "📅 Agendar horário"}},
-        {"buttonId": "opt_2", "buttonText": {"displayText": "🔍 Ver meus agendamentos"}},
-        {"buttonId": "opt_3", "buttonText": {"displayText": "💬 Falar com atendente"}},
+        {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},
+        {"buttonId": "opt_ver",     "buttonText": {"displayText": "🗓 Ver meus agendamentos"}},
+        {"buttonId": "opt_humano",  "buttonText": {"displayText": "💬 Falar com atendente"}},
     ]
-    evolution_client.send_buttons(instance, to, text, buttons)
+    ctx["last_list"] = [
+        {"row_id": "opt_agendar", "payload": "opt_agendar"},
+        {"row_id": "opt_ver",     "payload": "opt_ver"},
+        {"row_id": "opt_humano",  "payload": "opt_humano"},
+    ]
+    session.context = ctx
+    _send_buttons(instance, to, text, buttons)
 
+
+# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
 
 def _handle_aguardando_nome(
     db: Session, session: BotSession, company_id: UUID,
@@ -322,52 +379,56 @@ def _handle_aguardando_nome(
 ) -> None:
     nome = user_input.strip()
     if len(nome) < 2:
-        _send_text(instance, whatsapp_id, "Por favor, informe seu nome completo.")
+        _send_text(instance, whatsapp_id,
+                   "Por favor, me diga seu nome completo para eu te chamar corretamente. 😊")
         return
 
     customer = customer_svc.get_or_create_by_phone(db, company_id, whatsapp_id, nome)
     ctx = session.context or {}
-    ctx["customer_id"] = str(customer.id)
+    ctx["customer_id"]   = str(customer.id)
     ctx["customer_name"] = customer.name
-    ctx["is_recurring"] = False
+    ctx.pop("push_name_suggestion", None)
     session.context = ctx
+
+    nome_curto = _first_name(customer.name)
+    _send_text(instance, whatsapp_id,
+               f"Prazer, {nome_curto}! 😄 Vamos agendar seu horário.")
     _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
 
+
+# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
 
 def _handle_oferta_recorrente(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
-    last_list = ctx.get("last_list", [])
-    payload = _resolve_input(user_input, last_list)
+    ctx       = session.context or {}
+    payload   = _resolve_input(user_input, ctx.get("last_list", []))
     predicted = ctx.get("predicted_slot")
 
     if not payload:
-        _send_text(instance, whatsapp_id, "Ops! 😅 Escolha uma das opções acima.")
+        _send_text(instance, whatsapp_id, "Escolha uma das opções acima. 😊")
         return
 
-    # Verifica expiração da oferta
-    if predicted and payload == "opt_confirmar_oferta":
+    if payload == "opt_confirmar_oferta" and predicted:
         expires = datetime.fromisoformat(predicted["expires_at"])
         if datetime.now(timezone.utc) > expires:
             _send_text(instance, whatsapp_id,
-                       "⏰ A oferta expirou. Veja outros horários disponíveis.")
-            ctx["service_id"] = predicted["service_id"]
-            ctx["service_name"] = predicted["service_name"]
-            ctx["professional_id"] = predicted["professional_id"]
+                       "⏰ O tempo de reserva expirou. Vou buscar os próximos horários disponíveis...")
+            ctx["service_id"]        = predicted["service_id"]
+            ctx["service_name"]      = predicted["service_name"]
+            ctx["professional_id"]   = predicted["professional_id"]
             ctx["professional_name"] = predicted["professional_name"]
             ctx.pop("predicted_slot", None)
             session.context = ctx
             _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
             return
 
-        # Pré-preenche contexto com o slot preditivo e vai para CONFIRMANDO
-        ctx["service_id"] = predicted["service_id"]
-        ctx["service_name"] = predicted["service_name"]
-        ctx["professional_id"] = predicted["professional_id"]
-        ctx["professional_name"] = predicted["professional_name"]
-        ctx["slot_start_at"] = predicted["start_at"]
+        ctx["service_id"]            = predicted["service_id"]
+        ctx["service_name"]          = predicted["service_name"]
+        ctx["professional_id"]       = predicted["professional_id"]
+        ctx["professional_name"]     = predicted["professional_name"]
+        ctx["slot_start_at"]         = predicted["start_at"]
         ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
         ctx.pop("predicted_slot", None)
         session.context = ctx
@@ -376,9 +437,9 @@ def _handle_oferta_recorrente(
         return
 
     if payload == "opt_outro_horario" and predicted:
-        ctx["service_id"] = predicted["service_id"]
-        ctx["service_name"] = predicted["service_name"]
-        ctx["professional_id"] = predicted["professional_id"]
+        ctx["service_id"]        = predicted["service_id"]
+        ctx["service_name"]      = predicted["service_name"]
+        ctx["professional_id"]   = predicted["professional_id"]
         ctx["professional_name"] = predicted["professional_name"]
         ctx.pop("predicted_slot", None)
         session.context = ctx
@@ -391,8 +452,16 @@ def _handle_oferta_recorrente(
         _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
 
-    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções.")
+    if payload == "opt_ver":
+        ctx.pop("predicted_slot", None)
+        session.context = ctx
+        _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+        return
 
+    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções acima. 😊")
+
+
+# ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
 
 def _start_escolhendo_servico(
     db: Session, session: BotSession, company_id: UUID,
@@ -400,155 +469,201 @@ def _start_escolhendo_servico(
 ) -> None:
     services = service_svc.list_services(db, company_id, active_only=True)
     if not services:
-        _send_text(instance, whatsapp_id, "Desculpe, não há serviços disponíveis no momento.")
+        _send_text(instance, whatsapp_id,
+                   "😔 Não há serviços disponíveis no momento. "
+                   "Entre em contato conosco para mais informações.")
         _reset_session(session)
         return
 
-    rows = [{"rowId": f"opt_{i}", "title": s.name,
-             "description": f"R$ {s.price:.2f} · {s.duration}min"}
-            for i, s in enumerate(services)]
-
     ctx = session.context or {}
-    ctx["last_list"] = [
-        {"row_id": f"opt_{i}", "payload": str(s.id), "label": s.name}
+    rows = [
+        {"rowId": f"svc_{i}", "title": s.name,
+         "description": f"R$ {s.price:.2f} · {s.duration} min"}
         for i, s in enumerate(services)
     ]
-    ctx["_service_map"] = {str(s.id): s.name for s in services}
+    ctx["last_list"] = [
+        {"row_id": f"svc_{i}", "payload": str(s.id)}
+        for i, s in enumerate(services)
+    ]
     session.context = ctx
     session.state = STATE_ESCOLHENDO_SERVICO
 
-    _send_list(instance, whatsapp_id, "Qual serviço deseja?", "Escolha um serviço:", rows)
+    nome = _first_name(ctx.get("customer_name", ""))
+    desc = f"Qual serviço você gostaria, {nome}?" if nome else "Qual serviço você gostaria?"
+    _send_list(instance, whatsapp_id, "✂️ Nossos serviços", desc, rows)
 
 
 def _handle_escolhendo_servico(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
     if not payload:
         _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
+    try:
+        service = service_svc.get_service_or_404(db, company_id, UUID(payload))
+    except Exception:
+        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        return
 
-    service = service_svc.get_service_or_404(db, company_id, UUID(payload))
-    ctx["service_id"] = payload
+    ctx["service_id"]   = payload
     ctx["service_name"] = service.name
     session.context = ctx
+    _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
 
-    # Lista profissionais que oferecem este serviço
-    professionals = professional_svc.list_by_service(db, company_id, UUID(payload))
-    rows = [{"rowId": f"opt_{i}", "title": p.name, "description": ""} for i, p in enumerate(professionals)]
-    # Opção "qualquer disponível"
-    rows.append({"rowId": "opt_any", "title": "Qualquer disponível", "description": ""})
+
+# ─── ESCOLHENDO_PROFISSIONAL ──────────────────────────────────────────────────
+
+def _start_escolhendo_profissional(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str,
+) -> None:
+    ctx        = session.context or {}
+    service_id = UUID(ctx["service_id"])
+    profs      = professional_svc.list_by_service(db, company_id, service_id)
+
+    rows = [
+        {"rowId": f"prof_{i}", "title": p.name, "description": ""}
+        for i, p in enumerate(profs)
+    ]
+    rows.append({"rowId": "prof_any", "title": "👥 Qualquer disponível", "description": ""})
 
     ctx["last_list"] = (
-        [{"row_id": f"opt_{i}", "payload": str(p.id), "label": p.name} for i, p in enumerate(professionals)]
-        + [{"row_id": "opt_any", "payload": "any", "label": "Qualquer disponível"}]
+        [{"row_id": f"prof_{i}", "payload": str(p.id)} for i, p in enumerate(profs)]
+        + [{"row_id": "prof_any", "payload": "any"}]
     )
     session.context = ctx
     session.state = STATE_ESCOLHENDO_PROFISSIONAL
 
-    _send_list(instance, whatsapp_id, "Com quem deseja agendar?", "Escolha o profissional:", rows)
+    svc = ctx.get("service_name", "")
+    _send_list(
+        instance, whatsapp_id,
+        "👤 Escolha o profissional",
+        f"Com quem você quer agendar *{svc}*?",
+        rows,
+    )
 
 
 def _handle_escolhendo_profissional(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
     if not payload:
-        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
         return
 
     if payload == "any":
-        ctx["professional_id"] = None
+        ctx["professional_id"]   = None
         ctx["professional_name"] = "Qualquer disponível"
     else:
-        prof = professional_svc.get_professional_or_404(db, company_id, UUID(payload))
-        ctx["professional_id"] = payload
-        ctx["professional_name"] = prof.name
+        try:
+            prof = professional_svc.get_professional_or_404(db, company_id, UUID(payload))
+            ctx["professional_id"]   = payload
+            ctx["professional_name"] = prof.name
+        except Exception:
+            _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
+            return
 
     session.context = ctx
     _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
 
 
+# ─── ESCOLHENDO_HORARIO ───────────────────────────────────────────────────────
+
 def _start_escolhendo_horario(
     db: Session, session: BotSession, company_id: UUID,
     instance: str, whatsapp_id: str,
 ) -> None:
-    ctx = session.context or {}
-    service_id = UUID(ctx["service_id"])
-    prof_id_raw = ctx.get("professional_id")
-    date_str = ctx.get("date")
+    ctx      = session.context or {}
+    svc_id   = UUID(ctx["service_id"])
+    prof_raw = ctx.get("professional_id")
+    date_str = ctx.get("selected_date")
 
     if date_str:
-        # Data já escolhida — busca slots do dia
         target_date = datetime.fromisoformat(date_str).date()
-        # Para "qualquer disponível", iteramos pelos profissionais
-        slots = []
-        if prof_id_raw:
+        slots: list = []
+        if prof_raw:
             slots = availability_svc.get_available_slots(
-                db, company_id, UUID(prof_id_raw), service_id, target_date
+                db, company_id, UUID(prof_raw), svc_id, target_date
             )
         else:
-            for p in professional_svc.list_by_service(db, company_id, service_id):
-                s = availability_svc.get_available_slots(db, company_id, p.id, service_id, target_date)
-                slots.extend(s)
+            for p in professional_svc.list_by_service(db, company_id, svc_id):
+                slots.extend(
+                    availability_svc.get_available_slots(db, company_id, p.id, svc_id, target_date)
+                )
                 if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
     else:
-        # Sem data — próximos slots disponíveis
         slots = []
-        if prof_id_raw:
+        if prof_raw:
             slots = availability_svc.get_next_available_slots(
-                db, company_id, UUID(prof_id_raw), service_id, days=7,
-                limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+                db, company_id, UUID(prof_raw), svc_id,
+                days=7, limit=settings.BOT_MAX_SLOTS_DISPLAYED,
             )
         else:
             half = max(1, settings.BOT_MAX_SLOTS_DISPLAYED // 2)
-            for p in professional_svc.list_by_service(db, company_id, service_id):
-                s = availability_svc.get_next_available_slots(
-                    db, company_id, p.id, service_id, days=7, limit=half,
+            for p in professional_svc.list_by_service(db, company_id, svc_id):
+                slots.extend(
+                    availability_svc.get_next_available_slots(
+                        db, company_id, p.id, svc_id, days=7, limit=half
+                    )
                 )
-                slots.extend(s)
                 if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
 
+    slots = slots[:settings.BOT_MAX_SLOTS_DISPLAYED]
+    any_prof = (prof_raw is None)
+
     if not slots:
-        _send_text(instance, whatsapp_id,
-                   "😔 Não há horários disponíveis nos próximos dias. Tente outra data.")
+        _send_text(
+            instance, whatsapp_id,
+            "😔 Não encontrei horários disponíveis para esse período. "
+            "Tente outra data ou entre em contato conosco!"
+        )
         ctx["last_list"] = [{"row_id": "opt_outra_data", "payload": "outra_data"}]
         session.context = ctx
         session.state = STATE_ESCOLHENDO_HORARIO
         return
 
-    rows = [{"rowId": f"slot_{i}",
-             "title": s.start_at.strftime("%d/%m %H:%M"),
-             "description": f"{s.professional_name}"}
-            for i, s in enumerate(slots)]
-    rows.append({"rowId": "opt_outra_data", "title": "📅 Outra data", "description": ""})
+    rows, last_list = [], []
+    for i, s in enumerate(slots):
+        date_label = _label_date(s.start_at.date())
+        time_label = s.start_at.strftime("%H:%M")
+        title = f"{date_label} — {time_label}"
+        desc  = s.professional_name if any_prof else ""
+        row_id = f"slot_{i}"
+        rows.append({"rowId": row_id, "title": title, "description": desc})
+        last_list.append({
+            "row_id":  row_id,
+            "payload": f"{s.start_at.isoformat()}|{s.professional_id}",
+        })
 
-    # Payload codifica "start_at|professional_id" para que, quando o usuário
-    # escolheu "Qualquer disponível", o professional_id correto seja resolvido
-    # ao selecionar o slot, antes de chegar ao CONFIRMANDO.
-    ctx["last_list"] = (
-        [{"row_id": f"slot_{i}",
-          "payload": f"{s.start_at.isoformat()}|{s.professional_id}",
-          "label": s.start_at.strftime("%d/%m %H:%M")}
-         for i, s in enumerate(slots)]
-        + [{"row_id": "opt_outra_data", "payload": "outra_data"}]
-    )
+    rows.append({"rowId": "opt_outra_data", "title": "📅 Escolher outra data", "description": ""})
+    last_list.append({"row_id": "opt_outra_data", "payload": "outra_data"})
+
+    ctx["last_list"] = last_list
     session.context = ctx
     session.state = STATE_ESCOLHENDO_HORARIO
-    _send_list(instance, whatsapp_id, "Horários disponíveis", "Escolha um horário:", rows)
+
+    prof_label = ctx.get("professional_name", "")
+    prof_info  = f" com *{prof_label}*" if prof_label and prof_label != "Qualquer disponível" else ""
+    _send_list(
+        instance, whatsapp_id,
+        "🕐 Horários disponíveis",
+        f"Escolha um horário para *{ctx['service_name']}*{prof_info}:",
+        rows,
+    )
 
 
 def _handle_escolhendo_horario(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
 
     if not payload:
@@ -560,13 +675,19 @@ def _handle_escolhendo_horario(
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
 
-    # Payload codificado como "start_at|professional_id" (ver _start_escolhendo_horario)
     if "|" in payload:
         start_str, prof_id_str = payload.split("|", 1)
         ctx["slot_start_at"] = start_str
-        # Se o usuário escolheu "qualquer disponível", resolve o profissional real agora
+        # Resolve profissional quando "Qualquer disponível" foi escolhido
         if not ctx.get("professional_id"):
             ctx["professional_id"] = prof_id_str
+            try:
+                prof = professional_svc.get_professional_or_404(
+                    db, company_id, UUID(prof_id_str)
+                )
+                ctx["professional_name"] = prof.name
+            except Exception:
+                pass
     else:
         ctx["slot_start_at"] = payload
 
@@ -576,65 +697,80 @@ def _handle_escolhendo_horario(
     _send_confirmacao_resumo(instance, whatsapp_id, ctx)
 
 
-def _send_escolher_data(instance: str, whatsapp_id: str, ctx: dict, session: BotSession) -> None:
-    today = datetime.now(timezone.utc).date()
-    days = []
-    offset = 0
-    while len(days) < 4:
-        d = today + timedelta(days=offset)
-        days.append(d)
-        offset += 1
+# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
 
-    rows = []
-    last_list = []
-    for i, d in enumerate(days):
-        label = "Hoje" if d == today else d.strftime("%A %d/%m").capitalize()
-        row_id = f"opt_dia_{i}"
+def _send_escolher_data(
+    instance: str, whatsapp_id: str, ctx: dict, session: BotSession
+) -> None:
+    today = datetime.now(timezone.utc).date()
+    candidate_days = [today + timedelta(days=i) for i in range(7)]
+
+    rows, last_list = [], []
+    for i, d in enumerate(candidate_days):
+        label  = _label_date(d)
+        row_id = f"dia_{i}"
         rows.append({"rowId": row_id, "title": label, "description": ""})
-        last_list.append({"row_id": row_id, "payload": d.isoformat(), "label": label})
+        last_list.append({"row_id": row_id, "payload": d.isoformat()})
 
     ctx["last_list"] = last_list
     session.context = ctx
-    evolution_client.send_list(
-        instance_name=instance,
-        to=whatsapp_id,
-        title="Para qual dia?",
-        description="Escolha a data:",
-        button_text="Ver datas",
-        rows=rows,
-    )
+
+    nome = _first_name(ctx.get("customer_name", ""))
+    svc  = ctx.get("service_name", "")
+    prof = ctx.get("professional_name", "")
+    desc = f"Para qual dia, {nome}?" if nome else "Para qual dia?"
+    if prof and prof != "Qualquer disponível":
+        desc += f"\n_Profissional: {prof}_"
+
+    _send_list(instance, whatsapp_id, f"📅 Escolha a data para {svc}", desc, rows)
 
 
 def _handle_escolhendo_data(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
-
     if not payload:
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
 
-    ctx["date"] = payload
+    ctx["selected_date"] = payload
     session.context = ctx
     _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
 
 
+# ─── CONFIRMANDO ──────────────────────────────────────────────────────────────
+
+_CONFIRMANDO_LIST = [
+    {"row_id": "opt_confirmar",       "payload": "opt_confirmar"},
+    {"row_id": "opt_alterar_horario", "payload": "opt_alterar_horario"},
+    {"row_id": "opt_cancelar",        "payload": "opt_cancelar"},
+]
+
+
 def _send_confirmacao_resumo(instance: str, whatsapp_id: str, ctx: dict) -> None:
-    slot_dt = datetime.fromisoformat(ctx["slot_start_at"])
-    slot_label = slot_dt.strftime("%d/%m/%Y às %H:%M")
+    slot_dt    = datetime.fromisoformat(ctx["slot_start_at"])
+    date_label = slot_dt.strftime("%d/%m/%Y")
+    time_label = slot_dt.strftime("%H:%M")
+    prof_label = ctx.get("professional_name") or "—"
+    if prof_label == "Qualquer disponível":
+        prof_label = "—"
+
     text = (
         f"Confirme seu agendamento:\n\n"
-        f"✂️ Serviço: *{ctx.get('service_name', '—')}*\n"
-        f"👤 Profissional: *{ctx.get('professional_name', '—')}*\n"
-        f"📅 Data/Hora: *{slot_label}*\n\n"
-        f"Deseja confirmar?"
+        f"✂️ *{ctx.get('service_name', '—')}*\n"
+        f"👤 {prof_label}\n"
+        f"📅 {date_label} às {time_label}\n\n"
+        f"Tudo certo?"
     )
     buttons = [
-        {"buttonId": "opt_confirmar",       "buttonText": {"displayText": "✅ Confirmar"}},
-        {"buttonId": "opt_alterar_horario", "buttonText": {"displayText": "🕐 Alterar horário"}},
-        {"buttonId": "opt_cancelar",        "buttonText": {"displayText": "❌ Cancelar"}},
+        {"buttonId": "opt_confirmar",
+         "buttonText": {"displayText": "✅ Confirmar"}},
+        {"buttonId": "opt_alterar_horario",
+         "buttonText": {"displayText": "🕐 Alterar horário"}},
+        {"buttonId": "opt_cancelar",
+         "buttonText": {"displayText": "❌ Cancelar"}},
     ]
     evolution_client.send_buttons(instance, whatsapp_id, text, buttons)
 
@@ -643,132 +779,140 @@ def _handle_confirmando(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
-    last_list = [
-        {"row_id": "opt_confirmar",       "payload": "opt_confirmar"},
-        {"row_id": "opt_alterar_horario", "payload": "opt_alterar_horario"},
-        {"row_id": "opt_cancelar",        "payload": "opt_cancelar"},
-    ]
-    payload = _resolve_input(user_input, last_list)
+    ctx     = session.context or {}
+    payload = _resolve_input(user_input, _CONFIRMANDO_LIST)
 
     if payload == "opt_alterar_horario":
         ctx.pop("slot_start_at", None)
-        ctx.pop("date", None)
+        ctx.pop("selected_date", None)
         session.context = ctx
         _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
         return
 
     if payload == "opt_cancelar":
+        nome = _first_name(ctx.get("customer_name", ""))
         _reset_session(session)
-        _send_text(instance, whatsapp_id, "Tudo bem! Se precisar, é só chamar. 😊")
+        _send_text(instance, whatsapp_id,
+                   f"Tudo certo, {nome}! Se precisar, é só chamar. 😊" if nome
+                   else "Tudo certo! Se precisar, é só chamar. 😊")
         return
 
     if payload != "opt_confirmar":
         _send_confirmacao_resumo(instance, whatsapp_id, ctx)
         return
 
-    # ── Confirmar agendamento ──────────────────────────────────────────────
-    start_at = datetime.fromisoformat(ctx["slot_start_at"])
-    idempotency_key = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
+    # ── Criar agendamento ─────────────────────────────────────────────────────
+    start_at    = datetime.fromisoformat(ctx["slot_start_at"])
+    idem_key    = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
+    prof_id_raw = ctx.get("professional_id")
+    customer_id = ctx.get("customer_id")
 
-    # Segurança: professional_id deve estar resolvido neste ponto
-    professional_id_raw = ctx.get("professional_id")
-    if not professional_id_raw:
-        logger.error("CONFIRMANDO sem professional_id no context — whatsapp_id=%s", whatsapp_id)
-        _send_text(instance, whatsapp_id, "❌ Erro interno ao confirmar. Tente novamente.")
+    if not prof_id_raw or not customer_id:
+        logger.error("CONFIRMANDO: dados incompletos ctx=%s whatsapp_id=%s", ctx, whatsapp_id)
+        _send_text(instance, whatsapp_id, "❌ Erro interno. Tente novamente.")
         _reset_session(session)
         return
 
-    data = AppointmentCreate(
-        professional_id=UUID(professional_id_raw),
-        client_id=UUID(ctx["customer_id"]),
+    appt_data = AppointmentCreate(
+        professional_id=UUID(prof_id_raw),
+        client_id=UUID(customer_id),
         services=[{"service_id": UUID(ctx["service_id"])}],
         start_at=start_at,
-        idempotency_key=idempotency_key,
+        idempotency_key=idem_key,
     )
-
     try:
-        appointment_svc.create_appointment(db, company_id, data, user_id=None)
+        appointment_svc.create_appointment(db, company_id, appt_data, user_id=None)
     except Exception as e:
-        status = getattr(e, "status_code", None)
-        if status == 409:
-            # Slot tomado por outro — busca próximos
+        if getattr(e, "status_code", None) == 409:
             _send_text(instance, whatsapp_id,
-                       "😬 Desculpe, esse horário acabou de ser ocupado. Veja os próximos disponíveis:")
+                       "😬 Esse horário acabou de ser ocupado! Veja os próximos disponíveis:")
             ctx.pop("slot_start_at", None)
-            ctx.pop("date", None)
+            ctx.pop("selected_date", None)
             session.context = ctx
             _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
             return
-        logger.exception("create_appointment failed")
+        logger.exception("create_appointment failed whatsapp_id=%s", whatsapp_id)
         _send_text(instance, whatsapp_id,
-                   "❌ Ocorreu um erro ao criar o agendamento. Tente novamente.")
+                   "❌ Não foi possível confirmar o agendamento. Tente novamente.")
         return
 
+    nome       = _first_name(ctx.get("customer_name", ""))
     slot_label = start_at.strftime("%d/%m às %H:%M")
-    _send_text(instance, whatsapp_id,
-               f"✅ Agendamento confirmado!\n\n"
-               f"✂️ {ctx.get('service_name')} com {ctx.get('professional_name')}\n"
-               f"📅 {slot_label}\n\n"
-               f"Te esperamos! 💈\n"
-               f"⚠️ Cancelamento ou reagendamento até 2h antes.")
-
+    _send_text(
+        instance, whatsapp_id,
+        f"✅ *Agendamento confirmado!*\n\n"
+        f"✂️ {ctx.get('service_name')} com {ctx.get('professional_name')}\n"
+        f"📅 {slot_label}\n\n"
+        f"{'Te esperamos, ' + nome + '! 💈' if nome else 'Te esperamos! 💈'}\n"
+        f"_Lembre-se: cancelamentos ou reagendamentos devem ser feitos com "
+        f"pelo menos {settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL}h de antecedência._"
+    )
     _reset_session(session)
 
+
+# ─── VER_AGENDAMENTOS ─────────────────────────────────────────────────────────
 
 def _handle_ver_agendamentos(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str,
 ) -> None:
-    ctx = session.context or {}
-    customer_id = UUID(ctx["customer_id"])
-    appointments = appointment_svc.list_active_by_client(db, company_id, customer_id)
-
-    if not appointments:
-        _send_text(instance, whatsapp_id,
-                   "😅 Você não tem agendamentos ativos.\n\nDigite *1* para agendar.")
-        ctx["last_list"] = [{"row_id": "opt_1", "payload": "opt_agendar"}]
-        session.context = ctx
-        session.state = STATE_INICIO
-        ctx["menu_shown"] = False
+    ctx         = session.context or {}
+    customer_id = ctx.get("customer_id")
+    if not customer_id:
+        _reset_session(session)
         return
 
-    rows = []
-    last_list = []
-    for i, a in enumerate(appointments):
-        label = (
-            f"{a.start_at.strftime('%d/%m %H:%M')} — "
-            f"{a.services[0].service_name if a.services else '?'} "
-            f"({a.professional.name if a.professional else '?'})"
-        )
-        rows.append({"rowId": f"appt_{i}", "title": label, "description": a.status})
-        last_list.append({
-            "row_id": f"appt_{i}",
-            "payload": str(a.id),
-            "label": label,
-        })
+    appointments = appointment_svc.list_active_by_client(db, company_id, UUID(customer_id))
+    nome = _first_name(ctx.get("customer_name", ""))
 
-    rows.append({"rowId": "opt_voltar", "title": "← Voltar", "description": ""})
+    if not appointments:
+        _send_text(
+            instance, whatsapp_id,
+            f"😅 {'Você não tem' if not nome else nome + ', você não tem'} agendamentos ativos no momento.\n\n"
+            f"Digite *1* para agendar um horário."
+        )
+        ctx["last_list"] = [{"row_id": "opt_agendar", "payload": "opt_agendar"}]
+        session.context = ctx
+        session.state = STATE_INICIO
+        return
+
+    rows, last_list = [], []
+    for i, a in enumerate(appointments):
+        svc_name   = a.services[0].service_name if a.services else "Serviço"
+        prof_name  = a.professional.name if a.professional else "?"
+        date_label = a.start_at.strftime("%d/%m")
+        time_label = a.start_at.strftime("%H:%M")
+        title  = f"{date_label} às {time_label} — {svc_name}"
+        desc   = f"com {prof_name}"
+        row_id = f"appt_{i}"
+        rows.append({"rowId": row_id, "title": title, "description": desc})
+        last_list.append({"row_id": row_id, "payload": str(a.id)})
+
+    rows.append({"rowId": "opt_voltar", "title": "← Voltar ao menu", "description": ""})
     last_list.append({"row_id": "opt_voltar", "payload": "voltar"})
 
     ctx["last_list"] = last_list
     session.context = ctx
     session.state = STATE_VER_AGENDAMENTOS
-    _send_list(instance, whatsapp_id, "Seus agendamentos", "Clique para gerenciar:", rows)
+
+    desc = f"Clique em um agendamento para gerenciar, {nome}:" if nome else "Clique para gerenciar:"
+    _send_list(instance, whatsapp_id, "📋 Seus agendamentos", desc, rows)
 
 
 def _handle_ver_agendamentos_input(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
 
     if payload == "voltar" or not payload:
         _reset_session(session)
+        ctx2 = session.context or {}
+        _show_menu_principal(session, ctx2, instance, whatsapp_id,
+                             ctx2.get("company_name", ""), ctx2.get("customer_name"))
         return
 
-    # payload é o appointment_id
     try:
         appt = appointment_svc.get_appointment_or_404(db, company_id, UUID(payload))
     except Exception:
@@ -780,32 +924,43 @@ def _handle_ver_agendamentos_input(
     _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
 
 
+# ─── GERENCIANDO_AGENDAMENTO ──────────────────────────────────────────────────
+
 def _start_gerenciando_agendamento(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, appt,
 ) -> None:
-    """Exibe o menu de gerenciamento de um agendamento específico."""
     ctx = session.context or {}
     session.state = STATE_GERENCIANDO_AGENDAMENTO
 
-    can_reschedule = (
-        appt.start_at - datetime.now(timezone.utc)
-    ) > timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE)
-
+    svc_name   = appt.services[0].service_name if appt.services else "Serviço"
+    prof_name  = appt.professional.name if appt.professional else "?"
     slot_label = appt.start_at.strftime("%d/%m às %H:%M")
-    text = f"Agendamento: {slot_label}\nStatus: {appt.status}\n\nO que deseja fazer?"
+    remaining  = appt.start_at - datetime.now(timezone.utc)
+    can_change = remaining > timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE)
 
-    buttons = []
+    text = (
+        f"*{svc_name}* com {prof_name}\n"
+        f"📅 {slot_label}\n\n"
+        f"O que você deseja fazer?"
+    )
+    buttons   = []
     last_list = []
-    if can_reschedule:
-        buttons.append({"buttonId": "opt_reagendar", "buttonText": {"displayText": "🔄 Reagendar"}})
+
+    if can_change:
+        buttons.append({"buttonId": "opt_reagendar",
+                        "buttonText": {"displayText": "🔄 Reagendar"}})
         last_list.append({"row_id": "opt_reagendar", "payload": "opt_reagendar"})
-    buttons.append({"buttonId": "opt_cancelar_appt", "buttonText": {"displayText": "❌ Cancelar"}})
-    buttons.append({"buttonId": "opt_voltar",        "buttonText": {"displayText": "← Voltar"}})
+
+    buttons.append({"buttonId": "opt_cancelar_appt",
+                    "buttonText": {"displayText": "❌ Cancelar agendamento"}})
+    buttons.append({"buttonId": "opt_voltar",
+                    "buttonText": {"displayText": "← Voltar"}})
     last_list += [
         {"row_id": "opt_cancelar_appt", "payload": "opt_cancelar_appt"},
         {"row_id": "opt_voltar",        "payload": "voltar"},
     ]
+
     ctx["last_list"] = last_list
     session.context = ctx
     _send_buttons(instance, whatsapp_id, text, buttons)
@@ -815,16 +970,14 @@ def _handle_gerenciando_agendamento(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
 
     if payload == "voltar":
-        session.state = STATE_VER_AGENDAMENTOS
         _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
         return
 
     if payload == "opt_cancelar_appt":
-        # Vai para CANCELANDO para confirmar antes de executar + verificar política
         session.state = STATE_CANCELANDO
         _start_cancelando(db, session, company_id, whatsapp_id, instance)
         return
@@ -839,41 +992,35 @@ def _handle_gerenciando_agendamento(
 
         remaining = appt.start_at - datetime.now(timezone.utc)
         if remaining <= timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE):
-            _send_text(instance, whatsapp_id,
-                       "😬 O prazo para reagendamento já passou (mínimo "
-                       f"{settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE}h antes).\n"
-                       "Você pode apenas confirmar presença ou cancelar.")
+            _send_text(
+                instance, whatsapp_id,
+                f"⚠️ O prazo para reagendamento já passou "
+                f"(mínimo {settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE}h antes).\n"
+                "Neste caso você só pode cancelar o agendamento."
+            )
             return
 
-        # Preenche service/professional do agendamento existente para buscar slots
         if appt.services:
-            ctx["service_id"] = str(appt.services[0].service_id)
+            ctx["service_id"]   = str(appt.services[0].service_id)
             ctx["service_name"] = appt.services[0].service_name
-        ctx["professional_id"] = str(appt.professional_id)
+        ctx["professional_id"]   = str(appt.professional_id)
         ctx["professional_name"] = appt.professional.name if appt.professional else ""
+        ctx.pop("selected_date", None)
         session.context = ctx
         session.state = STATE_REAGENDANDO
         _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
         return
 
-    # Input inválido
-    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções.")
+    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções acima. 😊")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CANCELANDO — confirmação de cancelamento com aviso de política
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── CANCELANDO ───────────────────────────────────────────────────────────────
 
 def _start_cancelando(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str,
 ) -> None:
-    """
-    Exibe a tela de confirmação de cancelamento.
-    Verifica a política de 2h antes de mostrar a opção de confirmar —
-    se já passou do prazo, avisa e volta para GERENCIANDO.
-    """
-    ctx = session.context or {}
+    ctx         = session.context or {}
     appt_id_str = ctx.get("managing_appointment_id")
     if not appt_id_str:
         _reset_session(session)
@@ -891,32 +1038,32 @@ def _start_cancelando(
         now=datetime.now(timezone.utc),
         min_hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL,
     )
-
     slot_label = appt.start_at.strftime("%d/%m às %H:%M")
 
     if not allowed:
-        # Fora do prazo → avisa e volta para GERENCIANDO sem executar
         _send_text(
             instance, whatsapp_id,
-            f"⚠️ Não é possível cancelar este agendamento.\n\n{msg}",
+            f"⚠️ Não é possível cancelar agora.\n\n{msg}\n\n"
+            "Se precisar de ajuda, fale com a gente! ☎️"
         )
         _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
         return
 
     text = (
-        f"Confirma o *cancelamento* do agendamento?\n\n"
+        f"Confirma o cancelamento?\n\n"
         f"📅 {slot_label}\n\n"
-        f"⚠️ Esta ação não pode ser desfeita."
+        f"⚠️ Essa ação não pode ser desfeita."
     )
     buttons = [
-        {"buttonId": "opt_confirmar_cancel", "buttonText": {"displayText": "✅ Sim, cancelar"}},
-        {"buttonId": "opt_voltar_gerenciando", "buttonText": {"displayText": "← Não, voltar"}},
+        {"buttonId": "opt_confirmar_cancel",
+         "buttonText": {"displayText": "✅ Sim, cancelar"}},
+        {"buttonId": "opt_voltar_gerenciando",
+         "buttonText": {"displayText": "← Não, voltar"}},
     ]
-    last_list = [
-        {"row_id": "opt_confirmar_cancel",    "payload": "confirmar_cancel"},
-        {"row_id": "opt_voltar_gerenciando",  "payload": "voltar_gerenciando"},
+    ctx["last_list"] = [
+        {"row_id": "opt_confirmar_cancel",   "payload": "confirmar_cancel"},
+        {"row_id": "opt_voltar_gerenciando", "payload": "voltar_gerenciando"},
     ]
-    ctx["last_list"] = last_list
     session.context = ctx
     _send_buttons(instance, whatsapp_id, text, buttons)
 
@@ -925,7 +1072,7 @@ def _handle_cancelando(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
 
     if payload == "voltar_gerenciando":
@@ -942,30 +1089,36 @@ def _handle_cancelando(
         if not appt_id_str:
             _reset_session(session)
             return
+        nome = _first_name(ctx.get("customer_name", ""))
         try:
             appointment_svc.cancel_appointment(
                 db, company_id, UUID(appt_id_str),
                 user_id=None, reason="Cancelado via WhatsApp",
             )
-            _send_text(instance, whatsapp_id, "✅ Agendamento cancelado com sucesso.")
+            _send_text(
+                instance, whatsapp_id,
+                f"✅ Agendamento cancelado com sucesso.\n"
+                f"{'Esperamos te ver em breve, ' + nome + '! 😊' if nome else 'Esperamos te ver em breve! 😊'}"
+            )
         except PolicyViolationError as e:
-            # Defense-in-depth: policy também enforçada no service layer
             _send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
         except Exception:
-            logger.exception("Erro ao cancelar agendamento id=%s", appt_id_str)
-            _send_text(instance, whatsapp_id, "❌ Não foi possível cancelar. Tente novamente.")
+            logger.exception("cancel_appointment failed id=%s", appt_id_str)
+            _send_text(instance, whatsapp_id,
+                       "❌ Não foi possível cancelar. Tente novamente ou fale com a gente.")
         _reset_session(session)
         return
 
-    # Input inválido
-    _send_text(instance, whatsapp_id, "Ops! Escolha uma das opções acima.")
+    _send_text(instance, whatsapp_id, "Escolha uma das opções acima. 😊")
 
+
+# ─── REAGENDANDO ──────────────────────────────────────────────────────────────
 
 def _handle_reagendando(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx = session.context or {}
+    ctx     = session.context or {}
     payload = _resolve_input(user_input, ctx.get("last_list", []))
 
     if not payload:
@@ -977,14 +1130,13 @@ def _handle_reagendando(
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
 
-    # Decode "start_at|professional_id" se necessário
     if "|" in payload:
-        start_str, prof_id_str = payload.split("|", 1)
+        start_str, _ = payload.split("|", 1)
         new_start = datetime.fromisoformat(start_str)
     else:
         new_start = datetime.fromisoformat(payload)
-    appt_id = UUID(ctx["managing_appointment_id"])
 
+    appt_id = UUID(ctx["managing_appointment_id"])
     from app.modules.appointments.schemas import RescheduleRequest
     try:
         appointment_svc.reschedule_appointment(
@@ -992,188 +1144,199 @@ def _handle_reagendando(
             RescheduleRequest(start_at=new_start),
             user_id=None,
         )
+        nome       = _first_name(ctx.get("customer_name", ""))
         slot_label = new_start.strftime("%d/%m às %H:%M")
-        _send_text(instance, whatsapp_id,
-                   f"✅ Agendamento remarcado para *{slot_label}*!\nTe esperamos! 💈")
+        _send_text(
+            instance, whatsapp_id,
+            f"✅ *Reagendado com sucesso!*\n\n"
+            f"📅 {slot_label}\n\n"
+            f"{'Te esperamos, ' + nome + '! 💈' if nome else 'Te esperamos! 💈'}"
+        )
     except PolicyViolationError as e:
         _send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
     except Exception as e:
-        status = getattr(e, "status_code", None)
-        if status == 409:
+        if getattr(e, "status_code", None) == 409:
             _send_text(instance, whatsapp_id,
-                       "😬 Esse horário acabou de ser ocupado. Escolha outro:")
+                       "😬 Esse horário acabou de ser ocupado! Escolha outro:")
             ctx.pop("slot_start_at", None)
-            ctx.pop("date", None)
+            ctx.pop("selected_date", None)
             session.context = ctx
             _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
             return
-        _send_text(instance, whatsapp_id, "❌ Erro ao remarcar. Tente novamente.")
+        _send_text(instance, whatsapp_id,
+                   "❌ Não foi possível remarcar. Tente novamente.")
 
     _reset_session(session)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Entry point — recebe mensagem do webhook
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Entry point — webhook messages.upsert ────────────────────────────────────
 
 async def handle_inbound_message(db: Session, instance_name: str, data: dict) -> None:
     """
     Ponto de entrada chamado pelo router quando chega um evento messages.upsert.
-    Roteamento: instance_name → company_id → sessão do usuário.
-
-    A Evolution API v2 pode enviar o payload em dois formatos:
-      - Flat:  data = { "key": {...}, "message": {...} }
-      - Batch: data = { "messages": [{ "key": {...}, "message": {...} }], "type": "notify" }
-    Normalizamos para o formato flat antes de processar.
+    Normaliza payload → identifica empresa → lock de sessão → roteamento por estado.
     """
-    logger.info("handle_inbound_message: instance=%s data_keys=%s",
+    logger.info("handle_inbound: instance=%s keys=%s",
                 instance_name, list(data.keys()) if isinstance(data, dict) else type(data).__name__)
 
-    # Normaliza batch → flat (Evolution API v2 envolve mensagens em array)
+    # Batch → flat (Evolution API v2 envolve mensagens em array)
     if isinstance(data, dict) and "messages" in data:
         messages = data.get("messages") or []
         if not messages:
-            logger.info("messages.upsert com array vazio, instance=%s", instance_name)
             return
         data = messages[0]
-        logger.info("payload normalizado (batch→flat), novo data_keys=%s", list(data.keys()))
 
-    # Ignora mensagens enviadas pelo próprio bot (fromMe=True)
     key = data.get("key", {})
     if key.get("fromMe"):
-        logger.info("ignorando fromMe=True, instance=%s", instance_name)
         return
 
     message_id = key.get("id", "")
+    push_name  = data.get("pushName", "")
 
-    # LID addressing mode: remoteJid vem como "<lid>@lid" em vez do número.
-    # O número real está em remoteJidAlt. Usamos ele quando disponível.
+    # LID addressing mode (WhatsApp novo formato)
     addressing_mode = key.get("addressingMode", "")
-    remote_jid_alt = key.get("remoteJidAlt", "")
-    raw_jid = key.get("remoteJid", "")
-
-    if addressing_mode == "lid" and remote_jid_alt:
-        remote_jid = remote_jid_alt
-        logger.info("LID addressing: usando remoteJidAlt=%s (raw=%s)", remote_jid, raw_jid)
-    else:
-        remote_jid = raw_jid
-
-    logger.info("remote_jid=%s message_id=%s", remote_jid, message_id)
+    remote_jid_alt  = key.get("remoteJidAlt", "")
+    raw_jid         = key.get("remoteJid", "")
+    remote_jid = remote_jid_alt if (addressing_mode == "lid" and remote_jid_alt) else raw_jid
 
     if not remote_jid:
-        logger.warning("messages.upsert sem remoteJid — instance=%s data_keys=%s",
-                       instance_name, list(data.keys()))
+        logger.warning("sem remoteJid, instance=%s", instance_name)
         return
-
-    # Filtra grupos (@g.us) — pode vir com remoteJidAlt também
     if remote_jid.endswith("@g.us"):
-        logger.debug("ignorando mensagem de grupo jid=%s", remote_jid)
-        return
+        return  # ignora grupos silenciosamente
 
-    # Normaliza número: "5511999999999@s.whatsapp.net" → "5511999999999"
-    # evolution_client._normalize_number() re-adiciona @s.whatsapp.net ao enviar
     whatsapp_id = remote_jid.split("@")[0]
 
-    # Resolve company_id pelo instance_name
+    # Resolve empresa pelo instance_name
     conn = db.query(WhatsAppConnection).filter(
         WhatsAppConnection.instance_name == instance_name
     ).first()
     if not conn:
-        logger.warning("webhook: instance_name=%s not found in DB", instance_name)
+        logger.warning("instance_name=%s não encontrado no DB", instance_name)
         return
 
     company_id = conn.company_id
-    logger.info("company_id=%s whatsapp_id=%s", company_id, whatsapp_id)
 
-    # Verifica se bot está habilitado para esta empresa
-    settings = db.query(CompanySettings).filter(
+    # Verifica se bot está ativo
+    company_settings = db.query(CompanySettings).filter(
         CompanySettings.company_id == company_id
     ).first()
-    if not settings or not settings.bot_enabled:
-        logger.info("bot desabilitado: settings=%s bot_enabled=%s company_id=%s",
-                    bool(settings), settings.bot_enabled if settings else None, company_id)
+    if not company_settings or not company_settings.bot_enabled:
         return
 
-    # Busca nome da empresa para mensagens de boas-vindas
     company = db.query(Company).filter(Company.id == company_id).first()
     company_name = company.name if company else "Barbearia"
+    user_input   = _extract_user_text(data)
 
-    # Extrai texto do usuário
-    user_input = _extract_user_text(data)
+    logger.info("whatsapp_id=%s msg_id=%s input=%r", whatsapp_id, message_id, user_input[:50])
 
-    # Tenta obter sessão com lock
+    # Lock de sessão — previne processamento simultâneo do mesmo usuário
     try:
         session = _get_session_locked(db, company_id, whatsapp_id)
     except OperationalError:
-        logger.debug("session locked, skipping message_id=%s", message_id)
+        logger.debug("session locked, descartando message_id=%s", message_id)
         return
 
-    # Idempotência: ignora re-entrega da mesma mensagem
+    # Idempotência — descarta re-entrega da mesma mensagem
     if message_id and session.last_message_id == message_id:
-        logger.debug("duplicate message_id=%s, skipping", message_id)
+        logger.debug("mensagem duplicada message_id=%s, ignorando", message_id)
         _save_session(db, session)
         return
     session.last_message_id = message_id
 
-    # Sessão expirada → reseta
-    if session.expires_at and datetime.now(timezone.utc) > session.expires_at.replace(tzinfo=timezone.utc):
-        _reset_session(session, keep_customer=False)
+    # Expiração de sessão
+    if session.expires_at:
+        exp = session.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > exp:
+            _reset_session(session, keep_customer=False)
 
     state = session.state
 
+    # ── Comandos universais (exceto AGUARDANDO_NOME e HUMANO) ─────────────────
+    if state not in (STATE_AGUARDANDO_NOME, STATE_HUMANO):
+        cmd = _is_universal_command(user_input)
+        if cmd == "menu":
+            _reset_session(session)
+            ctx = session.context or {}
+            _show_menu_principal(session, ctx, instance_name, whatsapp_id,
+                                 company_name, ctx.get("customer_name"))
+            _save_session(db, session)
+            return
+        if cmd == "ver_agendamentos":
+            ctx = session.context or {}
+            if ctx.get("customer_id"):
+                _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance_name)
+                _save_session(db, session)
+                return
+        if cmd == "humano":
+            session.state = STATE_HUMANO
+            _send_text(instance_name, whatsapp_id,
+                       "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️")
+            _save_session(db, session)
+            return
+
+    # ── Dispatcher principal ──────────────────────────────────────────────────
     try:
         if state == STATE_INICIO:
-            # Guarda input para uso dentro de _handle_inicio quando menu já foi mostrado
-            ctx = session.context or {}
-            ctx["_pending_input"] = user_input
-            session.context = ctx
-            _handle_inicio(db, session, company_id, whatsapp_id, instance_name, company_name)
+            _handle_inicio(db, session, company_id, whatsapp_id, instance_name,
+                           company_name, user_input, push_name)
 
         elif state == STATE_AGUARDANDO_NOME:
-            _handle_aguardando_nome(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_aguardando_nome(db, session, company_id, whatsapp_id,
+                                    instance_name, user_input)
 
         elif state == STATE_OFERTA_RECORRENTE:
-            _handle_oferta_recorrente(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_oferta_recorrente(db, session, company_id, whatsapp_id,
+                                      instance_name, user_input)
 
         elif state == STATE_ESCOLHENDO_SERVICO:
-            _handle_escolhendo_servico(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_escolhendo_servico(db, session, company_id, whatsapp_id,
+                                       instance_name, user_input)
 
         elif state == STATE_ESCOLHENDO_PROFISSIONAL:
-            _handle_escolhendo_profissional(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_escolhendo_profissional(db, session, company_id, whatsapp_id,
+                                            instance_name, user_input)
 
         elif state == STATE_ESCOLHENDO_HORARIO:
-            _handle_escolhendo_horario(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_escolhendo_horario(db, session, company_id, whatsapp_id,
+                                       instance_name, user_input)
 
         elif state == STATE_ESCOLHENDO_DATA:
-            _handle_escolhendo_data(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_escolhendo_data(db, session, company_id, whatsapp_id,
+                                    instance_name, user_input)
 
         elif state == STATE_CONFIRMANDO:
-            _handle_confirmando(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_confirmando(db, session, company_id, whatsapp_id,
+                                instance_name, user_input)
 
         elif state == STATE_VER_AGENDAMENTOS:
-            _handle_ver_agendamentos_input(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_ver_agendamentos_input(db, session, company_id, whatsapp_id,
+                                           instance_name, user_input)
 
         elif state == STATE_GERENCIANDO_AGENDAMENTO:
-            _handle_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_gerenciando_agendamento(db, session, company_id, whatsapp_id,
+                                            instance_name, user_input)
 
         elif state == STATE_CANCELANDO:
-            _handle_cancelando(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_cancelando(db, session, company_id, whatsapp_id,
+                               instance_name, user_input)
 
         elif state == STATE_REAGENDANDO:
-            _handle_reagendando(db, session, company_id, whatsapp_id, instance_name, user_input)
+            _handle_reagendando(db, session, company_id, whatsapp_id,
+                                instance_name, user_input)
 
         elif state == STATE_HUMANO:
-            # Bot silenciado — não responde
-            pass
+            pass  # Silêncio — atendente assume a conversa
 
         else:
-            # Estado desconhecido → reseta
-            logger.warning("unknown state=%s, resetting", state)
+            logger.warning("estado desconhecido state=%s, resetando sessão", state)
             _reset_session(session, keep_customer=False)
 
     except Exception:
         logger.exception("bot error state=%s whatsapp_id=%s", state, whatsapp_id)
         _send_text(instance_name, whatsapp_id,
-                   "Ops! 😅 Ocorreu um erro. Tente novamente em instantes.")
+                   "Ops! 😅 Ocorreu um erro inesperado. Tente novamente em instantes.")
 
     _save_session(db, session)
