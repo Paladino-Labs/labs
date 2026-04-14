@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import Column, String, ForeignKey, Index, UniqueConstraint
 from sqlalchemy import TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import relationship
 
 from app.infrastructure.db.base import Base
@@ -37,7 +38,7 @@ class BotSession(Base):
     state = Column(String(50), nullable=False, default="INICIO", server_default="INICIO")
 
     # Dados acumulados durante a conversa (service_id, professional_id, slot, etc.)
-    context = Column(JSONB(astext_type=String()), nullable=True)
+    context = Column(MutableDict.as_mutable(JSONB(astext_type=String())), nullable=True)
 
     # Última mensagem processada — previne reprocessamento de re-entregas do webhook
     last_message_id = Column(String(100), nullable=True)

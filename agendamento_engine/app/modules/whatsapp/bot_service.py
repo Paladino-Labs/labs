@@ -127,7 +127,9 @@ def _extract_user_text(data: dict) -> str:
     msg = data.get("message") or {}
     list_resp = msg.get("listResponseMessage", {})
     if list_resp:
-        return list_resp.get("singleSelectReply", {}).get("selectedRowId", "")
+        selected_id = list_resp.get("singleSelectReply", {}).get("selectedRowId", "")
+        if selected_id:
+            return selected_id
     btn_resp = msg.get("buttonsResponseMessage", {})
     if btn_resp:
         return btn_resp.get("selectedButtonId", "")
@@ -772,7 +774,12 @@ def _send_confirmacao_resumo(instance: str, whatsapp_id: str, ctx: dict) -> None
         {"buttonId": "opt_cancelar",
          "buttonText": {"displayText": "❌ Cancelar"}},
     ]
-    evolution_client.send_buttons(instance, whatsapp_id, text, buttons)
+    try:
+        evolution_client.send_buttons(instance, whatsapp_id, text, buttons)
+    except Exception:
+        logger.warning("send_buttons falhou, usando texto simples para confirmação instance=%s", instance)
+        fallback = text + "\n\n1 - ✅ Confirmar\n2 - 🕐 Alterar horário\n3 - ❌ Cancelar"
+        evolution_client.send_text(instance, whatsapp_id, fallback)
 
 
 def _handle_confirmando(
@@ -1339,4 +1346,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         _send_text(instance_name, whatsapp_id,
                    "Ops! 😅 Ocorreu um erro inesperado. Tente novamente em instantes.")
 
-    _save_session(db, session)
+    try:
+        _save_session(db, session)
+    except Exception:
+        logger.exception("save_session error state=%s whatsapp_id=%s", state, whatsapp_id)
