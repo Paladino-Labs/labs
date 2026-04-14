@@ -90,32 +90,31 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     instance_name = payload.get("instance", "")
     data = payload.get("data", {})
 
-    logger.debug("webhook event=%s instance=%s", event, instance_name)
+    # Normaliza evento para lowercase com ponto (ex: MESSAGES_UPSERT → messages.upsert)
+    event_normalized = event.lower().replace("_", ".")
+
+    # LOG DE DIAGNÓSTICO — remover após confirmar funcionamento
+    import json as _json
+    logger.info(
+        "WEBHOOK RECEBIDO event=%s event_normalized=%s instance=%s data_keys=%s",
+        event, event_normalized, instance_name,
+        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+    )
+    if event_normalized == "messages.upsert":
+        logger.info("WEBHOOK DATA COMPLETO: %s", _json.dumps(data, default=str)[:1000])
 
     try:
-        if event == "connection.update":
+        if event_normalized == "connection.update":
             connection_service.handle_connection_update(db, instance_name, data)
 
-        elif event == "qrcode.updated":
+        elif event_normalized == "qrcode.updated":
             connection_service.handle_qr_update(db, instance_name, data)
 
-        elif event == "messages.upsert":
+        elif event_normalized == "messages.upsert":
             # Importação tardia para evitar circular import entre bot e router
             from app.modules.whatsapp.bot_service import handle_inbound_message
             # Descarta mensagens de grupo (@g.us) — bot atende apenas conversas individuais
-            _data = data if not isinstance(data, dict) else data
-            remote_jid = ""
-            if isinstance(_data, dict):
-                remote_jid = _data.get("key", {}).get("remoteJid", "") or ""
-                # Formato batch: {"messages": [...]}
-                if not remote_jid and "messages" in _data:
-                    msgs = _data.get("messages") or []
-                    if msgs:
-                        remote_jid = msgs[0].get("key", {}).get("remoteJid", "") or ""
-            if remote_jid.endswith("@g.us"):
-                logger.debug("webhook: ignorando mensagem de grupo jid=%s", remote_jid)
-            else:
-                await handle_inbound_message(db, instance_name, data)
+            await handle_inbound_message(db, instance_name, data)
 
     except Exception:
         logger.exception("webhook processing error event=%s instance=%s", event, instance_name)

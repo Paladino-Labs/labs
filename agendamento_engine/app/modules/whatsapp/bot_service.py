@@ -996,24 +996,48 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
       - Batch: data = { "messages": [{ "key": {...}, "message": {...} }], "type": "notify" }
     Normalizamos para o formato flat antes de processar.
     """
+    logger.info("handle_inbound_message: instance=%s data_keys=%s",
+                instance_name, list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+
     # Normaliza batch → flat (Evolution API v2 envolve mensagens em array)
     if isinstance(data, dict) and "messages" in data:
         messages = data.get("messages") or []
         if not messages:
-            logger.debug("messages.upsert com array vazio, instance=%s", instance_name)
+            logger.info("messages.upsert com array vazio, instance=%s", instance_name)
             return
         data = messages[0]
+        logger.info("payload normalizado (batch→flat), novo data_keys=%s", list(data.keys()))
 
     # Ignora mensagens enviadas pelo próprio bot (fromMe=True)
     key = data.get("key", {})
     if key.get("fromMe"):
+        logger.info("ignorando fromMe=True, instance=%s", instance_name)
         return
 
     message_id = key.get("id", "")
-    remote_jid = key.get("remoteJid", "")
+
+    # LID addressing mode: remoteJid vem como "<lid>@lid" em vez do número.
+    # O número real está em remoteJidAlt. Usamos ele quando disponível.
+    addressing_mode = key.get("addressingMode", "")
+    remote_jid_alt = key.get("remoteJidAlt", "")
+    raw_jid = key.get("remoteJid", "")
+
+    if addressing_mode == "lid" and remote_jid_alt:
+        remote_jid = remote_jid_alt
+        logger.info("LID addressing: usando remoteJidAlt=%s (raw=%s)", remote_jid, raw_jid)
+    else:
+        remote_jid = raw_jid
+
+    logger.info("remote_jid=%s message_id=%s", remote_jid, message_id)
+
     if not remote_jid:
         logger.warning("messages.upsert sem remoteJid — instance=%s data_keys=%s",
                        instance_name, list(data.keys()))
+        return
+
+    # Filtra grupos (@g.us) — pode vir com remoteJidAlt também
+    if remote_jid.endswith("@g.us"):
+        logger.debug("ignorando mensagem de grupo jid=%s", remote_jid)
         return
 
     # Normaliza número: "5511999999999@s.whatsapp.net" → "5511999999999"
@@ -1024,17 +1048,19 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         WhatsAppConnection.instance_name == instance_name
     ).first()
     if not conn:
-        logger.warning("webhook: instance_name=%s not found", instance_name)
+        logger.warning("webhook: instance_name=%s not found in DB", instance_name)
         return
 
     company_id = conn.company_id
+    logger.info("company_id=%s whatsapp_id=%s", company_id, whatsapp_id)
 
     # Verifica se bot está habilitado para esta empresa
     settings = db.query(CompanySettings).filter(
         CompanySettings.company_id == company_id
     ).first()
     if not settings or not settings.bot_enabled:
-        logger.debug("bot desabilitado para company_id=%s", company_id)
+        logger.info("bot desabilitado: settings=%s bot_enabled=%s company_id=%s",
+                    bool(settings), settings.bot_enabled if settings else None, company_id)
         return
 
     # Busca nome da empresa para mensagens de boas-vindas
