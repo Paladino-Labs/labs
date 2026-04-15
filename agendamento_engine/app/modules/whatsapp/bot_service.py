@@ -32,10 +32,11 @@ from app.modules.customers import service as customer_svc
 from app.modules.professionals import service as professional_svc
 from app.modules.services import service as service_svc
 from app.modules.appointments import service as appointment_svc
-from app.modules.appointments.schemas import AppointmentCreate
-from app.modules.availability import service as availability_svc
 from app.core.config import settings
 from app.modules.appointments.polices import PolicyViolationError
+from app.modules.booking.engine import booking_engine
+from app.modules.booking.schemas import BookingIntent
+from app.modules.booking.exceptions import SlotUnavailableError, BookingNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -289,60 +290,49 @@ def _identify_customer(
     ctx["company_name"]  = company_name
     session.context = ctx
 
-    # Tenta oferta preditiva
-    last_completed = appointment_svc.list_completed_by_client(
-        db, company_id, customer.id, limit=1
+    # Tenta oferta preditiva via BookingEngine
+    offer = booking_engine.get_predictive_offer(
+        db, company_id, customer.id,
+        offer_ttl_minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES,
     )
-    if last_completed:
-        last_appt = last_completed[0]
-        svc_id  = last_appt.services[0].service_id if last_appt.services else None
-        prof_id = last_appt.professional_id
-        if svc_id and prof_id:
-            slots = availability_svc.get_next_available_slots(
-                db, company_id, prof_id, svc_id, days=7, limit=1
-            )
-            if slots:
-                svc_name   = last_appt.services[0].service_name
-                prof_name  = last_appt.professional.name if last_appt.professional else "Profissional"
-                slot_dt    = slots[0].start_at
-                slot_label = slot_dt.strftime("%d/%m às %H:%M")
-                expires_at = datetime.now(timezone.utc) + timedelta(
-                    minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES
-                )
-                ctx["predicted_slot"] = {
-                    "start_at":          slot_dt.isoformat(),
-                    "service_id":        str(svc_id),
-                    "service_name":      svc_name,
-                    "professional_id":   str(prof_id),
-                    "professional_name": prof_name,
-                    "expires_at":        expires_at.isoformat(),
-                }
-                ctx["last_list"] = [
-                    {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
-                    {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
-                    {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
-                    {"row_id": "opt_ver",              "payload": "opt_ver"},
-                ]
-                session.context = ctx
-                session.state = STATE_OFERTA_RECORRENTE
+    if offer:
+        slot_dt    = offer.next_slot
+        slot_label = slot_dt.strftime("%d/%m às %H:%M")
+        ctx["predicted_slot"] = {
+            "start_at":          slot_dt.isoformat(),
+            "service_id":        str(offer.service_id),
+            "service_name":      offer.service_name,
+            "professional_id":   str(offer.professional_id),
+            "professional_name": offer.professional_name,
+            "expires_at":        offer.expires_at.isoformat(),
+        }
+        ctx["last_list"] = [
+            {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
+            {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
+            {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
+            {"row_id": "opt_ver",              "payload": "opt_ver"},
+        ]
+        session.context = ctx
+        session.state = STATE_OFERTA_RECORRENTE
 
-                nome = _first_name(customer.name)
-                text = (
-                    f"Olá, {nome}! Tudo bem? 👋\n\n"
-                    f"Tenho um *{svc_name}* com *{prof_name}* disponível às *{slot_label}* 🕒\n"
-                    f"_Reservado para você pelos próximos "
-                    f"{settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES} minutos._"
-                )
-                buttons = [
-                    {"buttonId": "opt_confirmar_oferta",
-                     "buttonText": {"displayText": f"✅ Agendar para {slot_label}"}},
-                    {"buttonId": "opt_outro_horario",
-                     "buttonText": {"displayText": "🕐 Escolher outro horário"}},
-                    {"buttonId": "opt_outro_servico",
-                     "buttonText": {"displayText": "🔁 Outro serviço"}},
-                ]
-                _send_buttons(instance, whatsapp_id, text, buttons)
-                return
+        nome = _first_name(customer.name)
+        text = (
+            f"Olá, {nome}! Tudo bem? 👋\n\n"
+            f"Tenho um *{offer.service_name}* com *{offer.professional_name}* "
+            f"disponível às *{slot_label}* 🕒\n"
+            f"_Reservado para você pelos próximos "
+            f"{settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES} minutos._"
+        )
+        buttons = [
+            {"buttonId": "opt_confirmar_oferta",
+             "buttonText": {"displayText": f"✅ Agendar para {slot_label}"}},
+            {"buttonId": "opt_outro_horario",
+             "buttonText": {"displayText": "🕐 Escolher outro horário"}},
+            {"buttonId": "opt_outro_servico",
+             "buttonText": {"displayText": "🔁 Outro serviço"}},
+        ]
+        _send_buttons(instance, whatsapp_id, text, buttons)
+        return
 
     # Sem oferta preditiva → menu padrão
     ctx["last_list"] = []

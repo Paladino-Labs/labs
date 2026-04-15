@@ -43,26 +43,3 @@ class ScheduleBlock(Base, TimestampMixin):
     end_at = Column(TIMESTAMP(timezone=True), nullable=False)
     reason = Column(String(255), nullable=True)
 
-
-class AvailabilitySlot(Base, TimestampMixin):
-    """
-    Cache operacional de disponibilidade.
-    Nunca é a fonte de verdade — appointments é.
-    Status: AVAILABLE | BOOKED | BLOCKED
-    """
-    __tablename__ = "availability_slots"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-    professional_id = Column(UUID(as_uuid=True), ForeignKey("professionals.id"), nullable=False)
-    service_id = Column(UUID(as_uuid=True), ForeignKey("services.id"), nullable=True)
-    start_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    end_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    status = Column(String(20), nullable=False, default="AVAILABLE")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "company_id", "professional_id", "start_at",
-            name="uq_availability_slot",
-        ),
-    )
