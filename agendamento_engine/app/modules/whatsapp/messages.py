@@ -1,36 +1,96 @@
 """
 Templates de mensagem do bot de agendamento.
 
-Todas as strings enviadas ao usuário via WhatsApp estão aqui.
-O bot_service.py não deve conter strings de interface — apenas chamadas a este módulo.
+Objetivo desta versão:
+- 100% compatível com comportamento atual
+- Alinhado com o fluxo definido (sem mudar UX agora)
+- Preparado para handlers (Sprint 3.3)
+- Preparado para multi-canal / IA (separação texto vs opções)
 
-Convenção:
-  - Funções que recebem variáveis retornam str formatado.
-  - Strings fixas são constantes MODULE-LEVEL (maiúsculas).
-  - Nenhuma lógica de negócio aqui — apenas formatação.
+REGRAS:
+- Nenhuma lógica de negócio
+- Nenhuma chamada externa
+- Apenas formatação
 """
 
-from app.core.config import settings
+# ─────────────────────────────────────────────────────────────
+# HELPERS (estrutura futura sem quebrar comportamento atual)
+# ─────────────────────────────────────────────────────────────
 
+def format_options(options: list[tuple[str, str]]) -> str:
+    """Formata opções numeradas para fallback texto."""
+    return "\n".join([f"{key} - {label}" for key, label in options])
 
-# ─── INICIO / Identificação ───────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# CONSTANTES DE OPÇÕES (alinhadas com FSM)
+# ─────────────────────────────────────────────────────────────
+
+MENU_PRINCIPAL_OPTIONS = [
+    ("1", "Agendar horário"),
+    ("2", "Ver meus agendamentos"),
+    ("3", "Falar com atendente"),
+]
+
+CONFIRMANDO_OPTIONS = [
+    ("1", "Confirmar"),
+    ("2", "Alterar horário"),
+    ("3", "Alterar serviço"),
+    ("0", "Cancelar"),
+]
+
+OFERTA_RECORRENTE_OPTIONS = [
+    ("1", "Confirmar"),
+    ("2", "Escolher outro horário"),
+    ("3", "Outro serviço/profissional"),
+    ("4", "Ver meus agendamentos"),
+]
+
+# ─────────────────────────────────────────────────────────────
+# INÍCIO / ONBOARDING
+# ─────────────────────────────────────────────────────────────
 
 def boas_vindas_novo(company_name: str, push_name: str = "") -> str:
     greeting = f"Olá! 👋 Seja bem-vindo à *{company_name}*!"
+
     if push_name:
         return (
             f"{greeting}\n\n"
-            f"Seu nome é *{push_name}*? "
-            f"Me confirme seu nome para continuar. 😊"
+            f"Seu nome é *{push_name}*? Me confirme seu nome para continuar. 😊"
         )
+
     return f"{greeting}\n\nPara começar, qual é o seu nome?"
 
 
-def menu_principal(name: str, company_name: str) -> str:
+def menu_principal_text(name: str, company_name: str) -> str:
     if name:
         return f"Olá, {name}! 😊\n\nO que você deseja fazer?"
     return f"Olá! 👋 Bem-vindo à *{company_name}*!\n\nO que você deseja fazer?"
 
+
+def menu_principal_fallback(name: str, company_name: str) -> str:
+    return (
+        menu_principal_text(name, company_name)
+        + "\n\n"
+        + format_options(MENU_PRINCIPAL_OPTIONS)
+    )
+
+HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
+
+# ─────────────────────────────────────────────────────────────
+# NOME
+# ─────────────────────────────────────────────────────────────
+
+PEDIR_NOME_NOVAMENTE = (
+    "Por favor, me diga seu nome completo para eu te chamar corretamente. 😊"
+)
+
+
+def boas_vindas_nome_confirmado(first_name: str) -> str:
+    return f"Prazer, {first_name}! 😄 Vamos agendar seu horário."
+
+# ─────────────────────────────────────────────────────────────
+# OFERTA RECORRENTE
+# ─────────────────────────────────────────────────────────────
 
 def oferta_recorrente(
     name: str,
@@ -46,31 +106,20 @@ def oferta_recorrente(
     )
 
 
-HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
-
-
-# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
-
-PEDIR_NOME_NOVAMENTE = (
-    "Por favor, me diga seu nome completo para eu te chamar corretamente. 😊"
-)
-
-
-def boas_vindas_nome_confirmado(first_name: str) -> str:
-    return f"Prazer, {first_name}! 😄 Vamos agendar seu horário."
-
-
-# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
+def oferta_recorrente_fallback(*args, **kwargs) -> str:
+    return (
+        oferta_recorrente(*args, **kwargs)
+        + "\n\n"
+        + format_options(OFERTA_RECORRENTE_OPTIONS)
+    )
 
 OFERTA_EXPIRADA = (
     "⏰ O tempo de reserva expirou. Vou buscar os próximos horários disponíveis..."
 )
 
-ESCOLHA_OPCAO = "Escolha uma das opções acima. 😊"
-ESCOLHA_OPCAO_OPS = "Ops! Escolha uma das opções acima. 😊"
-
-
-# ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# SERVIÇO
+# ─────────────────────────────────────────────────────────────
 
 SEM_SERVICOS = (
     "😔 Não há serviços disponíveis no momento. "
@@ -83,14 +132,32 @@ def escolha_servico(first_name: str = "") -> str:
         return f"Qual serviço você gostaria, {first_name}?"
     return "Qual serviço você gostaria?"
 
-
-# ─── ESCOLHENDO_PROFISSIONAL ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# PROFISSIONAL
+# ─────────────────────────────────────────────────────────────
 
 def escolha_profissional(service_name: str) -> str:
     return f"Com quem você quer agendar *{service_name}*?"
 
+# ─────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────
 
-# ─── ESCOLHENDO_HORARIO ───────────────────────────────────────────────────────
+def escolha_data_titulo(service_name: str) -> str:
+    return f"📅 Escolha a data para {service_name}"
+
+
+def escolha_data_descricao(first_name: str = "", prof_name: str = "") -> str:
+    desc = f"Para qual dia, {first_name}?" if first_name else "Para qual dia?"
+
+    if prof_name and prof_name != "Qualquer disponível":
+        desc += f"\n_Profissional: {prof_name}_"
+
+    return desc
+
+# ─────────────────────────────────────────────────────────────
+# HORÁRIO
+# ─────────────────────────────────────────────────────────────
 
 SEM_HORARIOS = (
     "😔 Não encontrei horários disponíveis para esse período. "
@@ -103,21 +170,9 @@ def escolha_horario(service_name: str, prof_name: str = "") -> str:
         return f"Escolha um horário para *{service_name}* com *{prof_name}*:"
     return f"Escolha um horário para *{service_name}*:"
 
-
-# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
-
-def escolha_data_titulo(service_name: str) -> str:
-    return f"📅 Escolha a data para {service_name}"
-
-
-def escolha_data_descricao(first_name: str = "", prof_name: str = "") -> str:
-    desc = f"Para qual dia, {first_name}?" if first_name else "Para qual dia?"
-    if prof_name and prof_name != "Qualquer disponível":
-        desc += f"\n_Profissional: {prof_name}_"
-    return desc
-
-
-# ─── CONFIRMANDO ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# CONFIRMANDO
+# ─────────────────────────────────────────────────────────────
 
 def confirmacao_resumo(
     service_name: str,
@@ -125,7 +180,10 @@ def confirmacao_resumo(
     date_label: str,
     time_label: str,
 ) -> str:
-    prof_display = prof_name if prof_name and prof_name != "Qualquer disponível" else "—"
+    prof_display = (
+        prof_name if prof_name and prof_name != "Qualquer disponível" else "—"
+    )
+
     return (
         f"Confirme seu agendamento:\n\n"
         f"✂️ *{service_name}*\n"
@@ -135,15 +193,11 @@ def confirmacao_resumo(
     )
 
 
-def confirmacao_fallback(
-    service_name: str,
-    prof_name: str,
-    date_label: str,
-    time_label: str,
-) -> str:
+def confirmacao_fallback(*args, **kwargs) -> str:
     return (
-        confirmacao_resumo(service_name, prof_name, date_label, time_label)
-        + "\n\n1 - ✅ Confirmar\n2 - 🕐 Alterar horário\n3 - ❌ Cancelar"
+        confirmacao_resumo(*args, **kwargs)
+        + "\n\n"
+        + format_options(CONFIRMANDO_OPTIONS)
     )
 
 
@@ -157,13 +211,13 @@ def agendamento_confirmado(
     despedida = (
         f"Te esperamos, {first_name}! 💈" if first_name else "Te esperamos! 💈"
     )
+
     return (
         f"✅ *Agendamento confirmado!*\n\n"
         f"✂️ {service_name} com {prof_name}\n"
         f"📅 {slot_label}\n\n"
         f"{despedida}\n"
-        f"_Lembre-se: cancelamentos ou reagendamentos devem ser feitos com "
-        f"pelo menos {min_hours_cancel}h de antecedência._"
+        f"_Cancelamentos ou reagendamentos devem ser feitos com pelo menos {min_hours_cancel}h de antecedência._"
     )
 
 
@@ -171,7 +225,6 @@ def cancelamento_pelo_usuario(first_name: str = "") -> str:
     if first_name:
         return f"Tudo certo, {first_name}! Se precisar, é só chamar. 😊"
     return "Tudo certo! Se precisar, é só chamar. 😊"
-
 
 HORARIO_OCUPADO_CONFIRMANDO = (
     "😬 Esse horário acabou de ser ocupado! Veja os próximos disponíveis:"
@@ -181,13 +234,14 @@ ERRO_CONFIRMAR_AGENDAMENTO = (
     "❌ Não foi possível confirmar o agendamento. Tente novamente."
 )
 
-ERRO_DADOS_INCOMPLETOS = "❌ Erro interno. Tente novamente."
+# ─────────────────────────────────────────────────────────────
+# VER AGENDAMENTOS
+# ─────────────────────────────────────────────────────────────
 
-
-# ─── VER_AGENDAMENTOS ─────────────────────────────────────────────────────────
 
 def sem_agendamentos_ativos(first_name: str = "") -> str:
     prefixo = f"{first_name}, você não tem" if first_name else "Você não tem"
+
     return (
         f"😅 {prefixo} agendamentos ativos no momento.\n\n"
         f"Digite *1* para agendar um horário."
@@ -199,8 +253,10 @@ def lista_agendamentos_descricao(first_name: str = "") -> str:
         return f"Clique em um agendamento para gerenciar, {first_name}:"
     return "Clique para gerenciar:"
 
+# ─────────────────────────────────────────────────────────────
+# GERENCIAMENTO
+# ─────────────────────────────────────────────────────────────
 
-# ─── GERENCIANDO_AGENDAMENTO ──────────────────────────────────────────────────
 
 def gerenciar_agendamento(
     service_name: str,
@@ -216,13 +272,14 @@ def gerenciar_agendamento(
 
 def reagendamento_fora_prazo(min_hours: int) -> str:
     return (
-        f"⚠️ O prazo para reagendamento já passou "
-        f"(mínimo {min_hours}h antes).\n"
+        f"⚠️ O prazo para reagendamento já passou (mínimo {min_hours}h antes).\n"
         "Neste caso você só pode cancelar o agendamento."
     )
 
+# ─────────────────────────────────────────────────────────────
+# CANCELAMENTO
+# ─────────────────────────────────────────────────────────────
 
-# ─── CANCELANDO ───────────────────────────────────────────────────────────────
 
 def cancelamento_fora_prazo(msg: str) -> str:
     return (
@@ -245,26 +302,28 @@ def cancelamento_confirmado(first_name: str = "") -> str:
         if first_name
         else "Esperamos te ver em breve! 😊"
     )
-    return f"✅ Agendamento cancelado com sucesso.\n{despedida}"
 
+    return f"✅ Agendamento cancelado com sucesso.\n{despedida}"
 
 ERRO_CANCELAR_AGENDAMENTO = (
     "❌ Não foi possível cancelar. Tente novamente ou fale com a gente."
 )
 
+# ─────────────────────────────────────────────────────────────
+# REAGENDAMENTO
+# ─────────────────────────────────────────────────────────────
 
-# ─── REAGENDANDO ─────────────────────────────────────────────────────────────
 
 def reagendamento_confirmado(first_name: str, slot_label: str) -> str:
     despedida = (
         f"Te esperamos, {first_name}! 💈" if first_name else "Te esperamos! 💈"
     )
+
     return (
         f"✅ *Reagendado com sucesso!*\n\n"
         f"📅 {slot_label}\n\n"
         f"{despedida}"
     )
-
 
 HORARIO_OCUPADO_REAGENDANDO = (
     "😬 Esse horário acabou de ser ocupado! Escolha outro:"
@@ -274,12 +333,12 @@ ERRO_REAGENDAR_AGENDAMENTO = (
     "❌ Não foi possível remarcar. Tente novamente."
 )
 
-
-# ─── Erros genéricos ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# ERROS GENÉRICOS
+# ─────────────────────────────────────────────────────────────
 
 ERRO_GENERICO = (
     "Ops! 😅 Ocorreu um erro inesperado. Tente novamente em instantes."
 )
 
 INPUT_INVALIDO = "Ops! Escolha uma das opções acima. 😊"
-
