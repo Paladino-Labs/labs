@@ -542,7 +542,7 @@ def _start_escolhendo_servico(
 
     rows = [
         {
-            "rowId" = str(s.id),
+            "rowId": str(s.id),
             "title": s.name,
             "description": f"R$ {s.price:.2f} · {s.duration} min"
         }
