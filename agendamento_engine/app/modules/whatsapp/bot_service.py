@@ -44,7 +44,9 @@ logger = logging.getLogger(__name__)
 # ─── Estados ──────────────────────────────────────────────────────────────────
 STATE_INICIO                  = "INICIO"
 STATE_AGUARDANDO_NOME         = "AGUARDANDO_NOME"
+STATE_CONFIRMAR_NOME          = "CONFIRMAR_NOME"
 STATE_OFERTA_RECORRENTE       = "OFERTA_RECORRENTE"
+STATE_MENU_PRINCIPAL          = "MENU_PRINCIPAL"
 STATE_ESCOLHENDO_SERVICO      = "ESCOLHENDO_SERVICO"
 STATE_ESCOLHENDO_PROFISSIONAL = "ESCOLHENDO_PROFISSIONAL"
 STATE_ESCOLHENDO_HORARIO      = "ESCOLHENDO_HORARIO"
@@ -230,7 +232,7 @@ def _identify_customer(
         if push_name:
             ctx["push_name_suggestion"] = push_name
         session.context = ctx
-        _send_text(instance, whatsapp_id, messages.boas_vindas_novo(company_name, push_name))
+        _send_text(instance, whatsapp_id, messages.boas_vindas_novo(company_name))
         return
  
     # Cliente existente
@@ -304,7 +306,7 @@ def _show_menu_principal(
     instance: str, to: str, company_name: str, name: Optional[str],
 ) -> None:
     nome = _first_name(name) if name else ""
-    text = messages.menu_principal(nome, company_name)
+    text = messages.menu_principal(nome)
     buttons = [
         {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},
         {"buttonId": "opt_ver",     "buttonText": {"displayText": "🗓 Ver meus agendamentos"}},
@@ -326,20 +328,70 @@ def _handle_aguardando_nome(
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
     nome = user_input.strip()
+
     if len(nome) < 2:
         _send_text(instance, whatsapp_id, messages.PEDIR_NOME_NOVAMENTE)
         return
- 
-    customer = customer_svc.get_or_create_by_phone(db, company_id, whatsapp_id, nome)
-    ctx = session.context or {}
-    ctx["customer_id"]   = str(customer.id)
-    ctx["customer_name"] = customer.name
-    ctx.pop("push_name_suggestion", None)
+
+    # NÃO salva ainda ❌
+    # Guarda temporariamente
+    ctx = dict(session.context or {})
+    ctx["nome_temp"] = nome
     session.context = ctx
- 
-    nome_curto = _first_name(customer.name)
-    _send_text(instance, whatsapp_id, messages.boas_vindas_nome_confirmado(nome_curto))
-    _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+
+    # IMPORTANTE: mudar etapa
+    session.state = STATE_CONFIRMAR_NOME
+
+    # Envia confirmação
+    _send_text(instance, whatsapp_id, messages.confirmar_nome(nome))
+
+
+# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
+
+def _handle_confirmando_nome(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, user_input: str,
+) -> None:
+    resposta = user_input.strip().lower()
+    ctx = dict(session.context or {})
+
+    nome_temp = ctx.get("nome_temp")
+
+    if not nome_temp:
+        # fallback de segurança
+        session.state = STATE_AGUARDANDO_NOME
+        session.context = ctx
+        _send_text(instance, whatsapp_id, messages.PEDIR_NOME_NOVAMENTE)
+        return
+
+    # ✅ CONFIRMOU
+    if resposta in ["1", "sim", "s", "ok", "isso", "confirmar"]:
+        customer = customer_svc.get_or_create_by_phone(
+            db, company_id, whatsapp_id, nome_temp
+        )
+
+        ctx["customer_id"] = str(customer.id)
+        ctx["customer_name"] = customer.name
+        ctx.pop("nome_temp", None)
+        session.context = ctx
+
+        nome_curto = _first_name(customer.name)
+
+        session.state = STATE_MENU_PRINCIPAL
+
+        _send_text(instance, whatsapp_id, messages.boas_vindas_nome_confirmado(nome_curto))
+        _send_text(instance, whatsapp_id, messages.menu_principal(nome_curto))
+        return
+
+    # 🔁 QUER CORRIGIR
+    if resposta in ["2", "não", "nao", "n", "errado", "corrigir"]:
+        session.state = STATE_AGUARDANDO_NOME
+        session.context = ctx
+        _send_text(instance, whatsapp_id, messages.PEDIR_NOME_NOVAMENTE)
+        return
+
+    # ❌ RESPOSTA INVÁLIDA
+    _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
  
  
 # ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
@@ -404,6 +456,48 @@ def _handle_oferta_recorrente(
         return
  
     _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+
+
+# ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
+
+def _handle_menu_principal(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, user_input: str,
+) -> None:
+    payload = user_input.strip().lower()
+    ctx = dict(session.context or {})
+
+    # 📅 Agendar
+    if payload == "opt_agendar":
+        session.state = STATE_ESCOLHENDO_SERVICO
+        session.context = ctx
+
+        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        return
+
+    # 🗓 Ver agendamentos
+    if payload == "opt_ver":
+        session.state = STATE_VER_AGENDAMENTOS
+        session.context = ctx
+
+        _handle_ver_agendamentos_input(
+            db, session, company_id, whatsapp_id, instance, user_input
+        )
+        return
+
+    # 💬 Humano
+    if payload == "opt_humano":
+        session.state = STATE_HUMANO
+        session.context = ctx
+
+        _send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+        return
+
+    # ❌ fallback (usuário digitou algo)
+    _show_menu_principal(
+        session, ctx, instance, whatsapp_id,
+        ctx.get("company_name"), ctx.get("customer_name")
+    )
  
  
 # ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
@@ -1197,6 +1291,12 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         elif state == STATE_OFERTA_RECORRENTE:
             _handle_oferta_recorrente(db, session, company_id, whatsapp_id,
                                       instance_name, user_input)
+
+        elif state == STATE_MENU_PRINCIPAL:
+            _handle_menu_principal(
+                                   db, session, company_id, whatsapp_id,
+                                   instance_name, user_input
+                                   )
  
         elif state == STATE_ESCOLHENDO_SERVICO:
             _handle_escolhendo_servico(db, session, company_id, whatsapp_id,
