@@ -61,7 +61,7 @@ def boas_vindas_novo(company_name: str, push_name: str = "") -> str:
     return f"{greeting}\n\nPara começar, qual é o seu nome?"
 
 
-def menu_principal_text(name: str, company_name: str) -> str:
+def menu_principal(name: str, company_name: str) -> str:
     if name:
         return f"Olá, {name}! 😊\n\nO que você deseja fazer?"
     return f"Olá! 👋 Bem-vindo à *{company_name}*!\n\nO que você deseja fazer?"
@@ -69,7 +69,7 @@ def menu_principal_text(name: str, company_name: str) -> str:
 
 def menu_principal_fallback(name: str, company_name: str) -> str:
     return (
-        menu_principal_text(name, company_name)
+        menu_principal(name, company_name)
         + "\n\n"
         + format_options(MENU_PRINCIPAL_OPTIONS)
     )
