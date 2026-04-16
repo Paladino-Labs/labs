@@ -236,11 +236,19 @@ def _identify_customer(
         return
  
     # Cliente existente
-    ctx = session.context or {}
+    ctx = dict(session.context or {})
     ctx["customer_id"]   = str(customer.id)
     ctx["customer_name"] = customer.name
     ctx["company_name"]  = company_name
-    session.context = ctx
+
+    upcoming = appointment_svc.list_upcoming_by_client(
+        db, company_id, customer.id, limit=1
+    )
+
+    if upcoming:
+        session.context = ctx
+        _show_menu_principal(session, ctx, instance, whatsapp_id, company_name, customer.name)
+        return
  
     # Tenta oferta preditiva
     last_completed = appointment_svc.list_completed_by_client(
@@ -274,7 +282,6 @@ def _identify_customer(
                     {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
                     {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
                     {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
-                    {"row_id": "opt_ver",              "payload": "opt_ver"},
                 ]
                 session.context = ctx
                 session.state = STATE_OFERTA_RECORRENTE
@@ -286,9 +293,9 @@ def _identify_customer(
                 )
                 buttons = [
                     {"buttonId": "opt_confirmar_oferta",
-                     "buttonText": {"displayText": f"✅ Agendar para {slot_label}"}},
+                     "buttonText": {"displayText": f"✅ Sim, confirmar"}},
                     {"buttonId": "opt_outro_horario",
-                     "buttonText": {"displayText": "🕐 Escolher outro horário"}},
+                     "buttonText": {"displayText": "🕐 Outro horário"}},
                     {"buttonId": "opt_outro_servico",
                      "buttonText": {"displayText": "🔁 Outro serviço"}},
                 ]
@@ -309,8 +316,8 @@ def _show_menu_principal(
     text = messages.menu_principal(nome)
     buttons = [
         {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},
-        {"buttonId": "opt_ver",     "buttonText": {"displayText": "🗓 Ver meus agendamentos"}},
-        {"buttonId": "opt_humano",  "buttonText": {"displayText": "💬 Falar com atendente"}},
+        {"buttonId": "opt_ver",     "buttonText": {"displayText": "🗓 Ver seus agendamentos"}},
+        {"buttonId": "opt_humano",  "buttonText": {"displayText": "💬 Falar com seu barbeiro"}},
     ]
     ctx["last_list"] = [
         {"row_id": "opt_agendar", "payload": "opt_agendar"},
@@ -400,23 +407,26 @@ def _handle_oferta_recorrente(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx       = session.context or {}
+    ctx       = dict(session.context or {})
     payload   = _resolve_input(user_input, ctx.get("last_list", []))
     predicted = ctx.get("predicted_slot")
  
     if not payload:
-        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO)
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
  
     if payload == "opt_confirmar_oferta" and predicted:
         expires = datetime.fromisoformat(predicted["expires_at"])
+     
         if datetime.now(timezone.utc) > expires:
             _send_text(instance, whatsapp_id, messages.OFERTA_EXPIRADA)
+         
             ctx["service_id"]        = predicted["service_id"]
             ctx["service_name"]      = predicted["service_name"]
             ctx["professional_id"]   = predicted["professional_id"]
             ctx["professional_name"] = predicted["professional_name"]
             ctx.pop("predicted_slot", None)
+         
             session.context = ctx
             _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
             return
@@ -428,6 +438,7 @@ def _handle_oferta_recorrente(
         ctx["slot_start_at"]         = predicted["start_at"]
         ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
         ctx.pop("predicted_slot", None)
+     
         session.context = ctx
         session.state = STATE_CONFIRMANDO
         _send_confirmacao_resumo(instance, whatsapp_id, ctx)
@@ -439,6 +450,7 @@ def _handle_oferta_recorrente(
         ctx["professional_id"]   = predicted["professional_id"]
         ctx["professional_name"] = predicted["professional_name"]
         ctx.pop("predicted_slot", None)
+     
         session.context = ctx
         _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
         return
@@ -447,12 +459,6 @@ def _handle_oferta_recorrente(
         ctx.pop("predicted_slot", None)
         session.context = ctx
         _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
-        return
- 
-    if payload == "opt_ver":
-        ctx.pop("predicted_slot", None)
-        session.context = ctx
-        _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
         return
  
     _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
@@ -507,25 +513,52 @@ def _start_escolhendo_servico(
     instance: str, whatsapp_id: str,
 ) -> None:
     services = service_svc.list_services(db, company_id, active_only=True)
+
+    ctx = dict(session.context or {})
+
     if not services:
-        _send_text(instance, whatsapp_id, messages.SEM_SERVICOS)
-        reset_session(session)
+        text = messages.SEM_SERVICOS
+
+        buttons = [
+            {
+                "buttonId": "opt_menu",
+                "buttonText": {"displayText": "🏠 Menu principal"}
+            },
+            {
+                "buttonId": "opt_humano",
+                "buttonText": {"displayText": "💬 Falar com atendente"}
+            },
+        ]
+
+        ctx["last_list"] = [
+            {"row_id": "opt_menu", "payload": "opt_menu"},
+            {"row_id": "opt_humano", "payload": "opt_humano"},
+        ]
+
+        session.context = ctx
+
+        _send_buttons(instance, whatsapp_id, text, buttons)
         return
- 
-    ctx = session.context or {}
+
     rows = [
-        {"rowId": f"svc_{i}", "title": s.name,
-         "description": f"R$ {s.price:.2f} · {s.duration} min"}
+        {
+            rowId = str(s.id),
+            "title": s.name,
+            "description": f"R$ {s.price:.2f} · {s.duration} min"
+        }
         for i, s in enumerate(services)
     ]
+
     ctx["last_list"] = [
-        {"row_id": f"svc_{i}", "payload": str(s.id)}
-        for i, s in enumerate(services)
+        {"row_id": str(s.id), "payload": str(s.id)}
+        for i, _ in enumerate(services)
     ]
+
     session.context = ctx
     session.state = STATE_ESCOLHENDO_SERVICO
- 
+
     nome = _first_name(ctx.get("customer_name", ""))
+
     _send_list(
         instance, whatsapp_id,
         "✂️ Nossos serviços",
@@ -538,20 +571,23 @@ def _handle_escolhendo_servico(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx     = session.context or {}
+    ctx     = dict(session.context or {})
     payload = _resolve_input(user_input, ctx.get("last_list", []))
     if not payload:
-        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
+     
     try:
         service = service_svc.get_service_or_404(db, company_id, UUID(payload))
     except Exception:
-        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
  
     ctx["service_id"]   = payload
     ctx["service_name"] = service.name
+
     session.context = ctx
+
     _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
  
  
@@ -561,24 +597,42 @@ def _start_escolhendo_profissional(
     db: Session, session: BotSession, company_id: UUID,
     instance: str, whatsapp_id: str,
 ) -> None:
-    ctx        = session.context or {}
+    ctx = dict(session.context or {})
+
     service_id = UUID(ctx["service_id"])
-    profs      = professional_svc.list_by_service(db, company_id, service_id)
- 
+    profs = professional_svc.list_by_service(db, company_id, service_id)
+
+    if not profs:
+        _send_text(
+            instance,
+            whatsapp_id,
+            "😕 Não há profissionais disponíveis para esse serviço no momento."
+        )
+        return
+
     rows = [
-        {"rowId": f"prof_{i}", "title": p.name, "description": ""}
-        for i, p in enumerate(profs)
+        {"rowId": str(p.id), "title": p.name, "description": ""}
+        for p in profs
     ]
-    rows.append({"rowId": "prof_any", "title": "👥 Qualquer disponível", "description": ""})
- 
-    ctx["last_list"] = (
-        [{"row_id": f"prof_{i}", "payload": str(p.id)} for i, p in enumerate(profs)]
-        + [{"row_id": "prof_any", "payload": "any"}]
-    )
+
+    rows.append({
+        "rowId": "prof_any",
+        "title": "👥 Qualquer disponível",
+        "description": ""
+    })
+
+    ctx["last_list"] = [
+        {"row_id": str(p.id), "payload": str(p.id)}
+        for p in profs
+    ] + [
+        {"row_id": "prof_any", "payload": "any"}
+    ]
+
     session.context = ctx
     session.state = STATE_ESCOLHENDO_PROFISSIONAL
- 
+
     svc = ctx.get("service_name", "")
+
     _send_list(
         instance, whatsapp_id,
         "👤 Escolha o profissional",
@@ -591,10 +645,10 @@ def _handle_escolhendo_profissional(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx     = session.context or {}
+    ctx     = dict(session.context or {})
     payload = _resolve_input(user_input, ctx.get("last_list", []))
     if not payload:
-        _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
  
     if payload == "any":
@@ -606,12 +660,74 @@ def _handle_escolhendo_profissional(
             ctx["professional_id"]   = payload
             ctx["professional_name"] = prof.name
         except Exception:
-            _start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)
+            _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
             return
  
     session.context = ctx
-    _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+    _send_escolher_data(db, session, company_id, instance, whatsapp_id)
  
+ 
+# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
+ 
+def _send_escolher_data(
+    instance: str, whatsapp_id: str, ctx: dict, session: BotSession
+) -> None:
+    today = datetime.now(timezone.utc).date()
+    candidate_days = [today + timedelta(days=i) for i in range(7)]
+
+    rows, last_list = [], []
+
+    for d in candidate_days:
+        row_id = d.isoformat()
+        label  = _label_date(d)
+
+        rows.append({
+            "rowId": row_id,
+            "title": label,
+            "description": ""
+        })
+
+        last_list.append({
+            "row_id": row_id,
+            "payload": row_id
+        })
+
+    ctx = dict(ctx)
+    ctx["last_list"] = last_list
+
+    session.context = ctx
+    session.state = STATE_ESCOLHENDO_DATA
+
+    nome = _first_name(ctx.get("customer_name", ""))
+    svc  = ctx.get("service_name", "")
+    prof = ctx.get("professional_name", "")
+
+    _send_list(
+        instance, whatsapp_id,
+        messages.escolha_data_titulo(svc),
+        messages.escolha_data_descricao(nome, prof),
+        rows,
+    )
+ 
+
+def _handle_escolhendo_data(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, user_input: str,
+) -> None:
+    ctx     = dict(session.context or {})
+    payload = _resolve_input(user_input, ctx.get("last_list", []))
+
+    if not payload:
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+
+    ctx["selected_date"] = payload
+    session.context = ctx
+
+    _start_escolhendo_horario(
+        db, session, company_id, instance, whatsapp_id
+    )
+
  
 # ─── ESCOLHENDO_HORARIO ───────────────────────────────────────────────────────
  
@@ -619,14 +735,16 @@ def _start_escolhendo_horario(
     db: Session, session: BotSession, company_id: UUID,
     instance: str, whatsapp_id: str,
 ) -> None:
-    ctx      = session.context or {}
+    ctx = dict(session.context or {})
+
     svc_id   = UUID(ctx["service_id"])
     prof_raw = ctx.get("professional_id")
     date_str = ctx.get("selected_date")
- 
+
     if date_str:
         target_date = datetime.fromisoformat(date_str).date()
-        slots: list = []
+        slots = []
+
         if prof_raw:
             slots = availability_svc.get_available_slots(
                 db, company_id, UUID(prof_raw), svc_id, target_date
@@ -634,12 +752,15 @@ def _start_escolhendo_horario(
         else:
             for p in professional_svc.list_by_service(db, company_id, svc_id):
                 slots.extend(
-                    availability_svc.get_available_slots(db, company_id, p.id, svc_id, target_date)
+                    availability_svc.get_available_slots(
+                        db, company_id, p.id, svc_id, target_date
+                    )
                 )
                 if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
     else:
         slots = []
+
         if prof_raw:
             slots = availability_svc.get_next_available_slots(
                 db, company_id, UUID(prof_raw), svc_id,
@@ -655,38 +776,68 @@ def _start_escolhendo_horario(
                 )
                 if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
                     break
- 
+
+    # 🔥 ordena sempre
+    slots.sort(key=lambda s: s.start_at)
     slots = slots[:settings.BOT_MAX_SLOTS_DISPLAYED]
+
     any_prof = (prof_raw is None)
- 
+
     if not slots:
-        _send_text(instance, whatsapp_id, messages.SEM_HORARIOS)
-        ctx["last_list"] = [{"row_id": "opt_outra_data", "payload": "outra_data"}]
+        _send_buttons(
+            instance,
+            whatsapp_id,
+            messages.SEM_HORARIOS,
+            [
+                {"buttonId": "opt_outra_data", "buttonText": {"displayText": "📅 Escolher outra data"}},
+                {"buttonId": "opt_menu", "buttonText": {"displayText": "🏠 Menu principal"}},
+            ]
+        )
+
+        ctx["last_list"] = [
+            {"row_id": "opt_outra_data", "payload": "outra_data"},
+            {"row_id": "opt_menu", "payload": "opt_menu"},
+        ]
+
         session.context = ctx
         session.state = STATE_ESCOLHENDO_HORARIO
         return
- 
+
     rows, last_list = [], []
-    for i, s in enumerate(slots):
-        date_label = _label_date(s.start_at.date())
+
+    for s in slots:
         time_label = s.start_at.strftime("%H:%M")
-        title = f"{date_label} — {time_label}"
-        desc  = s.professional_name if any_prof else ""
-        row_id = f"slot_{i}"
-        rows.append({"rowId": row_id, "title": title, "description": desc})
-        last_list.append({
-            "row_id":  row_id,
-            "payload": f"{s.start_at.isoformat()}|{s.professional_id}",
+
+        row_id = f"{s.start_at.isoformat()}|{s.professional_id}"
+
+        rows.append({
+            "rowId": row_id,
+            "title": time_label,
+            "description": s.professional_name if any_prof else ""
         })
- 
-    rows.append({"rowId": "opt_outra_data", "title": "📅 Escolher outra data", "description": ""})
-    last_list.append({"row_id": "opt_outra_data", "payload": "outra_data"})
- 
+
+        last_list.append({
+            "row_id": row_id,
+            "payload": row_id,
+        })
+
+    rows.append({
+        "rowId": "opt_outra_data",
+        "title": "📅 Escolher outra data",
+        "description": ""
+    })
+
+    last_list.append({
+        "row_id": "opt_outra_data",
+        "payload": "outra_data"
+    })
+
     ctx["last_list"] = last_list
     session.context = ctx
     session.state = STATE_ESCOLHENDO_HORARIO
- 
+
     prof_label = ctx.get("professional_name", "")
+
     _send_list(
         instance, whatsapp_id,
         "🕐 Horários disponíveis",
@@ -699,22 +850,28 @@ def _handle_escolhendo_horario(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
 ) -> None:
-    ctx     = session.context or {}
+    ctx     = dict(session.context or {})
     payload = _resolve_input(user_input, ctx.get("last_list", []))
- 
+
     if not payload:
-        _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
- 
+
     if payload == "outra_data":
         session.state = STATE_ESCOLHENDO_DATA
         _send_escolher_data(instance, whatsapp_id, ctx, session)
         return
- 
+
     if "|" in payload:
-        start_str, prof_id_str = payload.split("|", 1)
+        try:
+            start_str, prof_id_str = payload.split("|", 1)
+        except ValueError:
+            _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+            return
+
         ctx["slot_start_at"] = start_str
-        # Resolve profissional quando "Qualquer disponível" foi escolhido
+
+        # resolve profissional se veio de "qualquer disponível"
         if not ctx.get("professional_id"):
             ctx["professional_id"] = prof_id_str
             try:
@@ -725,56 +882,15 @@ def _handle_escolhendo_horario(
             except Exception:
                 pass
     else:
-        ctx["slot_start_at"] = payload
- 
+        _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+
     ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
+
     session.context = ctx
     session.state = STATE_CONFIRMANDO
-    _send_confirmacao_resumo(instance, whatsapp_id, ctx)
- 
- 
-# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
- 
-def _send_escolher_data(
-    instance: str, whatsapp_id: str, ctx: dict, session: BotSession
-) -> None:
-    today = datetime.now(timezone.utc).date()
-    candidate_days = [today + timedelta(days=i) for i in range(7)]
- 
-    rows, last_list = [], []
-    for i, d in enumerate(candidate_days):
-        label  = _label_date(d)
-        row_id = f"dia_{i}"
-        rows.append({"rowId": row_id, "title": label, "description": ""})
-        last_list.append({"row_id": row_id, "payload": d.isoformat()})
- 
-    ctx["last_list"] = last_list
-    session.context = ctx
 
-    nome = _first_name(ctx.get("customer_name", ""))
-    svc  = ctx.get("service_name", "")
-    prof = ctx.get("professional_name", "")
-    _send_list(
-        instance, whatsapp_id,
-        messages.escolha_data_titulo(svc),
-        messages.escolha_data_descricao(nome, prof),
-        rows,
-    )
- 
- 
-def _handle_escolhendo_data(
-    db: Session, session: BotSession, company_id: UUID,
-    whatsapp_id: str, instance: str, user_input: str,
-) -> None:
-    ctx     = session.context or {}
-    payload = _resolve_input(user_input, ctx.get("last_list", []))
-    if not payload:
-        _send_escolher_data(instance, whatsapp_id, ctx, session)
-        return
- 
-    ctx["selected_date"] = payload
-    session.context = ctx
-    _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+    _send_confirmacao_resumo(instance, whatsapp_id, ctx)
  
  
 # ─── CONFIRMANDO ──────────────────────────────────────────────────────────────
