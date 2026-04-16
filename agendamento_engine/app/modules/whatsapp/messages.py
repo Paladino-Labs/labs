@@ -23,10 +23,28 @@ Mais uma carinha nova por aqui, bem-vindo à *{company_name}*!!
 Qual é o seu nome?"""
 
 
-def menu_principal(name: str, company_name: str) -> str:
-    if name:
-        return f"Olá, {name}! 😊\n\nO que você deseja fazer?"
-    return f"Olá! 👋 Bem-vindo à *{company_name}*!\n\nO que você deseja fazer?"
+# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
+
+
+def confirmar_nome(nome: str) -> str:
+    return f"""Seu nome é *{nome}*, certo?
+
+1️⃣ Sim
+2️⃣ Corrigir"""
+
+
+PEDIR_NOME_NOVAMENTE = (
+    "Pode me dizer seu nome novamente? 😊"
+)
+
+
+def boas_vindas_nome_confirmado(first_name: str) -> str:
+    return f"""Prazer, {first_name}! 😄
+
+Vamos agendar seu horário."""
+
+
+# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
 
 
 def oferta_recorrente(
@@ -43,28 +61,31 @@ def oferta_recorrente(
     )
 
 
-HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
-
-
-# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
-
-PEDIR_NOME_NOVAMENTE = (
-    "Por favor, me diga seu nome completo para eu te chamar corretamente. 😊"
-)
-
-
-def boas_vindas_nome_confirmado(first_name: str) -> str:
-    return f"Prazer, {first_name}! 😄 Vamos agendar seu horário."
-
-
-# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
-
 OFERTA_EXPIRADA = (
     "⏰ O tempo de reserva expirou. Vou buscar os próximos horários disponíveis..."
 )
 
 ESCOLHA_OPCAO = "Escolha uma das opções acima. 😊"
 ESCOLHA_OPCAO_OPS = "Ops! Escolha uma das opções acima. 😊"
+
+
+# ─── CHAMADO_HUMANO ───────────────────────────────────────────────────────
+
+
+HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
+
+
+# ─── MENU_PRINCIPAL ───────────────────────────────────────────────────────
+
+
+def menu_principal(name: str) -> str:
+    return f"""Beleza, {name}! 👋
+
+O que você quer fazer?
+
+1️⃣ Agendar horário
+2️⃣ Ver meus agendamentos
+3️⃣ Falar com atendente"""
 
 
 # ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
