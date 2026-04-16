@@ -15,15 +15,12 @@ from app.core.config import settings
 
 # ─── INICIO / Identificação ───────────────────────────────────────────────────
 
-def boas_vindas_novo(company_name: str, push_name: str = "") -> str:
-    greeting = f"Olá! 👋 Seja bem-vindo à *{company_name}*!"
-    if push_name:
-        return (
-            f"{greeting}\n\n"
-            f"Seu nome é *{push_name}*? "
-            f"Me confirme seu nome para continuar. 😊"
-        )
-    return f"{greeting}\n\nPara começar, qual é o seu nome?"
+def boas_vindas_novo(company_name: str) -> str:
+    return f"""Fala, beleza? 👋
+
+Mais uma carinha nova por aqui, bem-vindo à *{company_name}*!!
+
+Qual é o seu nome?"""
 
 
 def menu_principal(name: str, company_name: str) -> str:
