@@ -29,6 +29,7 @@ from app.infrastructure.db.models import BotSession, WhatsAppConnection
 from app.infrastructure.db.models import Company, CompanySettings
 from app.modules.whatsapp import evolution_client
 from app.modules.whatsapp import messages
+from app.modules.whatsapp.session import get_session_locked, save_session, reset_session
 from app.modules.customers import service as customer_svc
 from app.modules.professionals import service as professional_svc
 from app.modules.services import service as service_svc
@@ -56,50 +57,6 @@ STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
  
 _DIAS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
- 
- 
-# ─── Helpers de sessão ────────────────────────────────────────────────────────
- 
-def _get_session_locked(db: Session, company_id: UUID, whatsapp_id: str) -> BotSession:
-    """SELECT FOR UPDATE NOWAIT — levanta OperationalError se linha já bloqueada."""
-    session = (
-        db.query(BotSession)
-        .filter(
-            BotSession.company_id == company_id,
-            BotSession.whatsapp_id == whatsapp_id,
-        )
-        .with_for_update(nowait=True)
-        .first()
-    )
-    if not session:
-        session = BotSession(
-            company_id=company_id,
-            whatsapp_id=whatsapp_id,
-            state=STATE_INICIO,
-            context={},
-        )
-        db.add(session)
-        db.flush()
-    return session
- 
- 
-def _reset_session(session: BotSession, keep_customer: bool = True) -> None:
-    """Reseta contexto para INICIO, preservando opcionalmente dados do cliente."""
-    ctx = session.context or {}
-    preserved = {}
-    if keep_customer:
-        for k in ("customer_id", "customer_name", "company_name"):
-            if k in ctx:
-                preserved[k] = ctx[k]
-    session.context = preserved
-    session.state = STATE_INICIO
- 
- 
-def _save_session(db: Session, session: BotSession) -> None:
-    session.expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.BOT_SESSION_TTL_MINUTES
-    )
-    db.commit()
  
  
 # ─── Normalização de input ────────────────────────────────────────────────────
@@ -458,7 +415,7 @@ def _start_escolhendo_servico(
     services = service_svc.list_services(db, company_id, active_only=True)
     if not services:
         _send_text(instance, whatsapp_id, messages.SEM_SERVICOS)
-        _reset_session(session)
+        reset_session(session)
         return
  
     ctx = session.context or {}
@@ -771,7 +728,7 @@ def _handle_confirmando(
  
     if payload == "opt_cancelar":
         nome = _first_name(ctx.get("customer_name", ""))
-        _reset_session(session)
+        reset_session(session)
         _send_text(instance, whatsapp_id, messages.cancelamento_pelo_usuario(nome))
         return
  
@@ -788,7 +745,7 @@ def _handle_confirmando(
     if not prof_id_raw or not customer_id:
         logger.error("CONFIRMANDO: dados incompletos ctx=%s whatsapp_id=%s", ctx, whatsapp_id)
         _send_text(instance, whatsapp_id, messages.ERRO_DADOS_INCOMPLETOS)
-        _reset_session(session)
+        reset_session(session)
         return
  
     appt_data = AppointmentCreate(
@@ -824,7 +781,7 @@ def _handle_confirmando(
             settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL,
         ),
     )
-    _reset_session(session)
+    reset_session(session)
  
  
 # ─── VER_AGENDAMENTOS ─────────────────────────────────────────────────────────
@@ -836,7 +793,7 @@ def _handle_ver_agendamentos(
     ctx         = session.context or {}
     customer_id = ctx.get("customer_id")
     if not customer_id:
-        _reset_session(session)
+        reset_session(session)
         return
  
     appointments = appointment_svc.list_active_by_client(db, company_id, UUID(customer_id))
@@ -884,7 +841,7 @@ def _handle_ver_agendamentos_input(
     payload = _resolve_input(user_input, ctx.get("last_list", []))
  
     if payload == "voltar" or not payload:
-        _reset_session(session)
+        reset_session(session)
         ctx2 = session.context or {}
         _show_menu_principal(session, ctx2, instance, whatsapp_id,
                              ctx2.get("company_name", ""), ctx2.get("customer_name"))
@@ -960,7 +917,7 @@ def _handle_gerenciando_agendamento(
         try:
             appt = appointment_svc.get_appointment_or_404(db, company_id, appt_id)
         except Exception:
-            _reset_session(session)
+            reset_session(session)
             return
  
         remaining = appt.start_at - datetime.now(timezone.utc)
@@ -994,13 +951,13 @@ def _start_cancelando(
     ctx         = session.context or {}
     appt_id_str = ctx.get("managing_appointment_id")
     if not appt_id_str:
-        _reset_session(session)
+        reset_session(session)
         return
  
     try:
         appt = appointment_svc.get_appointment_or_404(db, company_id, UUID(appt_id_str))
     except Exception:
-        _reset_session(session)
+        reset_session(session)
         return
  
     from app.modules.appointments.polices import check_cancellation_policy
@@ -1044,13 +1001,13 @@ def _handle_cancelando(
             appt = appointment_svc.get_appointment_or_404(db, company_id, UUID(appt_id_str))
             _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
         except Exception:
-            _reset_session(session)
+            reset_session(session)
         return
  
     if payload == "confirmar_cancel":
         appt_id_str = ctx.get("managing_appointment_id")
         if not appt_id_str:
-            _reset_session(session)
+            reset_session(session)
             return
         nome = _first_name(ctx.get("customer_name", ""))
         try:
@@ -1064,7 +1021,7 @@ def _handle_cancelando(
         except Exception:
             logger.exception("cancel_appointment failed id=%s", appt_id_str)
             _send_text(instance, whatsapp_id, messages.ERRO_CANCELAR_AGENDAMENTO)
-        _reset_session(session)
+        reset_session(session)
         return
  
     _send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO)
@@ -1117,7 +1074,7 @@ def _handle_reagendando(
             return
         _send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
  
-    _reset_session(session)
+    reset_session(session)
  
  
 # ─── Entry point — webhook messages.upsert ────────────────────────────────────
@@ -1183,7 +1140,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
  
     # Lock de sessão — previne processamento simultâneo do mesmo usuário
     try:
-        session = _get_session_locked(db, company_id, whatsapp_id)
+        session = get_session_locked(db, company_id, whatsapp_id)
     except OperationalError:
         logger.debug("session locked, descartando message_id=%s", message_id)
         return
@@ -1191,7 +1148,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     # Idempotência — descarta re-entrega da mesma mensagem
     if message_id and session.last_message_id == message_id:
         logger.debug("mensagem duplicada message_id=%s, ignorando", message_id)
-        _save_session(db, session)
+        save_session(db, session)
         return
     session.last_message_id = message_id
  
@@ -1201,7 +1158,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         if exp.tzinfo is None:
             exp = exp.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > exp:
-            _reset_session(session, keep_customer=False)
+            reset_session(session, keep_customer=False)
  
     state = session.state
  
@@ -1209,22 +1166,22 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     if state not in (STATE_AGUARDANDO_NOME, STATE_HUMANO):
         cmd = _is_universal_command(user_input)
         if cmd == "menu":
-            _reset_session(session)
+            reset_session(session)
             ctx = session.context or {}
             _show_menu_principal(session, ctx, instance_name, whatsapp_id,
                                  company_name, ctx.get("customer_name"))
-            _save_session(db, session)
+            save_session(db, session)
             return
         if cmd == "ver_agendamentos":
             ctx = session.context or {}
             if ctx.get("customer_id"):
                 _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance_name)
-                _save_session(db, session)
+                save_session(db, session)
                 return
         if cmd == "humano":
             session.state = STATE_HUMANO
             _send_text(instance_name, whatsapp_id, messages.HUMANO_CHAMADO)
-            _save_session(db, session)
+            save_session(db, session)
             return
  
     # ── Dispatcher principal ──────────────────────────────────────────────────
@@ -1282,13 +1239,14 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
  
         else:
             logger.warning("estado desconhecido state=%s, resetando sessão", state)
-            _reset_session(session, keep_customer=False)
+            reset_session(session, keep_customer=False)
  
     except Exception:
         logger.exception("bot error state=%s whatsapp_id=%s", state, whatsapp_id)
         _send_text(instance_name, whatsapp_id, messages.ERRO_GENERICO)
 
     try:
-        _save_session(db, session)
+        save_session(db, session)
     except Exception:
         logger.exception("save_session error state=%s whatsapp_id=%s", state, whatsapp_id)
+
