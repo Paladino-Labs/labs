@@ -241,19 +241,25 @@ def _identify_customer(
     ctx["customer_name"] = customer.name
     ctx["company_name"]  = company_name
 
-    upcoming = appointment_svc.list_upcoming_by_client(
-        db, company_id, customer.id, limit=1
+    appointments = booking_engine.get_customer_appointments(
+        db, company_id, customer.id
     )
 
-    if upcoming:
+    if appointments:
         session.context = ctx
-        _show_menu_principal(session, ctx, instance, whatsapp_id, company_name, customer.name)
+        _show_menu_principal(
+             session, ctx, instance, whatsapp_id, company_name, customer.name
+        )
         return
  
     # Tenta oferta preditiva
-    last_completed = appointment_svc.list_completed_by_client(
-        db, company_id, customer.id, limit=1
+    offer = booking_engine.get_predictive_offer(
+        db, company_id, customer.id, offer_ttl_minutes=5
     )
+    if offer:
+        # segue fluxo da oferta
+
+ 
     if last_completed:
         last_appt = last_completed[0]
         svc_id  = last_appt.services[0].service_id if last_appt.services else None
