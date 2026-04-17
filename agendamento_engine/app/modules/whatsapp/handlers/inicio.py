@@ -30,6 +30,7 @@ def handle(
 ) -> None:
     ctx = session.context or {}
 
+    # 🔹 Identificação inicial
     if not ctx.get("customer_id"):
         _identify_customer(
             db, session, company_id, whatsapp_id, instance, company_name,
@@ -38,28 +39,41 @@ def handle(
         return
 
     last_list = ctx.get("last_list", [])
+
     if last_list:
         payload = resolve_input(user_input, last_list)
+
+        if not payload:
+            sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+            return
+
         if payload == "opt_agendar":
             ctx["last_list"] = []
             session.context = ctx
             start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
             return
-        if payload == "opt_ver":
+
+        if payload == "opt_ver_agendamentos":
             ctx["last_list"] = []
             session.context = ctx
             handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
             return
+
         if payload == "opt_humano":
             session.state = STATE_HUMANO
             sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
             return
-        show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
-                            ctx.get("customer_name"))
+
+        # fallback seguro
+        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO)
         return
 
-    show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
-                        ctx.get("customer_name"))
+    # 🔹 Sem lista ativa → mostra menu
+    session.state = STATE_MENU_PRINCIPAL
+    show_menu_principal(
+        session, ctx, instance, whatsapp_id,
+        company_name, ctx.get("customer_name")
+    )
 
 
 def _identify_customer(
@@ -181,16 +195,26 @@ def show_menu_principal(
     instance: str, to: str, company_name: str, name: Optional[str],
 ) -> None:
     nome = first_name(name) if name else ""
+
     text = messages.menu_principal(nome)
+
     buttons = [
         {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},
-        {"buttonId": "opt_ver",     "buttonText": {"displayText": "🗓 Ver seus agendamentos"}},
-        {"buttonId": "opt_humano",  "buttonText": {"displayText": "💬 Falar com seu barbeiro"}},
+        {"buttonId": "opt_ver_agendamentos", "buttonText": {"displayText": "🗓 Ver seus agendamentos"}},
+        {"buttonId": "opt_humano", "buttonText": {"displayText": "💬 Falar com seu barbeiro"}},
     ]
+
+    if not buttons:
+        sender.send_text(instance, to, text)
+        return
+
     ctx["last_list"] = [
         {"row_id": "opt_agendar", "payload": "opt_agendar"},
-        {"row_id": "opt_ver",     "payload": "opt_ver"},
-        {"row_id": "opt_humano",  "payload": "opt_humano"},
+        {"row_id": "opt_ver_agendamentos", "payload": "opt_ver_agendamentos"},
+        {"row_id": "opt_humano", "payload": "opt_humano"},
     ]
+
     session.context = ctx
+    session.state = STATE_MENU_PRINCIPAL
+
     sender.send_buttons(instance, to, text, buttons)

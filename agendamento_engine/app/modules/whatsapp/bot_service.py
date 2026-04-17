@@ -135,7 +135,6 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         return
 
     message_id = key.get("id", "")
-    push_name  = data.get("pushName", "")
 
     # LID addressing mode (WhatsApp novo formato)
     addressing_mode = key.get("addressingMode", "")
@@ -225,7 +224,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         if state == STATE_INICIO:
             h_inicio.handle(
                 db, session, company_id, whatsapp_id, instance_name,
-                company_name, user_input, push_name,
+                company_name, user_input,
                 start_escolhendo_servico=_start_escolhendo_servico,
                 handle_ver_agendamentos=_handle_ver_agendamentos,
                 resolve_input=resolve_input,
