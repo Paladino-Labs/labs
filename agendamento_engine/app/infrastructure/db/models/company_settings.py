@@ -22,5 +22,7 @@ class CompanySettings(Base):
     require_payment_upfront = Column(Boolean, nullable=False, default=False)
     # Bot WhatsApp — ativo/inativo por empresa (default desligado)
     bot_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Agendamento online via link público (default desligado)
+    online_booking_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
 
     company = relationship("Company")

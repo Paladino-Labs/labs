@@ -15,6 +15,7 @@ from app.modules.schedule.router import router as schedule_router
 from app.modules.appointments.router import router as appointments_router
 from app.modules.availability.router import router as availability_router
 from app.modules.whatsapp.router import router as whatsapp_router
+from app.modules.booking.router import router as booking_router
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Paladino Labs API",
-    version="0.2.0",
-    description="Sistema de gestão para barbearias — Sprint 2 (WhatsApp Bot)",
+    version="0.3.0",
+    description="Sistema de gestão para barbearias — Sprint 4 (Agendamento Online)",
     lifespan=lifespan,
 )
 
@@ -68,8 +69,9 @@ app.include_router(schedule_router)
 app.include_router(appointments_router)
 app.include_router(availability_router)
 app.include_router(whatsapp_router)
+app.include_router(booking_router)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}

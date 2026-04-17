@@ -15,21 +15,36 @@ from app.core.config import settings
 
 # ─── INICIO / Identificação ───────────────────────────────────────────────────
 
-def boas_vindas_novo(company_name: str, push_name: str = "") -> str:
-    greeting = f"Olá! 👋 Seja bem-vindo à *{company_name}*!"
-    if push_name:
-        return (
-            f"{greeting}\n\n"
-            f"Seu nome é *{push_name}*? "
-            f"Me confirme seu nome para continuar. 😊"
-        )
-    return f"{greeting}\n\nPara começar, qual é o seu nome?"
+def boas_vindas_novo(company_name: str) -> str:
+    return f"""Fala, beleza? 👋
+
+Mais uma carinha nova por aqui, bem-vindo à *{company_name}*!!
+
+Qual é o seu nome?"""
 
 
-def menu_principal(name: str, company_name: str) -> str:
-    if name:
-        return f"Olá, {name}! 😊\n\nO que você deseja fazer?"
-    return f"Olá! 👋 Bem-vindo à *{company_name}*!\n\nO que você deseja fazer?"
+# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
+
+
+def confirmar_nome(nome: str) -> str:
+    return f"""Seu nome é *{nome}*, certo?
+
+1️⃣ Sim
+2️⃣ Corrigir"""
+
+
+PEDIR_NOME_NOVAMENTE = (
+    "Pode me dizer seu nome novamente? 😊"
+)
+
+
+def boas_vindas_nome_confirmado(first_name: str) -> str:
+    return f"""Prazer, {first_name}! 😄
+
+Vamos agendar seu horário."""
+
+
+# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
 
 
 def oferta_recorrente(
@@ -40,81 +55,129 @@ def oferta_recorrente(
     offer_ttl_minutes: int,
 ) -> str:
     return (
-        f"Olá, {name}! Tudo bem? 👋\n\n"
-        f"Tenho um *{service_name}* com *{prof_name}* disponível às *{slot_label}* 🕒\n"
-        f"_Reservado para você pelos próximos {offer_ttl_minutes} minutos._"
+        f"Fala, {name}! 👋\n\n"
+        f"Encontrei um horário pra você 👇\n\n"
+        f"💈 *{service_name}*\n"
+        f"👤 {prof_name}\n"
+        f"🕒 {slot_label}\n\n"
+        f"_Reservei pra você por {offer_ttl_minutes} min._\n\n"
+        f"Posso confirmar?"
     )
+
+
+def confirmacao_agendamento_recorrente(
+    name: str,
+    service_name: str,
+    prof_name: str,
+    slot_label: str,
+) -> str:
+    return f"""✅ Pronto, {name}!
+
+Seu *{service_name}* com {prof_name} está agendado para *{slot_label}*.
+
+⚠️ Cancelamento ou reagendamento deve ser feito no máximo 2 horas antes do horário."""
+
+
+def escolher_outro_horario(name: str) -> str:
+    return f"""Claro, {name}! 👍
+
+Qual horário você prefere?"""
+
+
+def escolher_outro_servico(name: str) -> str:
+    return f"""Ótimo, {name}! 😄
+
+Qual serviço você deseja agendar?"""
+
+
+OFERTA_EXPIRADA = (
+    "⏰ Esse horário não está mais disponível 😕\n\n"
+    "Vou te mostrar outras opções 👍"
+)
+
+
+ESCOLHA_OPCAO = "Escolha uma das opções acima 👆"
+
+ESCOLHA_OPCAO_OPS = (
+    "Não entendi 😅\n\n"
+    "Escolhe uma das opções ali em cima 👆"
+)
+
+
+# ─── CHAMADO_HUMANO ───────────────────────────────────────────────────────
 
 
 HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
 
 
-# ─── AGUARDANDO_NOME ──────────────────────────────────────────────────────────
-
-PEDIR_NOME_NOVAMENTE = (
-    "Por favor, me diga seu nome completo para eu te chamar corretamente. 😊"
-)
+# ─── MENU_PRINCIPAL ───────────────────────────────────────────────────────
 
 
-def boas_vindas_nome_confirmado(first_name: str) -> str:
-    return f"Prazer, {first_name}! 😄 Vamos agendar seu horário."
+def menu_principal(name: str) -> str:
+    return f"""Beleza, {name}! 👋
 
-
-# ─── OFERTA_RECORRENTE ────────────────────────────────────────────────────────
-
-OFERTA_EXPIRADA = (
-    "⏰ O tempo de reserva expirou. Vou buscar os próximos horários disponíveis..."
-)
-
-ESCOLHA_OPCAO = "Escolha uma das opções acima. 😊"
-ESCOLHA_OPCAO_OPS = "Ops! Escolha uma das opções acima. 😊"
+Qual a boa de hoje?"""
 
 
 # ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
 
 SEM_SERVICOS = (
-    "😔 Não há serviços disponíveis no momento. "
-    "Entre em contato conosco para mais informações."
+    "😕 No momento não temos serviços disponíveis.\n\n"
+    "Vamos começar novamente?"
 )
 
 
 def escolha_servico(first_name: str = "") -> str:
     if first_name:
-        return f"Qual serviço você gostaria, {first_name}?"
-    return "Qual serviço você gostaria?"
+        return f"O que vamos agendar hoje, {first_name}?"
+    return "O que vamos agendar hoje?"
 
 
 # ─── ESCOLHENDO_PROFISSIONAL ──────────────────────────────────────────────────
 
 def escolha_profissional(service_name: str) -> str:
-    return f"Com quem você quer agendar *{service_name}*?"
+    return f"Com quem você prefere?"
 
+
+# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
+
+
+def escolha_data_titulo(service_name: str) -> str:
+    return f"📅 Vamos escolher o dia"
+
+
+def escolha_data_descricao(first_name: str = "", prof_name: str = "") -> str:
+    if first_name:
+        desc = f"Qual dia funciona melhor pra você, {first_name}? 👇"
+    else:
+        desc = "Qual dia funciona melhor pra você? 👇"
+
+    if prof_name and prof_name != "Qualquer disponível":
+        desc += f"\n\n👤 {prof_name}"
+
+    return desc
+  
 
 # ─── ESCOLHENDO_HORARIO ───────────────────────────────────────────────────────
 
+
 SEM_HORARIOS = (
-    "😔 Não encontrei horários disponíveis para esse período. "
-    "Tente outra data ou entre em contato conosco!"
+    "😕 Não encontrei horários disponíveis para esse dia.\n\n"
+    "Você pode escolher outra data ou falar com um atendente 👍"
 )
 
 
 def escolha_horario(service_name: str, prof_name: str = "") -> str:
     if prof_name and prof_name != "Qualquer disponível":
-        return f"Escolha um horário para *{service_name}* com *{prof_name}*:"
-    return f"Escolha um horário para *{service_name}*:"
+        return (
+            f"Bora deixar tudo na régua 😎\n\n"
+            f"Escolhe um horário pra você 👇"
+        )
 
-
-# ─── ESCOLHENDO_DATA ──────────────────────────────────────────────────────────
-
-def escolha_data_titulo(service_name: str) -> str:
-    return f"📅 Escolha a data para {service_name}"
-
-
-def escolha_data_descricao(first_name: str = "", prof_name: str = "") -> str:
-    desc = f"Para qual dia, {first_name}?" if first_name else "Para qual dia?"
-    if prof_name and prof_name != "Qualquer disponível":
-        desc += f"\n_Profissional: {prof_name}_"
-    return desc
+    return (
+        f"Bora deixar tudo na régua 😎\n\n"
+        f"Escolhe um horário pra você 👇"
+    )
 
 
 # ─── CONFIRMANDO ─────────────────────────────────────────────────────────────
@@ -282,4 +345,3 @@ ERRO_GENERICO = (
 )
 
 INPUT_INVALIDO = "Ops! Escolha uma das opções acima. 😊"
-
