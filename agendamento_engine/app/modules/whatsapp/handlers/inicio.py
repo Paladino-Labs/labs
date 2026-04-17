@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import BotSession
+from app.modules.booking.engine import booking_engine
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
@@ -14,6 +15,9 @@ from app.modules.customers import service as customer_svc
 from app.modules.appointments import service as appointment_svc
 from app.modules.availability import service as availability_svc
 from app.core.config import settings
+
+booking_engine = BookingEngine()
+
 
 STATE_AGUARDANDO_NOME   = "AGUARDANDO_NOME"
 STATE_OFERTA_RECORRENTE = "OFERTA_RECORRENTE"
