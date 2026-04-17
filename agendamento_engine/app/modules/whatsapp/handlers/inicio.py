@@ -23,7 +23,7 @@ STATE_HUMANO            = "HUMANO"
 def handle(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, company_name: str,
-    user_input: str, push_name: str,
+    user_input: str,
     start_escolhendo_servico,
     handle_ver_agendamentos,
     resolve_input,
@@ -32,7 +32,7 @@ def handle(
 
     if not ctx.get("customer_id"):
         _identify_customer(
-            db, session, company_id, whatsapp_id, instance, company_name, push_name,
+            db, session, company_id, whatsapp_id, instance, company_name,
             start_escolhendo_servico, handle_ver_agendamentos,
         )
         return
