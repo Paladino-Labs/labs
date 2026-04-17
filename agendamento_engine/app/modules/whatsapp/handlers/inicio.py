@@ -35,6 +35,11 @@ def handle(
 ) -> None:
     ctx = session.context or {}
 
+    # 🔥 AQUI
+    if session.state == STATE_INICIO:
+        ctx["last_list"] = []
+        session.context = ctx
+
     # 🔹 Identificação inicial
     if not ctx.get("customer_id"):
         _identify_customer(

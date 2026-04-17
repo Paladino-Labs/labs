@@ -85,8 +85,11 @@ def _start_escolhendo_profissional(db: Session, session: BotSession, company_id:
                          send_escolher_data=_send_escolher_data)
 
 
-def _send_escolher_data(db: Session, session: BotSession, company_id: UUID,
-                        instance: str, whatsapp_id: str) -> None:
+def _send_escolher_data(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str,
+    *args, **kwargs
+) -> None:
     h_data.send_escolher_data(db, session, company_id, instance, whatsapp_id)
 
 
