@@ -185,8 +185,7 @@ def _handle_inicio(
 
     # Passo 1: cliente ainda não identificado → iniciar onboarding
     if not ctx.get("customer_id"):
-        _identify_customer(db, session, company_id, whatsapp_id, instance,
-                           company_name, push_name)
+        _identify_customer(db, session, company_id, whatsapp_id, instance, company_name)
         return
 
     # Passo 2: menu já foi apresentado → processa escolha
