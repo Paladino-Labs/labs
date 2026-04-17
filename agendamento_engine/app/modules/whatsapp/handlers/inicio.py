@@ -64,85 +64,116 @@ def handle(
 
 def _identify_customer(
     db: Session, session: BotSession, company_id: UUID,
-    whatsapp_id: str, instance: str, company_name: str, push_name: str,
+    whatsapp_id: str, instance: str, company_name: str,
     start_escolhendo_servico,
     handle_ver_agendamentos,
 ) -> None:
     customer = customer_svc.get_by_phone(db, company_id, whatsapp_id)
 
+    # ─────────────────────────────────────────────
+    # 🟡 Cliente novo
+    # ─────────────────────────────────────────────
     if not customer:
         session.state = STATE_AGUARDANDO_NOME
+
         ctx = session.context or {}
         ctx["company_name"] = company_name
-        if push_name:
-            ctx["push_name_suggestion"] = push_name
         session.context = ctx
-        sender.send_text(instance, whatsapp_id, messages.boas_vindas_novo(company_name))
+
+        sender.send_text(
+            instance,
+            whatsapp_id,
+            messages.boas_vindas_novo(company_name),
+        )
         return
 
+    # ─────────────────────────────────────────────
+    # 🟢 Cliente existente
+    # ─────────────────────────────────────────────
     ctx = dict(session.context or {})
-    ctx["customer_id"]   = str(customer.id)
+    ctx["customer_id"] = str(customer.id)
     ctx["customer_name"] = customer.name
-    ctx["company_name"]  = company_name
+    ctx["company_name"] = company_name
 
-    upcoming = appointment_svc.list_upcoming_by_client(db, company_id, customer.id, limit=1)
-    if upcoming:
+    # ✅ USAR ENGINE (não service direto)
+    appointments = booking_engine.get_customer_appointments(
+        db, company_id, customer.id
+    )
+
+    if appointments:
         session.context = ctx
-        show_menu_principal(session, ctx, instance, whatsapp_id, company_name, customer.name)
+        show_menu_principal(
+            session, ctx, instance, whatsapp_id, company_name, customer.name
+        )
         return
 
-    last_completed = appointment_svc.list_completed_by_client(db, company_id, customer.id, limit=1)
-    if last_completed:
-        last_appt = last_completed[0]
-        svc_id  = last_appt.services[0].service_id if last_appt.services else None
-        prof_id = last_appt.professional_id
-        if svc_id and prof_id:
-            slots = availability_svc.get_next_available_slots(
-                db, company_id, prof_id, svc_id, days=7, limit=1
-            )
-            if slots:
-                svc_name   = last_appt.services[0].service_name
-                prof_name  = last_appt.professional.name if last_appt.professional else "Profissional"
-                slot_dt    = slots[0].start_at
-                slot_label = slot_dt.strftime("%d/%m às %H:%M")
-                expires_at = datetime.now(timezone.utc) + timedelta(
-                    minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES
-                )
-                ctx["predicted_slot"] = {
-                    "start_at":          slot_dt.isoformat(),
-                    "service_id":        str(svc_id),
-                    "service_name":      svc_name,
-                    "professional_id":   str(prof_id),
-                    "professional_name": prof_name,
-                    "expires_at":        expires_at.isoformat(),
-                }
-                ctx["last_list"] = [
-                    {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
-                    {"row_id": "opt_outro_horario",    "payload": "opt_outro_horario"},
-                    {"row_id": "opt_outro_servico",    "payload": "opt_outro_servico"},
-                ]
-                session.context = ctx
-                session.state = STATE_OFERTA_RECORRENTE
+    # ─────────────────────────────────────────────
+    # 🧠 Oferta preditiva (ENGINE)
+    # ─────────────────────────────────────────────
+    offer = booking_engine.get_predictive_offer(
+        db,
+        company_id,
+        customer.id,
+        offer_ttl_minutes=settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES,
+    )
 
-                nome = first_name(customer.name)
-                text = messages.oferta_recorrente(
-                    nome, svc_name, prof_name, slot_label,
-                    settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES,
-                )
-                buttons = [
-                    {"buttonId": "opt_confirmar_oferta",
-                     "buttonText": {"displayText": "✅ Sim, confirmar"}},
-                    {"buttonId": "opt_outro_horario",
-                     "buttonText": {"displayText": "🕐 Outro horário"}},
-                    {"buttonId": "opt_outro_servico",
-                     "buttonText": {"displayText": "🔁 Outro serviço"}},
-                ]
-                sender.send_buttons(instance, whatsapp_id, text, buttons)
-                return
+    if offer:
+        ctx["predicted_slot"] = {
+            "start_at": offer.next_slot.isoformat(),
+            "service_id": str(offer.service_id),
+            "service_name": offer.service_name,
+            "professional_id": str(offer.professional_id),
+            "professional_name": offer.professional_name,
+            "expires_at": offer.expires_at.isoformat(),
+        }
 
+        ctx["last_list"] = [
+            {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
+            {"row_id": "opt_outro_horario", "payload": "opt_outro_horario"},
+            {"row_id": "opt_outro_servico", "payload": "opt_outro_servico"},
+        ]
+
+        session.context = ctx
+        session.state = STATE_OFERTA_RECORRENTE
+
+        nome = first_name(customer.name)
+        slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
+
+        text = messages.oferta_recorrente(
+            nome,
+            offer.service_name,
+            offer.professional_name,
+            slot_label,
+            settings.BOT_PREDICTIVE_OFFER_TTL_MINUTES,
+        )
+
+        buttons = [
+            {
+                "buttonId": "opt_confirmar_oferta",
+                "buttonText": {"displayText": f"✅ Sim, {slot_label}"},
+            },
+            {
+                "buttonId": "opt_outro_horario",
+                "buttonText": {"displayText": "🕐 Outro horário"},
+            },
+            {
+                "buttonId": "opt_outro_servico",
+                "buttonText": {"displayText": "🔁 Outro serviço"},
+            },
+        ]
+
+        sender.send_buttons(instance, whatsapp_id, text, buttons)
+        return
+
+    # ─────────────────────────────────────────────
+    # 🔵 Fallback → menu padrão
+    # ─────────────────────────────────────────────
     ctx["last_list"] = []
     session.context = ctx
-    show_menu_principal(session, ctx, instance, whatsapp_id, company_name, customer.name)
+
+    show_menu_principal(
+        session, ctx, instance, whatsapp_id, company_name, customer.name
+    )
 
 
 def show_menu_principal(

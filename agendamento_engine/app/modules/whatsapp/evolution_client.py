@@ -162,12 +162,11 @@ def send_buttons(
     number = _normalize_number(to)
     payload = {
         "number": number,
-        "buttonsMessage": {
-            "text": body_text,
-            "footer": footer_text,
-            "buttons": buttons,
-        },
-    }
+        "text": body_text,
+        "footer": footer_text,
+        "buttons": buttons,
+    },
+    
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
     if not resp.is_success:
         logger.error(
@@ -183,7 +182,7 @@ def send_list(
     title: str,
     description: str,
     button_text: str,
-    rows: list[dict],   # [{"rowId": "opt_0", "title": "09:00", "description": ""}]
+    rows: list[dict],
     section_title: str = "Opções",
 ) -> None:
     """
@@ -192,22 +191,23 @@ def send_list(
     """
     url = f"{_base()}/message/sendList/{instance_name}"
     number = _normalize_number(to)
+
     payload = {
         "number": number,
-        "listMessage": {
-            "title": title,
-            "description": description,
-            "buttonText": button_text,
-            "footerText": "",
-            "sections": [
-                {
-                    "title": section_title,
-                    "rows": rows,
-                }
-            ],
-        },
+        "title": title,
+        "description": description,
+        "buttonText": button_text,
+        "footerText": "",
+        "sections": [
+            {
+                "title": section_title,
+                "rows": rows,
+            }
+        ],
     }
+    
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+
     if not resp.is_success:
         logger.error(
             "send_list error status=%s body=%s | instance=%s number=%s",

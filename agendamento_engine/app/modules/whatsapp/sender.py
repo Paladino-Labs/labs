@@ -21,7 +21,15 @@ def send_text(instance: str, to: str, text: str) -> None:
 def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
     """Envia botões interativos com fallback para texto numerado."""
     try:
-        evolution_client.send_buttons(instance, to, text, buttons)
+        payload = {
+            "number": number,
+            "text": text,
+            "footer": "",
+            "buttons": buttons,
+        }
+
+        evolution_client.send_buttons(instance, to, payload)
+
     except Exception as e:
         logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
         lines = [text, ""]
@@ -32,13 +40,41 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
         send_text(instance, to, "\n".join(lines))
 
 
-def send_list(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:
-    """Envia lista interativa com fallback para texto numerado."""
-    try:
-        evolution_client.send_list(instance, to, title, description, "Ver opções", rows)
-    except Exception as e:
-        logger.warning("send_list falhou, fallback texto. to=%s: %s", to, e)
-        _send_list_as_text(instance, to, title, description, rows)
+def send_list(
+    instance_name: str,
+    to: str,
+    title: str,
+    description: str,
+    button_text: str,
+    rows: list[dict],
+    section_title: str = "Opções",
+) -> None:
+    url = f"{_base()}/message/sendList/{instance_name}"
+    number = _normalize_number(to)
+
+    payload = {
+        "number": number,
+        "title": title,
+        "description": description,
+        "buttonText": button_text,
+        "footerText": "",
+        "sections": [
+            {
+                "title": section_title,
+                "rows": rows,
+            }
+        ],
+    }
+
+    resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+
+    if not resp.is_success:
+        logger.error(
+            "send_list error status=%s body=%s | instance=%s number=%s",
+            resp.status_code, resp.text[:500], instance_name, number,
+        )
+
+    resp.raise_for_status()
 
 
 def _send_list_as_text(instance: str, to: str, title: str, description: str, rows: list[dict]) -> None:

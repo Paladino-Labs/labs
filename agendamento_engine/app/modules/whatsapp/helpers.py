@@ -13,19 +13,31 @@ _DIAS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Doming
 def resolve_input(user_input: str, last_list: list) -> Optional[str]:
     """
     Resolve payload pelo input do usuário.
-    Aceita: row_id exato (botão/lista Evolution) ou número ("1", "2"...).
+    Aceita:
+    - row_id exato (botões/lista)
+    - número ("1", "2", "1.", "1)", etc)
+
     Retorna None se não encontrado → fallback.
     """
     if not last_list:
         return None
-    cleaned = (user_input or "").strip()
+
+    cleaned = (user_input or "").strip().lower()
+
+    # 🔹 1. Match direto por row_id
     for item in last_list:
-        if item.get("row_id") == cleaned:
+        row_id = str(item.get("row_id", "")).lower()
+        if row_id and row_id == cleaned:
             return item.get("payload")
-    if cleaned.isdigit():
-        idx = int(cleaned) - 1
+
+    # 🔹 2. Extrai número (robusto)
+    import re
+    match = re.match(r"^(\d+)", cleaned)
+    if match:
+        idx = int(match.group(1)) - 1
         if 0 <= idx < len(last_list):
             return last_list[idx].get("payload")
+
     return None
 
 
