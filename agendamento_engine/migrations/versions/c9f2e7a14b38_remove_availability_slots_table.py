@@ -22,7 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
  
  
 def upgrade() -> None:
-    op.drop_index("uq_availability_slot", table_name="availability_slots")
+    op.drop_constraint(
+    "uq_availability_slot",
+    "availability_slots",
+    type_="unique"
+)
     op.drop_table("availability_slots")
  
  
