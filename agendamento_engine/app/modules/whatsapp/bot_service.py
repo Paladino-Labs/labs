@@ -27,6 +27,7 @@ from sqlalchemy.exc import OperationalError
  
 from app.infrastructure.db.models import BotSession, WhatsAppConnection
 from app.infrastructure.db.models import Company, CompanySettings
+from app.modules.booking.engine import BookingEngine
 from app.modules.whatsapp import evolution_client
 from app.modules.whatsapp import messages
 from app.modules.whatsapp.session import get_session_locked, save_session, reset_session
@@ -38,7 +39,8 @@ from app.modules.appointments.schemas import AppointmentCreate
 from app.modules.availability import service as availability_svc
 from app.core.config import settings
 from app.modules.appointments.polices import PolicyViolationError
- 
+
+booking_engine = BookingEngine()
 logger = logging.getLogger(__name__)
  
 # ─── Estados ──────────────────────────────────────────────────────────────────
