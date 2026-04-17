@@ -535,18 +535,15 @@ def _start_escolhendo_servico(
     ctx = dict(session.context or {})
 
     if not services:
-        text = messages.SEM_SERVICOS
-
-        buttons = [
-            {
-                "buttonId": "opt_menu",
-                "buttonText": {"displayText": "🏠 Menu principal"}
-            },
-            {
-                "buttonId": "opt_humano",
-                "buttonText": {"displayText": "💬 Falar com atendente"}
-            },
-        ]
+        _send_buttons(
+            instance,
+            whatsapp_id,
+            messages.SEM_SERVICOS,
+            [
+                {"buttonId": "opt_menu", "buttonText": {"displayText": "🏠 Menu principal"}},
+                {"buttonId": "opt_humano", "buttonText": {"displayText": "💬 Falar com atendente"}},
+            ],
+        )
 
         ctx["last_list"] = [
             {"row_id": "opt_menu", "payload": "opt_menu"},
@@ -554,31 +551,37 @@ def _start_escolhendo_servico(
         ]
 
         session.context = ctx
-
-        _send_buttons(instance, whatsapp_id, text, buttons)
         return
 
-    rows = [
-        {
-            "rowId": str(s.id),
+    rows = []
+    last_list = []
+
+    for s in services:
+        if not hasattr(s, "id"):
+            continue
+
+        row_id = str(s.id)
+
+        rows.append({
+            "rowId": row_id,
             "title": s.name,
             "description": f"R$ {s.price:.2f} · {s.duration} min"
-        }
-        for i, s in enumerate(services)
-    ]
+        })
 
-    ctx["last_list"] = [
-        {"row_id": str(s.id), "payload": str(s.id)}
-        for i, _ in enumerate(services)
-    ]
+        last_list.append({
+            "row_id": row_id,
+            "payload": row_id,
+        })
 
+    ctx["last_list"] = last_list
     session.context = ctx
     session.state = STATE_ESCOLHENDO_SERVICO
 
     nome = _first_name(ctx.get("customer_name", ""))
 
     _send_list(
-        instance, whatsapp_id,
+        instance,
+        whatsapp_id,
         "✂️ Nossos serviços",
         messages.escolha_servico(nome),
         rows,
