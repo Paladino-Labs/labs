@@ -174,7 +174,49 @@ def _first_name(full_name: str) -> str:
  
  
 # ─── INICIO ───────────────────────────────────────────────────────────────────
- 
+
+
+def _handle_inicio(
+    db: Session, session: BotSession, company_id: UUID,
+    whatsapp_id: str, instance: str, company_name: str,
+    user_input: str, push_name: str = "",
+) -> None:
+    ctx = session.context or {}
+
+    # Passo 1: cliente ainda não identificado → iniciar onboarding
+    if not ctx.get("customer_id"):
+        _identify_customer(db, session, company_id, whatsapp_id, instance,
+                           company_name, push_name)
+        return
+
+    # Passo 2: menu já foi apresentado → processa escolha
+    last_list = ctx.get("last_list", [])
+    if last_list:
+        payload = _resolve_input(user_input, last_list)
+        if payload == "opt_agendar":
+            ctx["last_list"] = []
+            session.context = ctx
+            _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+            return
+        if payload == "opt_ver":
+            ctx["last_list"] = []
+            session.context = ctx
+            _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+            return
+        if payload == "opt_humano":
+            session.state = STATE_HUMANO
+            _send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+            return
+        # Input inválido → reenvia menu
+        _show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
+                             ctx.get("customer_name"))
+        return
+
+    # Passo 3: menu ainda não foi apresentado → exibe
+    _show_menu_principal(session, ctx, instance, whatsapp_id, company_name,
+                         ctx.get("customer_name"))
+
+
 def _identify_customer(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, company_name: str,
