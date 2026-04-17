@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import BotSession
-from app.modules.booking.engine import booking_engine
+from app.modules.booking.engine import BookingEngine
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
