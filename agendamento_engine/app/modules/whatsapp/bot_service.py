@@ -130,11 +130,13 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     if isinstance(data, dict) and "messages" in data:
         messages_list = data.get("messages") or []
         if not messages_list:
+            logger.debug("handle_inbound: messages array vazio, ignorando. instance=%s", instance_name)
             return
         data = messages_list[0]
 
     key = data.get("key", {})
     if key.get("fromMe"):
+        logger.debug("handle_inbound: fromMe=True, ignorando. instance=%s", instance_name)
         return
 
     message_id = key.get("id", "")
@@ -146,10 +148,12 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     remote_jid = remote_jid_alt if (addressing_mode == "lid" and remote_jid_alt) else raw_jid
 
     if not remote_jid:
-        logger.warning("sem remoteJid, instance=%s", instance_name)
+        logger.warning("handle_inbound: sem remoteJid. instance=%s data_keys=%s",
+                       instance_name, list(data.keys()))
         return
     if remote_jid.endswith("@g.us"):
-        return  # ignora grupos silenciosamente
+        logger.debug("handle_inbound: grupo ignorado. jid=%s", remote_jid)
+        return
 
     whatsapp_id = remote_jid.split("@")[0]
 
@@ -158,7 +162,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         WhatsAppConnection.instance_name == instance_name
     ).first()
     if not conn:
-        logger.warning("instance_name=%s não encontrado no DB", instance_name)
+        logger.warning("handle_inbound: instance_name=%s não encontrado no DB", instance_name)
         return
 
     company_id = conn.company_id
@@ -167,7 +171,11 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     company_settings = db.query(CompanySettings).filter(
         CompanySettings.company_id == company_id
     ).first()
-    if not company_settings or not company_settings.bot_enabled:
+    if not company_settings:
+        logger.warning("handle_inbound: company_settings não encontrado. company_id=%s", company_id)
+        return
+    if not company_settings.bot_enabled:
+        logger.info("handle_inbound: bot desativado. company_id=%s", company_id)
         return
 
     company      = db.query(Company).filter(Company.id == company_id).first()
