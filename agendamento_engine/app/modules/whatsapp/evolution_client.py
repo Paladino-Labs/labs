@@ -165,13 +165,13 @@ def send_buttons(
     url = f"{_base()}/message/sendButtons/{instance_name}"
     number = _normalize_number(to)
 
-    # Baileys exige o campo "type" como inteiro 1 em cada botão.
-    # O formato interno já traz buttonId e buttonText — só adiciona o type.
+    # Evolution API v2 exige type como STRING do enum: "reply","copy","url","call","pix"
+    # Manter buttonId + buttonText (formato Baileys) — NÃO usar {"reply": {"id":...}}
     formatted_buttons = [
         {
+            "type":       "reply",
             "buttonId":   btn.get("buttonId", ""),
             "buttonText": {"displayText": btn.get("buttonText", {}).get("displayText", "")},
-            "type":       1,
         }
         for btn in buttons
     ]
