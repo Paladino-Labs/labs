@@ -34,7 +34,8 @@ def start(
     ctx["last_list"] = [
         {"row_id": o.row_key,
          "payload": str(o.id) if o.id else "any",
-         "professional_name": o.name}
+         "professional_name": o.name,
+         "title": o.name}
         for o in options
     ]
     session.context = ctx

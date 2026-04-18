@@ -146,17 +146,20 @@ def _identify_customer(
             "expires_at": offer.expires_at.isoformat(),
         }
 
-        ctx["last_list"] = [
-            {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta"},
-            {"row_id": "opt_outro_horario", "payload": "opt_outro_horario"},
-            {"row_id": "opt_outro_servico", "payload": "opt_outro_servico"},
-        ]
-
         session.context = ctx
         session.state = STATE_OFERTA_RECORRENTE
 
         nome = first_name(customer.name)
         slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
+
+        ctx["last_list"] = [
+            {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta",
+             "title": f"✅ Sim, {slot_label}"},
+            {"row_id": "opt_outro_horario", "payload": "opt_outro_horario",
+             "title": "🕐 Outro horário"},
+            {"row_id": "opt_outro_servico", "payload": "opt_outro_servico",
+             "title": "🔁 Outro serviço"},
+        ]
 
         text = messages.oferta_recorrente(
             nome,
@@ -214,9 +217,12 @@ def show_menu_principal(
         return
 
     ctx["last_list"] = [
-        {"row_id": "opt_agendar", "payload": "opt_agendar"},
-        {"row_id": "opt_ver_agendamentos", "payload": "opt_ver_agendamentos"},
-        {"row_id": "opt_humano", "payload": "opt_humano"},
+        {"row_id": "opt_agendar",           "payload": "opt_agendar",
+         "title": "📅 Agendar horário"},
+        {"row_id": "opt_ver_agendamentos",  "payload": "opt_ver_agendamentos",
+         "title": "🗓 Ver seus agendamentos"},
+        {"row_id": "opt_humano",            "payload": "opt_humano",
+         "title": "💬 Falar com seu barbeiro"},
     ]
 
     session.context = ctx

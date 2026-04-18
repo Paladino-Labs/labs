@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 STATE_CONFIRMANDO = "CONFIRMANDO"
 
 _CONFIRMANDO_LIST = [
-    {"row_id": "opt_confirmar",       "payload": "opt_confirmar"},
-    {"row_id": "opt_alterar_horario", "payload": "opt_alterar_horario"},
-    {"row_id": "opt_cancelar",        "payload": "opt_cancelar"},
+    {"row_id": "opt_confirmar",       "payload": "opt_confirmar",
+     "title": "✅ Confirmar"},
+    {"row_id": "opt_alterar_horario", "payload": "opt_alterar_horario",
+     "title": "🕐 Alterar horário"},
+    {"row_id": "opt_cancelar",        "payload": "opt_cancelar",
+     "title": "❌ Cancelar"},
 ]
 
 

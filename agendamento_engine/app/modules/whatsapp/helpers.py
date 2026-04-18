@@ -15,22 +15,30 @@ def resolve_input(user_input: str, last_list: list) -> Optional[str]:
     Resolve payload pelo input do usuário.
     Aceita:
     - row_id exato (botões/lista)
-    - número ("1", "2", "1.", "1)", etc)
+    - title exato (texto do botão/opção) — resolve votos de enquete (sendPoll)
+    - número digitado ("1", "2", "1.", "1)", etc) — fallback texto numerado
 
     Retorna None se não encontrado → fallback.
     """
     if not last_list:
         return None
 
-    cleaned = (user_input or "").strip().lower()
+    cleaned = (user_input or "").strip()
+    cleaned_lower = cleaned.lower()
 
-    # 🔹 1. Match direto por row_id
+    # 🔹 1. Match direto por row_id (case-insensitive)
     for item in last_list:
         row_id = str(item.get("row_id", "")).lower()
-        if row_id and row_id == cleaned:
+        if row_id and row_id == cleaned_lower:
             return item.get("payload")
 
-    # 🔹 2. Extrai número (robusto)
+    # 🔹 2. Match por title — resolve votos de enquete (texto exato da opção selecionada)
+    for item in last_list:
+        title = str(item.get("title", "")).lower()
+        if title and title == cleaned_lower:
+            return item.get("payload")
+
+    # 🔹 3. Extrai número (robusto: "1", "1.", "1)", etc.)
     import re
     match = re.match(r"^(\d+)", cleaned)
     if match:

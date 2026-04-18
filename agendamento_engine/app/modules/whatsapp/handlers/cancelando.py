@@ -50,8 +50,10 @@ def start(
 
     ctx = dict(ctx)
     ctx["last_list"] = [
-        {"row_id": "opt_confirmar_cancel",   "payload": "confirmar_cancel"},
-        {"row_id": "opt_voltar_gerenciando", "payload": "voltar_gerenciando"},
+        {"row_id": "opt_confirmar_cancel",   "payload": "confirmar_cancel",
+         "title": "✅ Sim, cancelar"},
+        {"row_id": "opt_voltar_gerenciando", "payload": "voltar_gerenciando",
+         "title": "← Não, voltar"},
     ]
     session.context = ctx
     sender.send_buttons(

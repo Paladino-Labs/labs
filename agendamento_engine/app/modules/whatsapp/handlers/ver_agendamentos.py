@@ -31,7 +31,8 @@ def handle_ver_agendamentos(
     if not appointments:
         sender.send_text(instance, whatsapp_id, messages.sem_agendamentos_ativos(nome))
         ctx = dict(ctx)
-        ctx["last_list"] = [{"row_id": "opt_agendar", "payload": "opt_agendar"}]
+        ctx["last_list"] = [{"row_id": "opt_agendar", "payload": "opt_agendar",
+                              "title": "📅 Agendar horário"}]
         session.context  = ctx
         session.state    = STATE_INICIO
         return
@@ -46,10 +47,11 @@ def handle_ver_agendamentos(
         rows.append({"rowId": row_id,
                      "title": f"{date_label} às {time_label} — {svc_name}",
                      "description": f"com {prof_name}"})
-        last_list.append({"row_id": row_id, "payload": str(a.id)})
+        title_str = f"{date_label} às {time_label} — {svc_name}"
+        last_list.append({"row_id": row_id, "payload": str(a.id), "title": title_str})
 
     rows.append({"rowId": "opt_voltar", "title": "← Voltar ao menu", "description": ""})
-    last_list.append({"row_id": "opt_voltar", "payload": "voltar"})
+    last_list.append({"row_id": "opt_voltar", "payload": "voltar", "title": "← Voltar ao menu"})
 
     ctx = dict(ctx)
     ctx["last_list"] = last_list

@@ -21,8 +21,10 @@ def start(
 
     if not options:
         ctx["last_list"] = [
-            {"row_id": "opt_menu",   "payload": "opt_menu"},
-            {"row_id": "opt_humano", "payload": "opt_humano"},
+            {"row_id": "opt_menu",   "payload": "opt_menu",
+             "title": "🏠 Menu principal"},
+            {"row_id": "opt_humano", "payload": "opt_humano",
+             "title": "💬 Falar com atendente"},
         ]
         session.context = ctx
         sender.send_buttons(
@@ -40,7 +42,8 @@ def start(
         for o in options
     ]
     ctx["last_list"] = [
-        {"row_id": o.row_key, "payload": str(o.id), "service_name": o.name}
+        {"row_id": o.row_key, "payload": str(o.id),
+         "service_name": o.name, "title": o.name}
         for o in options
     ]
     session.context = ctx

@@ -100,6 +100,7 @@ def set_webhook(instance_name: str, webhook_url: str) -> dict:
             "url": webhook_url,
             "events": [
                 "MESSAGES_UPSERT",
+                "MESSAGES_UPDATE",   # necessário para votos de enquete (sendPoll)
                 "CONNECTION_UPDATE",
                 "QRCODE_UPDATED",
             ],
@@ -158,29 +159,32 @@ def send_buttons(
     footer_text: str = "",
 ) -> None:
     """
-    Envia mensagem com até 3 botões interativos (Baileys/Evolution API).
-    Formato correto para /message/sendButtons: type=1 (inteiro) + buttonId + buttonText.
-    NÃO usar type="reply" — esse é formato do WhatsApp Cloud API, não do Baileys.
+    Envia mensagem com botões interativos — funciona apenas com Cloud API (Meta).
+    ⚠️  NÃO funciona no Baileys (WhatsApp Web): a API retorna 201 mas a mensagem
+    nunca é entregue. Use send_poll() para Baileys.
+
+    Formato v2 (Cloud API):
+      buttons[i] = {"type": "reply", "displayText": "Texto", "id": "id_unico"}
     """
     url = f"{_base()}/message/sendButtons/{instance_name}"
     number = _normalize_number(to)
 
-    # Evolution API v2 exige type como STRING do enum: "reply","copy","url","call","pix"
-    # Manter buttonId + buttonText (formato Baileys) — NÃO usar {"reply": {"id":...}}
+    # Normaliza do formato interno (buttonId/buttonText) para o formato Cloud API (id/displayText)
     formatted_buttons = [
         {
-            "type":       "reply",
-            "buttonId":   btn.get("buttonId", ""),
-            "buttonText": {"displayText": btn.get("buttonText", {}).get("displayText", "")},
+            "type":        "reply",
+            "displayText": btn.get("buttonText", {}).get("displayText", ""),
+            "id":          btn.get("buttonId", ""),
         }
         for btn in buttons
     ]
 
     payload = {
-        "number": number,
-        "text":   body_text,
-        "footer": footer_text,
-        "buttons": formatted_buttons,
+        "number":      number,
+        "title":       body_text,
+        "description": body_text,
+        "footer":      footer_text,
+        "buttons":     formatted_buttons,
     }
 
     logger.debug("send_buttons payload=%s", payload)
@@ -190,6 +194,43 @@ def send_buttons(
     else:
         logger.error(
             "send_buttons error status=%s body=%s | instance=%s number=%s",
+            resp.status_code, resp.text[:500], instance_name, number,
+        )
+    resp.raise_for_status()
+
+
+def send_poll(
+    instance_name: str,
+    to: str,
+    name: str,
+    values: list[str],
+    selectable_count: int = 1,
+) -> None:
+    """
+    Envia enquete interativa — funciona nativamente no Baileys (WhatsApp Web).
+    É o substituto correto de sendButtons/sendList para instâncias Baileys.
+
+    Limites WhatsApp: name ≤ 255 chars, cada opção ≤ 100 chars, até 12 opções.
+    O voto do usuário chega via evento MESSAGES_UPDATE no webhook.
+    """
+    url = f"{_base()}/message/sendPoll/{instance_name}"
+    number = _normalize_number(to)
+
+    # Trunca para limites do WhatsApp
+    payload = {
+        "number":           number,
+        "name":             name[:255],
+        "selectableCount":  selectable_count,
+        "values":           [v[:100] for v in values],
+    }
+
+    logger.debug("send_poll name=%r values=%s number=%s", name[:60], values, number)
+    resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
+    if resp.is_success:
+        logger.info("send_poll ok status=%s number=%s", resp.status_code, number)
+    else:
+        logger.error(
+            "send_poll error status=%s body=%s | instance=%s number=%s",
             resp.status_code, resp.text[:500], instance_name, number,
         )
     resp.raise_for_status()

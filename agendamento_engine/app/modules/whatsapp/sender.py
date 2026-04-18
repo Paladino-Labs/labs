@@ -2,10 +2,12 @@
 Helpers de envio de mensagens WhatsApp.
 
 Centraliza chamadas ao evolution_client com fallback automático para texto
-quando botões/listas falham (Evolution API às vezes rejeita mensagens ricas
-em contas gratuitas ou em modo sandbox).
+quando botões/listas/polls falham.
 
-Importado por bot_service e pelos handlers.
+Hierarquia de tentativas:
+  BOT_USE_POLLS=True  → sendPoll  (nativo Baileys, WhatsApp entrega corretamente)
+  BOT_USE_BUTTONS=True→ sendButtons (Cloud API apenas; Baileys aceita 201 mas não entrega)
+  fallback            → texto numerado via sendText (sempre funciona)
 """
 import logging
 
@@ -23,12 +25,24 @@ def send_text(instance: str, to: str, text: str) -> None:
 
 
 def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
-    """Envia botões interativos com fallback para texto numerado.
-
-    Quando BOT_USE_BUTTONS=False (padrão) usa sempre o fallback de texto, pois
-    a Evolution API aceita /sendButtons com 201 mas o cliente WhatsApp não exibe
-    o tipo de mensagem interativa neste ambiente.
     """
+    Envia opções ao usuário.
+
+    - BOT_USE_POLLS=True  → enquete WhatsApp (nativo Baileys)
+    - BOT_USE_BUTTONS=True→ botões interativos (Cloud API)
+    - fallback            → texto numerado
+    """
+    if settings.BOT_USE_POLLS:
+        values = [
+            btn.get("buttonText", {}).get("displayText", f"Opção {i + 1}")
+            for i, btn in enumerate(buttons)
+        ]
+        try:
+            evolution_client.send_poll(instance, to, name=text, values=values)
+            return
+        except Exception as e:
+            logger.warning("send_poll (buttons) falhou, fallback texto. to=%s: %s", to, e)
+
     if settings.BOT_USE_BUTTONS:
         try:
             evolution_client.send_buttons(instance, to, text, buttons)
@@ -36,7 +50,7 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
         except Exception as e:
             logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
 
-    # fallback: lista numerada em texto simples
+    # Fallback: lista numerada em texto simples
     lines = [text, ""]
     for i, btn in enumerate(buttons, start=1):
         label = btn.get("buttonText", {}).get("displayText", str(i))
@@ -53,20 +67,37 @@ def send_list(
     rows: list[dict],
     section_title: str = "Opções",
 ) -> None:
-    """Envia lista interativa com fallback para texto numerado."""
+    """
+    Envia lista de opções ao usuário.
+
+    - BOT_USE_POLLS=True → enquete WhatsApp (nativo Baileys)
+    - fallback           → texto numerado
+    """
+    if settings.BOT_USE_POLLS:
+        values = [row.get("title", f"Opção {i + 1}") for i, row in enumerate(rows)]
+        poll_name = title[:255]
+        try:
+            evolution_client.send_poll(instance, to, name=poll_name, values=values)
+            return
+        except Exception as e:
+            logger.warning("send_poll (list) falhou, fallback texto. to=%s: %s", to, e)
+
     try:
         evolution_client.send_list(
             instance, to, title, description, "Ver opções", rows, section_title
         )
+        return
     except Exception as e:
         logger.warning("send_list falhou, fallback texto. to=%s: %s", to, e)
-        lines = [f"*{title}*"]
-        if description:
-            lines.append(description)
-        lines.append("")
-        for i, row in enumerate(rows, start=1):
-            label = row.get("title", str(i))
-            desc  = row.get("description", "")
-            lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
-        lines.append("\n_Digite o número da opção._")
-        send_text(instance, to, "\n".join(lines))
+
+    # Fallback: lista numerada em texto simples
+    lines = [f"*{title}*"]
+    if description:
+        lines.append(description)
+    lines.append("")
+    for i, row in enumerate(rows, start=1):
+        label = row.get("title", str(i))
+        desc  = row.get("description", "")
+        lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
+    lines.append("\n_Digite o número da opção._")
+    send_text(instance, to, "\n".join(lines))

@@ -39,7 +39,8 @@ def start(
     if can_change:
         buttons.append({"buttonId": "opt_reagendar",
                         "buttonText": {"displayText": "🔄 Reagendar"}})
-        last_list.append({"row_id": "opt_reagendar", "payload": "opt_reagendar"})
+        last_list.append({"row_id": "opt_reagendar", "payload": "opt_reagendar",
+                          "title": "🔄 Reagendar"})
 
     buttons += [
         {"buttonId": "opt_cancelar_appt",
@@ -48,8 +49,10 @@ def start(
          "buttonText": {"displayText": "← Voltar"}},
     ]
     last_list += [
-        {"row_id": "opt_cancelar_appt", "payload": "opt_cancelar_appt"},
-        {"row_id": "opt_voltar",        "payload": "voltar"},
+        {"row_id": "opt_cancelar_appt", "payload": "opt_cancelar_appt",
+         "title": "❌ Cancelar agendamento"},
+        {"row_id": "opt_voltar",        "payload": "voltar",
+         "title": "← Voltar"},
     ]
 
     ctx = dict(ctx)

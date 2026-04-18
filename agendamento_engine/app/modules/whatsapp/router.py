@@ -113,8 +113,52 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         elif event_normalized == "messages.upsert":
             # Importação tardia para evitar circular import entre bot e router
             from app.modules.whatsapp.bot_service import handle_inbound_message
-            # Descarta mensagens de grupo (@g.us) — bot atende apenas conversas individuais
             await handle_inbound_message(db, instance_name, data)
+
+        elif event_normalized == "messages.update":
+            # Votos de enquete (sendPoll) chegam como MESSAGES_UPDATE.
+            # Extrai o voto e roteia como se fosse uma mensagem de texto normal.
+            from app.modules.whatsapp.bot_service import handle_inbound_message
+            import json as _json
+            logger.info("MESSAGES_UPDATE DATA: %s", _json.dumps(data, default=str)[:1000])
+
+            updates = data if isinstance(data, list) else [data]
+            for update in updates:
+                key = update.get("key", {})
+                if key.get("fromMe"):
+                    continue
+                remote_jid = key.get("remoteJid", "")
+                if not remote_jid or remote_jid.endswith("@g.us"):
+                    continue
+
+                # Tenta extrair a opção selecionada na enquete
+                update_content = update.get("update", {})
+                poll_updates = update_content.get("pollUpdates", [])
+
+                for pu in poll_updates:
+                    vote = pu.get("vote", {})
+                    selected = vote.get("selectedOptions", [])
+                    if not selected:
+                        continue
+                    option_name = selected[0].get("name", "")
+                    if not option_name:
+                        continue
+
+                    logger.info(
+                        "POLL VOTE: jid=%s option=%r", remote_jid, option_name
+                    )
+                    # Cria mensagem sintética e roteia pelo dispatcher normal
+                    msg_id = key.get("id", "")
+                    synthetic = {
+                        "key": {
+                            "remoteJid": remote_jid,
+                            "fromMe": False,
+                            "id": f"poll_{msg_id}",
+                        },
+                        "message": {"conversation": option_name},
+                    }
+                    await handle_inbound_message(db, instance_name, synthetic)
+                    break  # um voto por update
 
     except Exception:
         logger.exception("webhook processing error event=%s instance=%s", event, instance_name)

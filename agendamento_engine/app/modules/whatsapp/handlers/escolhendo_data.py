@@ -12,12 +12,11 @@ from app.modules.whatsapp.helpers import label_date, first_name
 STATE_ESCOLHENDO_DATA = "ESCOLHENDO_DATA"
 
 
-def _send_escolher_data(
+def send_escolher_data(
     db: Session, session: BotSession, company_id: UUID,
     instance: str, whatsapp_id: str,
     *args, **kwargs
 ) -> None:
-    h_data.send_escolher_data(db, session, company_id, instance, whatsapp_id)
     """
     Exibe a lista de datas disponíveis para seleção.
     Assinatura padronizada com (db, session, company_id, instance, whatsapp_id)
@@ -28,10 +27,11 @@ def _send_escolher_data(
 
     rows, last_list = [], []
     for i in range(7):
-        d      = today + timedelta(days=i)
-        row_id = d.isoformat()
-        rows.append({"rowId": row_id, "title": label_date(d), "description": ""})
-        last_list.append({"row_id": row_id, "payload": row_id})
+        d          = today + timedelta(days=i)
+        row_id     = d.isoformat()
+        date_label = label_date(d)
+        rows.append({"rowId": row_id, "title": date_label, "description": ""})
+        last_list.append({"row_id": row_id, "payload": row_id, "title": date_label})
 
     ctx["last_list"] = last_list
     session.context  = ctx

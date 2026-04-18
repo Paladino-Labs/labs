@@ -45,8 +45,10 @@ def start(
 
     if not slots:
         ctx["last_list"] = [
-            {"row_id": "opt_outra_data", "payload": "outra_data"},
-            {"row_id": "opt_menu",       "payload": "opt_menu"},
+            {"row_id": "opt_outra_data", "payload": "outra_data",
+             "title": "📅 Escolher outra data"},
+            {"row_id": "opt_menu",       "payload": "opt_menu",
+             "title": "🏠 Menu principal"},
         ]
         session.context = ctx
         session.state   = STATE_ESCOLHENDO_HORARIO
@@ -63,17 +65,23 @@ def start(
 
     rows, last_list = [], []
     for s in slots:
-        row_id = f"{s.start_at.isoformat()}|{s.professional_id}"
+        row_id     = f"{s.start_at.isoformat()}|{s.professional_id}"
+        time_label = s.start_at.strftime("%H:%M")
+        # Em modo "qualquer disponível", inclui o profissional no título para
+        # diferenciar opções iguais de horário com profissionais distintos.
+        title_str  = f"{time_label} — {s.professional_name}" if any_prof else time_label
         rows.append({
             "rowId":       row_id,
-            "title":       s.start_at.strftime("%H:%M"),
+            "title":       title_str,
             "description": s.professional_name if any_prof else "",
         })
         last_list.append({"row_id": row_id, "payload": row_id,
-                          "professional_name": s.professional_name})
+                          "professional_name": s.professional_name,
+                          "title": title_str})
 
     rows.append({"rowId": "opt_outra_data", "title": "📅 Escolher outra data", "description": ""})
-    last_list.append({"row_id": "opt_outra_data", "payload": "outra_data"})
+    last_list.append({"row_id": "opt_outra_data", "payload": "outra_data",
+                      "title": "📅 Escolher outra data"})
 
     ctx["last_list"] = last_list
     session.context  = ctx
