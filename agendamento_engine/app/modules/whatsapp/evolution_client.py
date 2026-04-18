@@ -165,8 +165,8 @@ def send_buttons(
         "text": body_text,
         "footer": footer_text,
         "buttons": buttons,
-    },
-    
+    }
+
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
     if not resp.is_success:
         logger.error(

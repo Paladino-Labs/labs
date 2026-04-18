@@ -19,6 +19,7 @@ def handle(
     start_escolhendo_servico,
     start_escolhendo_horario,
     send_confirmacao_resumo,
+    send_escolher_data,
 ) -> None:
     ctx       = dict(session.context or {})
     payload   = resolve_input(user_input, ctx.get("last_list", []))
@@ -38,7 +39,7 @@ def handle(
             ctx["professional_name"] = predicted["professional_name"]
             ctx.pop("predicted_slot", None)
             session.context = ctx
-            start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+            send_escolher_data(db, session, company_id, instance, whatsapp_id)
             return
 
         ctx["service_id"]              = predicted["service_id"]
@@ -60,7 +61,7 @@ def handle(
         ctx["professional_name"] = predicted["professional_name"]
         ctx.pop("predicted_slot", None)
         session.context = ctx
-        start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+        send_escolher_data(db, session, company_id, instance, whatsapp_id)
         return
 
     if payload == "opt_outro_servico":

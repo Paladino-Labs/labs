@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.professionals import service as professional_svc
+from app.modules.booking.engine import booking_engine
 
 STATE_ESCOLHENDO_PROFISSIONAL = "ESCOLHENDO_PROFISSIONAL"
 
@@ -18,22 +18,25 @@ def start(
 ) -> None:
     ctx        = dict(session.context or {})
     service_id = UUID(ctx["service_id"])
-    profs      = professional_svc.list_by_service(db, company_id, service_id)
+    options    = booking_engine.list_professionals(db, company_id, service_id)
 
-    if not profs:
+    # Filtra a opção "Qualquer disponível" para verificar se há profissionais reais
+    real_profs = [o for o in options if o.id is not None]
+    if not real_profs:
         sender.send_text(
             instance, whatsapp_id,
             "😕 Não há profissionais disponíveis para esse serviço no momento.",
         )
         return
 
-    rows = [{"rowId": str(p.id), "title": p.name, "description": ""} for p in profs]
-    rows.append({"rowId": "prof_any", "title": "👥 Qualquer disponível", "description": ""})
+    rows = [{"rowId": o.row_key, "title": o.name, "description": ""} for o in options]
 
-    ctx["last_list"] = (
-        [{"row_id": str(p.id), "payload": str(p.id)} for p in profs]
-        + [{"row_id": "prof_any", "payload": "any"}]
-    )
+    ctx["last_list"] = [
+        {"row_id": o.row_key,
+         "payload": str(o.id) if o.id else "any",
+         "professional_name": o.name}
+        for o in options
+    ]
     session.context = ctx
     session.state   = STATE_ESCOLHENDO_PROFISSIONAL
 
@@ -55,17 +58,20 @@ def handle(
         sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
 
+    selected = next(
+        (e for e in ctx.get("last_list", []) if e.get("payload") == payload),
+        {},
+    )
+    if not selected:
+        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+
     if payload == "any":
         ctx["professional_id"]   = None
-        ctx["professional_name"] = "Qualquer disponível"
+        ctx["professional_name"] = selected.get("professional_name", "Qualquer disponível")
     else:
-        try:
-            prof = professional_svc.get_professional_or_404(db, company_id, UUID(payload))
-            ctx["professional_id"]   = payload
-            ctx["professional_name"] = prof.name
-        except Exception:
-            sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
-            return
+        ctx["professional_id"]   = payload
+        ctx["professional_name"] = selected.get("professional_name", "")
 
     session.context = ctx
     send_escolher_data(db, session, company_id, instance, whatsapp_id)

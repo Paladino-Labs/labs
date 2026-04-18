@@ -251,6 +251,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 start_escolhendo_servico=_start_escolhendo_servico,
                 start_escolhendo_horario=_start_escolhendo_horario,
                 send_confirmacao_resumo=h_confirmando.send_resumo,
+                send_escolher_data=_send_escolher_data,
             )
 
         elif state == STATE_MENU_PRINCIPAL:

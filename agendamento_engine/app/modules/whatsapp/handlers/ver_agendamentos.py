@@ -9,6 +9,7 @@ from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
+from app.modules.booking.engine import booking_engine
 
 STATE_VER_AGENDAMENTOS = "VER_AGENDAMENTOS"
 STATE_INICIO           = "INICIO"
@@ -24,7 +25,7 @@ def handle_ver_agendamentos(
         reset_session(session)
         return
 
-    appointments = appointment_svc.list_active_by_client(db, company_id, UUID(customer_id))
+    appointments = booking_engine.get_customer_appointments(db, company_id, UUID(customer_id))
     nome         = first_name(ctx.get("customer_name", ""))
 
     if not appointments:
@@ -37,8 +38,8 @@ def handle_ver_agendamentos(
 
     rows, last_list = [], []
     for i, a in enumerate(appointments):
-        svc_name   = a.services[0].service_name if a.services else "Serviço"
-        prof_name  = a.professional.name if a.professional else "?"
+        svc_name   = a.service_name
+        prof_name  = a.professional_name
         date_label = a.start_at.strftime("%d/%m")
         time_label = a.start_at.strftime("%H:%M")
         row_id     = f"appt_{i}"

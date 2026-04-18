@@ -12,8 +12,6 @@ from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
 from app.modules.customers import service as customer_svc
-from app.modules.appointments import service as appointment_svc
-from app.modules.availability import service as availability_svc
 from app.core.config import settings
 
 booking_engine = BookingEngine()
@@ -35,12 +33,6 @@ def handle(
 ) -> None:
     ctx = session.context or {}
 
-    # 🔥 AQUI
-    if session.state == STATE_INICIO:
-        ctx["last_list"] = []
-        session.context = ctx
-
-    # 🔹 Identificação inicial
     if not ctx.get("customer_id"):
         _identify_customer(
             db, session, company_id, whatsapp_id, instance, company_name,

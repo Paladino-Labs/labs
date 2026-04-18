@@ -12,6 +12,8 @@ from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
 from app.modules.appointments.polices import PolicyViolationError, check_cancellation_policy
+from app.modules.booking.engine import booking_engine
+from app.modules.booking.exceptions import BookingNotFoundError
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -89,15 +91,17 @@ def handle(
             return
         nome = first_name(ctx.get("customer_name", ""))
         try:
-            appointment_svc.cancel_appointment(
+            booking_engine.cancel(
                 db, company_id, UUID(appt_id_str),
-                user_id=None, reason="Cancelado via WhatsApp",
+                reason="Cancelado via WhatsApp",
             )
             sender.send_text(instance, whatsapp_id, messages.cancelamento_confirmado(nome))
         except PolicyViolationError as e:
             sender.send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
+        except BookingNotFoundError:
+            sender.send_text(instance, whatsapp_id, "❌ Agendamento não encontrado.")
         except Exception:
-            logger.exception("cancel_appointment failed id=%s", appt_id_str)
+            logger.exception("booking_engine.cancel failed id=%s", appt_id_str)
             sender.send_text(instance, whatsapp_id, messages.ERRO_CANCELAR_AGENDAMENTO)
         reset_session(session)
         return

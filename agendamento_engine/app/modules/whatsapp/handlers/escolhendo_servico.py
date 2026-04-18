@@ -7,7 +7,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
-from app.modules.services import service as service_svc
+from app.modules.booking.engine import booking_engine
 
 STATE_ESCOLHENDO_SERVICO = "ESCOLHENDO_SERVICO"
 
@@ -16,10 +16,10 @@ def start(
     db: Session, session: BotSession, company_id: UUID,
     instance: str, whatsapp_id: str,
 ) -> None:
-    services = service_svc.list_services(db, company_id, active_only=True)
-    ctx      = dict(session.context or {})
+    options = booking_engine.list_services(db, company_id)
+    ctx     = dict(session.context or {})
 
-    if not services:
+    if not options:
         ctx["last_list"] = [
             {"row_id": "opt_menu",   "payload": "opt_menu"},
             {"row_id": "opt_humano", "payload": "opt_humano"},
@@ -35,13 +35,13 @@ def start(
         return
 
     rows = [
-        {"rowId": str(s.id), "title": s.name,
-         "description": f"R$ {s.price:.2f} · {s.duration} min"}
-        for s in services
+        {"rowId": o.row_key, "title": o.name,
+         "description": f"R$ {o.price:.2f} · {o.duration_minutes} min"}
+        for o in options
     ]
     ctx["last_list"] = [
-        {"row_id": str(s.id), "payload": str(s.id)}
-        for s in services
+        {"row_id": o.row_key, "payload": str(o.id), "service_name": o.name}
+        for o in options
     ]
     session.context = ctx
     session.state   = STATE_ESCOLHENDO_SERVICO
@@ -64,13 +64,15 @@ def handle(
         sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
 
-    try:
-        service = service_svc.get_service_or_404(db, company_id, UUID(payload))
-    except Exception:
+    selected = next(
+        (e for e in ctx.get("last_list", []) if e.get("payload") == payload),
+        {},
+    )
+    if not selected:
         sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
         return
 
     ctx["service_id"]   = payload
-    ctx["service_name"] = service.name
+    ctx["service_name"] = selected.get("service_name", "")
     session.context     = ctx
     start_escolhendo_profissional(db, session, company_id, instance, whatsapp_id)

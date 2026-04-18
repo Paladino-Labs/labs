@@ -11,8 +11,9 @@ from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
-from app.modules.appointments import service as appointment_svc
-from app.modules.appointments.schemas import AppointmentCreate
+from app.modules.booking.engine import booking_engine
+from app.modules.booking.schemas import BookingIntent
+from app.modules.booking.exceptions import SlotUnavailableError
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -87,25 +88,26 @@ def handle(
         reset_session(session)
         return
 
-    appt_data = AppointmentCreate(
+    intent = BookingIntent(
+        company_id=company_id,
+        customer_id=UUID(customer_id),
         professional_id=UUID(prof_id_raw),
-        client_id=UUID(customer_id),
-        services=[{"service_id": UUID(ctx["service_id"])}],
+        service_id=UUID(ctx["service_id"]),
         start_at=start_at,
         idempotency_key=idem_key,
     )
     try:
-        appointment_svc.create_appointment(db, company_id, appt_data, user_id=None)
-    except Exception as e:
-        if getattr(e, "status_code", None) == 409:
-            sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_CONFIRMANDO)
-            ctx = dict(ctx)
-            ctx.pop("slot_start_at", None)
-            ctx.pop("selected_date", None)
-            session.context = ctx
-            start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
-            return
-        logger.exception("create_appointment failed whatsapp_id=%s", whatsapp_id)
+        booking_engine.confirm(db, company_id, intent)
+    except SlotUnavailableError:
+        sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_CONFIRMANDO)
+        ctx = dict(ctx)
+        ctx.pop("slot_start_at", None)
+        ctx.pop("selected_date", None)
+        session.context = ctx
+        start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+        return
+    except Exception:
+        logger.exception("booking_engine.confirm failed whatsapp_id=%s", whatsapp_id)
         sender.send_text(instance, whatsapp_id, messages.ERRO_CONFIRMAR_AGENDAMENTO)
         return
 

@@ -9,8 +9,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import label_date
-from app.modules.professionals import service as professional_svc
-from app.modules.availability import service as availability_svc
+from app.modules.booking.engine import booking_engine
 from app.core.config import settings
 
 STATE_ESCOLHENDO_HORARIO = "ESCOLHENDO_HORARIO"
@@ -28,41 +27,20 @@ def start(
     svc_id   = UUID(ctx["service_id"])
     prof_raw = ctx.get("professional_id")
     date_str = ctx.get("selected_date")
+    prof_id_val = UUID(prof_raw) if prof_raw else None
 
     if date_str:
         target_date = datetime.fromisoformat(date_str).date()
-        slots = []
-        if prof_raw:
-            slots = availability_svc.get_available_slots(
-                db, company_id, UUID(prof_raw), svc_id, target_date
-            )
-        else:
-            for p in professional_svc.list_by_service(db, company_id, svc_id):
-                slots.extend(
-                    availability_svc.get_available_slots(db, company_id, p.id, svc_id, target_date)
-                )
-                if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
-                    break
+        slots = booking_engine.list_available_slots(
+            db, company_id, prof_id_val, svc_id, target_date,
+            limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+        )
     else:
-        slots = []
-        if prof_raw:
-            slots = availability_svc.get_next_available_slots(
-                db, company_id, UUID(prof_raw), svc_id,
-                days=7, limit=settings.BOT_MAX_SLOTS_DISPLAYED,
-            )
-        else:
-            half = max(1, settings.BOT_MAX_SLOTS_DISPLAYED // 2)
-            for p in professional_svc.list_by_service(db, company_id, svc_id):
-                slots.extend(
-                    availability_svc.get_next_available_slots(
-                        db, company_id, p.id, svc_id, days=7, limit=half
-                    )
-                )
-                if len(slots) >= settings.BOT_MAX_SLOTS_DISPLAYED:
-                    break
+        slots = booking_engine.list_next_available_slots(
+            db, company_id, prof_id_val, svc_id,
+            days=7, limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+        )
 
-    slots.sort(key=lambda s: s.start_at)
-    slots    = slots[:settings.BOT_MAX_SLOTS_DISPLAYED]
     any_prof = (prof_raw is None)
 
     if not slots:
@@ -91,7 +69,8 @@ def start(
             "title":       s.start_at.strftime("%H:%M"),
             "description": s.professional_name if any_prof else "",
         })
-        last_list.append({"row_id": row_id, "payload": row_id})
+        last_list.append({"row_id": row_id, "payload": row_id,
+                          "professional_name": s.professional_name})
 
     rows.append({"rowId": "opt_outra_data", "title": "📅 Escolher outra data", "description": ""})
     last_list.append({"row_id": "opt_outra_data", "payload": "outra_data"})
@@ -141,11 +120,13 @@ def handle(
 
     if not ctx.get("professional_id"):
         ctx["professional_id"] = prof_id_str
-        try:
-            prof = professional_svc.get_professional_or_404(db, company_id, UUID(prof_id_str))
-            ctx["professional_name"] = prof.name
-        except Exception:
-            pass
+        # professional_name já armazenado em last_list pelo start()
+        selected = next(
+            (e for e in ctx.get("last_list", []) if e.get("payload") == payload),
+            {},
+        )
+        if selected.get("professional_name"):
+            ctx["professional_name"] = selected["professional_name"]
 
     ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
     session.context = ctx
