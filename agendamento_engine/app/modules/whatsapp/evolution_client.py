@@ -156,15 +156,28 @@ def send_buttons(
 ) -> None:
     """
     Envia mensagem com até 3 botões interativos.
-    buttons format: [{"buttonId": "opt_1", "buttonText": {"displayText": "Label"}}]
+    Converte o formato interno para o formato exigido pela Evolution API:
+      {"type": "reply", "reply": {"id": "...", "title": "..."}}
     """
     url = f"{_base()}/message/sendButtons/{instance_name}"
     number = _normalize_number(to)
+
+    formatted_buttons = [
+        {
+            "type": "reply",
+            "reply": {
+                "id":    btn.get("buttonId", ""),
+                "title": btn.get("buttonText", {}).get("displayText", ""),
+            },
+        }
+        for btn in buttons
+    ]
+
     payload = {
         "number": number,
         "text": body_text,
         "footer": footer_text,
-        "buttons": buttons,
+        "buttons": formatted_buttons,
     }
 
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
