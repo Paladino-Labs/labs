@@ -10,6 +10,7 @@ Importado por bot_service e pelos handlers.
 import logging
 
 from app.modules.whatsapp import evolution_client
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +23,26 @@ def send_text(instance: str, to: str, text: str) -> None:
 
 
 def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
-    """Envia botões interativos com fallback para texto numerado."""
-    try:
-        evolution_client.send_buttons(instance, to, text, buttons)
-    except Exception as e:
-        logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
-        lines = [text, ""]
-        for i, btn in enumerate(buttons, start=1):
-            label = btn.get("buttonText", {}).get("displayText", str(i))
-            lines.append(f"*{i}.* {label}")
-        lines.append("\n_Digite o número da opção._")
-        send_text(instance, to, "\n".join(lines))
+    """Envia botões interativos com fallback para texto numerado.
+
+    Quando BOT_USE_BUTTONS=False (padrão) usa sempre o fallback de texto, pois
+    a Evolution API aceita /sendButtons com 201 mas o cliente WhatsApp não exibe
+    o tipo de mensagem interativa neste ambiente.
+    """
+    if settings.BOT_USE_BUTTONS:
+        try:
+            evolution_client.send_buttons(instance, to, text, buttons)
+            return
+        except Exception as e:
+            logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
+
+    # fallback: lista numerada em texto simples
+    lines = [text, ""]
+    for i, btn in enumerate(buttons, start=1):
+        label = btn.get("buttonText", {}).get("displayText", str(i))
+        lines.append(f"*{i}.* {label}")
+    lines.append("\n_Digite o número da opção._")
+    send_text(instance, to, "\n".join(lines))
 
 
 def send_list(

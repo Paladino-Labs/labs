@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     BOT_PREDICTIVE_OFFER_TTL_MINUTES: int = 5  # Expiração da oferta recorrente
     BOT_MAX_SLOTS_DISPLAYED: int = 6            # Máximo de horários exibidos por página
     BOT_FALLBACK_MAX_COUNT: int = 3             # Fallbacks antes de oferecer atendente humano
+    BOT_USE_BUTTONS: bool = False               # True quando Evolution API entregar botões interativos
 
     # Agendamentos — políticas de negócio
     APPOINTMENT_MIN_HOURS_BEFORE_CANCEL: int = 2      # Prazo mínimo para cancelar
