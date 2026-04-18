@@ -46,7 +46,8 @@ def handle_confirmando_nome(
         return
 
     if resposta in ("1", "sim", "s", "ok", "isso", "confirmar"):
-        customer = customer_svc.get_or_create_by_phone(db, company_id, whatsapp_id, nome_temp)
+        phone    = whatsapp_id.split("@")[0]  # extrai número do JID completo
+        customer = customer_svc.get_or_create_by_phone(db, company_id, phone, nome_temp)
         ctx["customer_id"]   = str(customer.id)
         ctx["customer_name"] = customer.name
         ctx.pop("nome_temp", None)

@@ -84,7 +84,10 @@ def _identify_customer(
     start_escolhendo_servico,
     handle_ver_agendamentos,
 ) -> None:
-    customer = customer_svc.get_by_phone(db, company_id, whatsapp_id)
+    # whatsapp_id pode ser JID completo ("5511999@s.whatsapp.net" ou "9714@lid")
+    # — extrai só o número para lookup por telefone no banco.
+    phone = whatsapp_id.split("@")[0]
+    customer = customer_svc.get_by_phone(db, company_id, phone)
 
     # ─────────────────────────────────────────────
     # 🟡 Cliente novo

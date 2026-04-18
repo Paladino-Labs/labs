@@ -1,6 +1,12 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
+
+logging.basicConfig(
+    level=logging.getLevelName(os.getenv("LOG_LEVEL", "INFO").upper()),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

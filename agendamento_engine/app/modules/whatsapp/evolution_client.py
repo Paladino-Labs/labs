@@ -138,8 +138,11 @@ def send_text(instance_name: str, to: str, text: str) -> None:
         "number": number,
         "text": text,
     }
+    logger.debug("send_text payload number=%s text=%r", number, text[:60])
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
-    if not resp.is_success:
+    if resp.is_success:
+        logger.info("send_text ok status=%s number=%s", resp.status_code, number)
+    else:
         logger.error(
             "send_text error status=%s body=%s | instance=%s number=%s",
             resp.status_code, resp.text[:500], instance_name, number,
@@ -155,33 +158,36 @@ def send_buttons(
     footer_text: str = "",
 ) -> None:
     """
-    Envia mensagem com até 3 botões interativos.
-    Converte o formato interno para o formato exigido pela Evolution API:
-      {"type": "reply", "reply": {"id": "...", "title": "..."}}
+    Envia mensagem com até 3 botões interativos (Baileys/Evolution API).
+    Formato correto para /message/sendButtons: type=1 (inteiro) + buttonId + buttonText.
+    NÃO usar type="reply" — esse é formato do WhatsApp Cloud API, não do Baileys.
     """
     url = f"{_base()}/message/sendButtons/{instance_name}"
     number = _normalize_number(to)
 
+    # Baileys exige o campo "type" como inteiro 1 em cada botão.
+    # O formato interno já traz buttonId e buttonText — só adiciona o type.
     formatted_buttons = [
         {
-            "type": "reply",
-            "reply": {
-                "id":    btn.get("buttonId", ""),
-                "title": btn.get("buttonText", {}).get("displayText", ""),
-            },
+            "buttonId":   btn.get("buttonId", ""),
+            "buttonText": {"displayText": btn.get("buttonText", {}).get("displayText", "")},
+            "type":       1,
         }
         for btn in buttons
     ]
 
     payload = {
         "number": number,
-        "text": body_text,
+        "text":   body_text,
         "footer": footer_text,
         "buttons": formatted_buttons,
     }
 
+    logger.debug("send_buttons payload=%s", payload)
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
-    if not resp.is_success:
+    if resp.is_success:
+        logger.info("send_buttons ok status=%s number=%s", resp.status_code, number)
+    else:
         logger.error(
             "send_buttons error status=%s body=%s | instance=%s number=%s",
             resp.status_code, resp.text[:500], instance_name, number,

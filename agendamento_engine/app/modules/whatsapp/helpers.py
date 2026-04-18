@@ -42,16 +42,56 @@ def resolve_input(user_input: str, last_list: list) -> Optional[str]:
 
 
 def extract_user_text(data: dict) -> str:
-    """Extrai texto da mensagem da Evolution API (texto, botão ou lista)."""
+    """
+    Extrai texto da mensagem da Evolution API (texto, botão ou lista).
+
+    Formatos suportados:
+    - Texto simples:         message.conversation
+    - Texto extendido:       message.extendedTextMessage.text
+    - Lista interativa:      message.listResponseMessage.singleSelectReply.selectedRowId
+    - Botão clicado (v1):    message.buttonsResponseMessage.selectedButtonId
+    - Botão clicado (v2):    message.templateButtonReplyMessage.selectedId
+    - Botão interativo:      message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson (JSON com id)
+    """
     msg = data.get("message") or {}
+
+    # Lista interativa
     list_resp = msg.get("listResponseMessage", {})
     if list_resp:
         selected_id = list_resp.get("singleSelectReply", {}).get("selectedRowId", "")
         if selected_id:
             return selected_id
+
+    # Botão clicado — formato Baileys v1
     btn_resp = msg.get("buttonsResponseMessage", {})
     if btn_resp:
-        return btn_resp.get("selectedButtonId", "")
+        selected = btn_resp.get("selectedButtonId", "")
+        if selected:
+            return selected
+
+    # Botão template — formato Baileys v2 alternativo
+    tmpl_resp = msg.get("templateButtonReplyMessage", {})
+    if tmpl_resp:
+        selected = tmpl_resp.get("selectedId", "")
+        if selected:
+            return selected
+
+    # Botão interativo — formato nativeFlow (Evolution API >= 2.x)
+    interactive_resp = msg.get("interactiveResponseMessage", {})
+    if interactive_resp:
+        native = interactive_resp.get("nativeFlowResponseMessage", {})
+        params_raw = native.get("paramsJson", "")
+        if params_raw:
+            import json as _json
+            try:
+                params = _json.loads(params_raw)
+                btn_id = params.get("id", "")
+                if btn_id:
+                    return btn_id
+            except Exception:
+                pass
+
+    # Texto simples
     return msg.get("conversation", "") or msg.get("extendedTextMessage", {}).get("text", "")
 
 

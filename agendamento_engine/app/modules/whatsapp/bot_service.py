@@ -155,7 +155,10 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         logger.debug("handle_inbound: grupo ignorado. jid=%s", remote_jid)
         return
 
-    whatsapp_id = remote_jid.split("@")[0]
+    # Usa o JID completo como identificador — _normalize_number retorna como está
+    # quando já contém "@", garantindo entrega correta tanto para @s.whatsapp.net
+    # quanto para @lid (LID addressing mode do WhatsApp novo).
+    whatsapp_id = remote_jid   # ex: "5511999999999@s.whatsapp.net" ou "97148318265437@lid"
 
     # Resolve empresa pelo instance_name
     conn = db.query(WhatsAppConnection).filter(
@@ -207,6 +210,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             reset_session(session, keep_customer=False)
 
     state = session.state
+    logger.info("dispatcher: state=%s whatsapp_id=%s input=%r", state, whatsapp_id, user_input[:60])
 
     # ── Comandos universais (exceto AGUARDANDO_NOME, CONFIRMAR_NOME e HUMANO) ──
     if state not in (STATE_AGUARDANDO_NOME, STATE_CONFIRMAR_NOME, STATE_HUMANO):
