@@ -55,7 +55,7 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
     for i, btn in enumerate(buttons, start=1):
         label = btn.get("buttonText", {}).get("displayText", str(i))
         lines.append(f"*{i}.* {label}")
-    lines.append("\n_Digite o número da opção._")
+    lines.append("\n_Digite o número da opção ou *0* para o menu principal._")
     send_text(instance, to, "\n".join(lines))
 
 
@@ -99,5 +99,5 @@ def send_list(
         label = row.get("title", str(i))
         desc  = row.get("description", "")
         lines.append(f"*{i}.* {label}" + (f" — {desc}" if desc else ""))
-    lines.append("\n_Digite o número da opção._")
+    lines.append("\n_Digite o número da opção ou *0* para o menu principal._")
     send_text(instance, to, "\n".join(lines))
