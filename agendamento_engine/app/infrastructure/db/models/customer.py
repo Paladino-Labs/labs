@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, Boolean
+from sqlalchemy import Column, String, ForeignKey, Boolean, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -18,6 +18,7 @@ class Customer(Base, TimestampMixin):
     name = Column(String(255), nullable=False)
     phone = Column(String(30), nullable=False)
     email = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)        # observações internas (visível apenas no painel)
     active = Column(Boolean, default=True, nullable=False)
 
     company = relationship("Company", back_populates="customers")

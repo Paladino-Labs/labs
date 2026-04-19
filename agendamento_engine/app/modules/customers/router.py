@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_admin
+from app.core.deps import get_current_company_id
 from app.modules.customers import schemas, service
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -44,3 +44,13 @@ def update_customer(
     db: Session = Depends(get_db),
 ):
     return service.update_customer(db, company_id, customer_id, body)
+
+
+@router.get("/{customer_id}/appointments", response_model=List[schemas.CustomerAppointmentItem])
+def get_customer_appointments(
+    customer_id: UUID,
+    company_id: UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """Histórico completo de agendamentos do cliente (ativos + concluídos + cancelados)."""
+    return service.list_appointments_for_customer(db, company_id, customer_id)

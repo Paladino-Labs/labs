@@ -12,6 +12,8 @@ export interface Service {
   price: string
   duration: number
   active: boolean
+  description?: string
+  image_url?: string
 }
 
 export interface Customer {
@@ -20,6 +22,27 @@ export interface Customer {
   name: string
   phone: string
   email?: string
+  notes?: string
+  active: boolean
+}
+
+export interface CustomerAppointmentItem {
+  id: string
+  start_at: string
+  end_at: string
+  status: string
+  service_names: string[]
+  professional_name?: string
+  total_amount: string
+}
+
+export interface Product {
+  id: string
+  company_id: string
+  name: string
+  price: string
+  description?: string
+  image_url?: string
   active: boolean
 }
 

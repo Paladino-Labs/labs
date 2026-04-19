@@ -5,7 +5,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import Customer
-from app.modules.customers.schemas import CustomerCreate, CustomerUpdate
+from app.infrastructure.db.models.appointment import Appointment
+from app.modules.customers.schemas import CustomerCreate, CustomerUpdate, CustomerAppointmentItem
 
 
 def normalize_phone(phone: str) -> str:
@@ -94,3 +95,33 @@ def update_customer(db: Session, company_id: UUID, customer_id: UUID, data: Cust
     db.commit()
     db.refresh(customer)
     return customer
+
+
+def list_appointments_for_customer(
+    db: Session, company_id: UUID, customer_id: UUID
+) -> list[CustomerAppointmentItem]:
+    """Histórico completo de agendamentos do cliente, ordenado do mais recente."""
+    get_customer_or_404(db, company_id, customer_id)   # garante 404 se cliente não existe
+
+    appointments = (
+        db.query(Appointment)
+        .filter(
+            Appointment.company_id == company_id,
+            Appointment.client_id == customer_id,
+        )
+        .order_by(Appointment.start_at.desc())
+        .all()
+    )
+
+    result = []
+    for a in appointments:
+        result.append(CustomerAppointmentItem(
+            id=a.id,
+            start_at=a.start_at.isoformat(),
+            end_at=a.end_at.isoformat(),
+            status=a.status,
+            service_names=[s.service_name for s in a.services],
+            professional_name=a.professional.name if a.professional else None,
+            total_amount=str(a.total_amount),
+        ))
+    return result

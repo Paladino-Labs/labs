@@ -3,6 +3,7 @@ from .user import User
 from .customer import Customer
 from .professional import Professional
 from .service import Service, ProfessionalService
+from .product import Product
 from .appointment import Appointment, AppointmentService, AppointmentStatusLog
 from .availability_slot import WorkingHour, ScheduleBlock
 from .company_settings import CompanySettings
@@ -16,6 +17,7 @@ __all__ = [
     "Professional",
     "Service",
     "ProfessionalService",
+    "Product",
     "Appointment",
     "AppointmentService",
     "AppointmentStatusLog",

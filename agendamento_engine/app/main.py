@@ -3,6 +3,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+
 logging.basicConfig(
     level=logging.getLevelName(os.getenv("LOG_LEVEL", "INFO").upper()),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -10,6 +11,7 @@ logging.basicConfig(
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
@@ -22,6 +24,8 @@ from app.modules.appointments.router import router as appointments_router
 from app.modules.availability.router import router as availability_router
 from app.modules.whatsapp.router import router as whatsapp_router
 from app.modules.booking.router import router as booking_router
+from app.modules.products.router import router as products_router
+from app.modules.uploads.router import router as uploads_router
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,12 @@ app.include_router(appointments_router)
 app.include_router(availability_router)
 app.include_router(whatsapp_router)
 app.include_router(booking_router)
+app.include_router(products_router)
+app.include_router(uploads_router)
+
+# Static files (uploaded images)
+os.makedirs("static/uploads", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/health")

@@ -4,29 +4,26 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 
 
-class ServiceCreate(BaseModel):
+class ProductCreate(BaseModel):
     name: str
     price: Decimal
-    duration: int  # minutos
     description: Optional[str] = None
     image_url: Optional[str] = None
 
 
-class ServiceUpdate(BaseModel):
+class ProductUpdate(BaseModel):
     name: Optional[str] = None
     price: Optional[Decimal] = None
-    duration: Optional[int] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
     active: Optional[bool] = None
 
 
-class ServiceResponse(BaseModel):
+class ProductResponse(BaseModel):
     id: UUID
     company_id: UUID
     name: str
     price: Decimal
-    duration: int
     description: Optional[str] = None
     image_url: Optional[str] = None
     active: bool

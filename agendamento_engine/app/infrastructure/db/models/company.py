@@ -18,3 +18,4 @@ class Company(Base, TimestampMixin):
     professionals = relationship("Professional", back_populates="company", lazy="dynamic")
     services = relationship("Service", back_populates="company", lazy="dynamic")
     customers = relationship("Customer", back_populates="company", lazy="dynamic")
+    products = relationship("Product", back_populates="company", lazy="dynamic")

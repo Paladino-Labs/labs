@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, Integer, Numeric
+from sqlalchemy import Column, String, Boolean, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -14,6 +14,8 @@ class Service(Base, TimestampMixin):
     name = Column(String(255), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     duration = Column(Integer, nullable=False)  # minutos
+    description = Column(Text, nullable=True)
+    image_url = Column(String(500), nullable=True)
     active = Column(Boolean, default=True, nullable=False)
 
     company = relationship("Company", back_populates="services")
