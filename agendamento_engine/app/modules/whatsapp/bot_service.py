@@ -5,7 +5,7 @@ Fluxo:
   INICIO → [AGUARDANDO_NOME] → [CONFIRMAR_NOME]
          → [OFERTA_RECORRENTE] | MENU_PRINCIPAL
          → ESCOLHENDO_SERVICO → ESCOLHENDO_PROFISSIONAL
-         → ESCOLHENDO_DATA → ESCOLHENDO_HORARIO
+         → ESCOLHENDO_DATA → ESCOLHENDO_TURNO → ESCOLHENDO_HORARIO
          → CONFIRMANDO → INICIO (reset)
   INICIO → VER_AGENDAMENTOS → GERENCIANDO_AGENDAMENTO
          → CANCELANDO | REAGENDANDO
@@ -37,6 +37,7 @@ from app.modules.whatsapp.handlers import menu_principal as h_menu
 from app.modules.whatsapp.handlers import escolhendo_servico as h_servico
 from app.modules.whatsapp.handlers import escolhendo_profissional as h_profissional
 from app.modules.whatsapp.handlers import escolhendo_data as h_data
+from app.modules.whatsapp.handlers import escolhendo_turno as h_turno
 from app.modules.whatsapp.handlers import escolhendo_horario as h_horario
 from app.modules.whatsapp.handlers import confirmando as h_confirmando
 from app.modules.whatsapp.handlers import ver_agendamentos as h_ver
@@ -54,6 +55,7 @@ STATE_OFERTA_RECORRENTE       = "OFERTA_RECORRENTE"
 STATE_MENU_PRINCIPAL          = "MENU_PRINCIPAL"
 STATE_ESCOLHENDO_SERVICO      = "ESCOLHENDO_SERVICO"
 STATE_ESCOLHENDO_PROFISSIONAL = "ESCOLHENDO_PROFISSIONAL"
+STATE_ESCOLHENDO_TURNO        = "ESCOLHENDO_TURNO"
 STATE_ESCOLHENDO_HORARIO      = "ESCOLHENDO_HORARIO"
 STATE_ESCOLHENDO_DATA         = "ESCOLHENDO_DATA"
 STATE_CONFIRMANDO             = "CONFIRMANDO"
@@ -91,6 +93,11 @@ def _send_escolher_data(
     *args, **kwargs
 ) -> None:
     h_data.send_escolher_data(db, session, company_id, instance, whatsapp_id)
+
+
+def _start_escolhendo_turno(db: Session, session: BotSession, company_id: UUID,
+                             instance: str, whatsapp_id: str) -> None:
+    h_turno.send_escolher_turno(db, session, company_id, instance, whatsapp_id)
 
 
 def _start_escolhendo_horario(db: Session, session: BotSession, company_id: UUID,
@@ -289,6 +296,13 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
 
         elif state == STATE_ESCOLHENDO_DATA:
             h_data.handle(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+                resolve_input=resolve_input,
+                start_escolhendo_turno=_start_escolhendo_turno,
+            )
+
+        elif state == STATE_ESCOLHENDO_TURNO:
+            h_turno.handle(
                 db, session, company_id, whatsapp_id, instance_name, user_input,
                 resolve_input=resolve_input,
                 start_escolhendo_horario=_start_escolhendo_horario,

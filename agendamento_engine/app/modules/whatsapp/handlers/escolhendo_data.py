@@ -88,7 +88,7 @@ def handle(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
     resolve_input,
-    start_escolhendo_horario,
+    start_escolhendo_turno,
 ) -> None:
     ctx     = dict(session.context or {})
     payload = resolve_input(user_input, ctx.get("last_list", []))
@@ -98,6 +98,7 @@ def handle(
         return
 
     ctx["selected_date"] = payload
-    ctx.pop("slot_offset", None)   # nova data = página 0 de horários
+    ctx.pop("slot_offset", None)    # nova data = página 0 de horários
+    ctx.pop("selected_turno", None) # nova data = escolher turno novamente
     session.context      = ctx
-    start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+    start_escolhendo_turno(db, session, company_id, instance, whatsapp_id)

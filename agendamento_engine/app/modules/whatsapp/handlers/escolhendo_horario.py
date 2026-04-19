@@ -9,51 +9,25 @@ from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.booking.engine import booking_engine
-from app.modules.booking.schemas import SlotOption
 from app.core.config import settings
 
 STATE_ESCOLHENDO_HORARIO = "ESCOLHENDO_HORARIO"
 STATE_ESCOLHENDO_DATA    = "ESCOLHENDO_DATA"
 STATE_CONFIRMANDO        = "CONFIRMANDO"
 
-# Busca até 5x o limite para ter material para distribuição e paginação
+# Busca até N×limit slots para ter folga de paginação
 _POOL_MULTIPLIER = 5
 
 
-def _distribute_slots(slots: list[SlotOption], limit: int) -> list[SlotOption]:
-    """
-    Seleciona `limit` slots distribuídos por faixa horária e os devolve
-    em ordem cronológica.
-
-    Faixas:
-      manhã → hora < 12
-      tarde  → 12 ≤ hora < 18
-      noite  → hora ≥ 18
-
-    Se alguma faixa estiver vazia, os vagas não preenchidas são completadas
-    com o restante disponível em ordem cronológica.
-    """
-    manha = [s for s in slots if s.start_at.hour < 12]
-    tarde = [s for s in slots if 12 <= s.start_at.hour < 18]
-    noite = [s for s in slots if s.start_at.hour >= 18]
-
-    base   = limit // 3
-    extras = limit % 3  # distribui extras: 1º manhã, 2º tarde
-
-    selected = (
-        manha[:base + (1 if extras > 0 else 0)] +
-        tarde[:base + (1 if extras > 1 else 0)] +
-        noite[:base]
-    )
-
-    # Completa se alguma faixa estava vazia
-    if len(selected) < limit:
-        used = {(s.start_at, s.professional_id) for s in selected}
-        filler = [s for s in slots if (s.start_at, s.professional_id) not in used]
-        selected += filler[:limit - len(selected)]
-
-    selected.sort(key=lambda s: s.start_at)
-    return selected[:limit]
+def _filter_by_turno(slots, turno: str | None):
+    """Filtra slots pelo turno selecionado. Sem turno → retorna todos."""
+    if turno == "manha":
+        return [s for s in slots if s.start_at.hour < 12]
+    if turno == "tarde":
+        return [s for s in slots if 12 <= s.start_at.hour < 18]
+    if turno == "noite":
+        return [s for s in slots if s.start_at.hour >= 18]
+    return slots
 
 
 def start(
@@ -66,6 +40,7 @@ def start(
     svc_id   = UUID(ctx["service_id"])
     prof_raw = ctx.get("professional_id")
     date_str = ctx.get("selected_date")
+    turno    = ctx.get("selected_turno")       # "manha" | "tarde" | "noite" | None
     prof_id_val = UUID(prof_raw) if prof_raw else None
 
     n      = settings.BOT_MAX_SLOTS_DISPLAYED
@@ -75,18 +50,27 @@ def start(
     # ── Busca pool de slots ───────────────────────────────────────────────────
     if date_str:
         target_date = datetime.fromisoformat(date_str).date()
-        all_slots = booking_engine.list_available_slots(
+        raw_slots = booking_engine.list_available_slots(
             db, company_id, prof_id_val, svc_id, target_date, limit=pool,
         )
     else:
-        all_slots = booking_engine.list_next_available_slots(
+        raw_slots = booking_engine.list_next_available_slots(
             db, company_id, prof_id_val, svc_id, days=7, limit=pool,
         )
 
-    any_prof = (prof_raw is None)
+    # ── Filtra pelo turno escolhido ───────────────────────────────────────────
+    all_slots = _filter_by_turno(raw_slots, turno)
+    any_prof  = (prof_raw is None)
 
-    # ── Sem horários ──────────────────────────────────────────────────────────
+    # ── Sem horários no turno ─────────────────────────────────────────────────
     if not all_slots:
+        turno_label = {"manha": "manhã", "tarde": "tarde", "noite": "noite"}.get(turno, "")
+        msg = (
+            messages.SEM_HORARIOS
+            if not turno_label
+            else f"😕 Não há horários disponíveis {f'de {turno_label} ' if turno_label else ''}nessa data."
+                 "\n\nDigite *0* para voltar ao menu ou escolha outra data abaixo."
+        )
         ctx["last_list"] = [
             {"row_id": "opt_outra_data", "payload": "outra_data",
              "title": "📅 Escolher outra data"},
@@ -94,26 +78,19 @@ def start(
         session.context = ctx
         session.state   = STATE_ESCOLHENDO_HORARIO
         sender.send_buttons(
-            instance, whatsapp_id, messages.SEM_HORARIOS,
-            [
-                {"buttonId": "opt_outra_data",
-                 "buttonText": {"displayText": "📅 Escolher outra data"}},
-            ],
+            instance, whatsapp_id, msg,
+            [{"buttonId": "opt_outra_data",
+              "buttonText": {"displayText": "📅 Escolher outra data"}}],
         )
         return
 
-    # ── Seleciona página de slots ─────────────────────────────────────────────
-    if offset == 0:
-        # Primeira página: distribui pelos períodos do dia
-        display_slots = _distribute_slots(all_slots, n)
-    else:
-        # Páginas seguintes: ordem cronológica a partir do offset
-        display_slots = all_slots[offset:offset + n]
-        if not display_slots:
-            # offset expirado (slots mudaram) — volta ao início
-            ctx["slot_offset"] = 0
-            display_slots = _distribute_slots(all_slots, n)
-            offset = 0
+    # ── Paginação ─────────────────────────────────────────────────────────────
+    display_slots = all_slots[offset:offset + n]
+    if not display_slots:
+        # offset obsoleto (slots mudaram) — volta ao início
+        offset = 0
+        ctx["slot_offset"] = 0
+        display_slots = all_slots[:n]
 
     has_more = len(all_slots) > (offset + n)
 
@@ -132,7 +109,6 @@ def start(
                           "professional_name": s.professional_name,
                           "title": title_str})
 
-    # "Mais horários" — só se houver próxima página
     if has_more:
         rows.append({
             "rowId": "opt_mais_horarios",
@@ -147,7 +123,7 @@ def start(
                       "title": "📅 Escolher outra data"})
 
     ctx["last_list"]   = last_list
-    ctx["slot_offset"] = offset   # mantém o offset atual (incrementado só em mais_horarios)
+    ctx["slot_offset"] = offset
     session.context    = ctx
     session.state      = STATE_ESCOLHENDO_HORARIO
 
@@ -176,6 +152,7 @@ def handle(
 
     if payload == "outra_data":
         ctx.pop("slot_offset", None)
+        ctx.pop("selected_turno", None)
         session.context = ctx
         send_escolher_data(db, session, company_id, instance, whatsapp_id)
         return
@@ -200,7 +177,7 @@ def handle(
         return
 
     ctx["slot_start_at"] = start_str
-    ctx.pop("slot_offset", None)   # reseta paginação ao confirmar slot
+    ctx.pop("slot_offset", None)
 
     if not ctx.get("professional_id"):
         ctx["professional_id"] = prof_id_str
