@@ -98,5 +98,6 @@ def handle(
         return
 
     ctx["selected_date"] = payload
+    ctx.pop("slot_offset", None)   # nova data = página 0 de horários
     session.context      = ctx
     start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)

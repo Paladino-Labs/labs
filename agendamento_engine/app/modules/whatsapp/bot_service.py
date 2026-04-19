@@ -324,6 +324,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 handle_ver_agendamentos=_handle_ver_agendamentos,
                 start_cancelando=_start_cancelando,
                 start_escolhendo_horario=_start_escolhendo_horario,
+                start_escolhendo_servico=_start_escolhendo_servico,
             )
 
         elif state == STATE_CANCELANDO:

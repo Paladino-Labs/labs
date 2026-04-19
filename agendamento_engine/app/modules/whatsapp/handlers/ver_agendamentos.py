@@ -50,9 +50,6 @@ def handle_ver_agendamentos(
         title_str = f"{date_label} às {time_label} — {svc_name}"
         last_list.append({"row_id": row_id, "payload": str(a.id), "title": title_str})
 
-    rows.append({"rowId": "opt_voltar", "title": "← Voltar ao menu", "description": ""})
-    last_list.append({"row_id": "opt_voltar", "payload": "voltar", "title": "← Voltar ao menu"})
-
     ctx = dict(ctx)
     ctx["last_list"] = last_list
     session.context  = ctx

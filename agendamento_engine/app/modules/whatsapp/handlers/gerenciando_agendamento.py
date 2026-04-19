@@ -42,23 +42,42 @@ def start(
         last_list.append({"row_id": "opt_reagendar", "payload": "opt_reagendar",
                           "title": "🔄 Reagendar"})
 
-    buttons += [
+    buttons.append(
         {"buttonId": "opt_cancelar_appt",
          "buttonText": {"displayText": "❌ Cancelar agendamento"}},
-        {"buttonId": "opt_voltar",
-         "buttonText": {"displayText": "← Voltar"}},
-    ]
-    last_list += [
+    )
+    last_list.append(
         {"row_id": "opt_cancelar_appt", "payload": "opt_cancelar_appt",
          "title": "❌ Cancelar agendamento"},
-        {"row_id": "opt_voltar",        "payload": "voltar",
-         "title": "← Voltar"},
-    ]
+    )
 
     ctx = dict(ctx)
     ctx["last_list"] = last_list
     session.context  = ctx
     sender.send_buttons(instance, whatsapp_id, text, buttons)
+
+
+def _show_reagendamento_submenu(instance: str, whatsapp_id: str, ctx: dict,
+                                session: BotSession) -> None:
+    """Exibe o sub-menu: mesmo serviço/profissional ou mudar serviço."""
+    ctx = dict(ctx)
+    ctx["last_list"] = [
+        {"row_id": "opt_reagendar_mesmo",  "payload": "reagendar_mesmo",
+         "title": "🕐 Mesmo serviço e profissional"},
+        {"row_id": "opt_reagendar_mudar",  "payload": "reagendar_mudar",
+         "title": "🔁 Mudar serviço"},
+    ]
+    session.context = ctx
+    sender.send_buttons(
+        instance, whatsapp_id,
+        "Como deseja reagendar?",
+        [
+            {"buttonId": "opt_reagendar_mesmo",
+             "buttonText": {"displayText": "🕐 Mesmo serviço e profissional"}},
+            {"buttonId": "opt_reagendar_mudar",
+             "buttonText": {"displayText": "🔁 Mudar serviço"}},
+        ],
+    )
 
 
 def handle(
@@ -68,19 +87,17 @@ def handle(
     handle_ver_agendamentos,
     start_cancelando,
     start_escolhendo_horario,
+    start_escolhendo_servico=None,
 ) -> None:
     ctx     = session.context or {}
     payload = resolve_input(user_input, ctx.get("last_list", []))
-
-    if payload == "voltar":
-        handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
-        return
 
     if payload == "opt_cancelar_appt":
         session.state = STATE_CANCELANDO
         start_cancelando(db, session, company_id, whatsapp_id, instance)
         return
 
+    # ── Reagendar: primeiro clique → mostra sub-menu ──────────────────────────
     if payload == "opt_reagendar":
         appt_id = UUID(ctx["managing_appointment_id"])
         try:
@@ -97,6 +114,27 @@ def handle(
             )
             return
 
+        # Salva dados do agendamento original para poder bifurcar em confirmando.py
+        ctx = dict(ctx)
+        original_svc_id = (str(appt.services[0].service_id)
+                           if appt.services else ctx.get("service_id", ""))
+        ctx["original_service_id"]    = original_svc_id
+        ctx["original_professional_id"] = str(appt.professional_id)
+        ctx["is_rescheduling"]        = True
+        session.context = ctx
+
+        _show_reagendamento_submenu(instance, whatsapp_id, ctx, session)
+        return
+
+    # ── Sub-opção: mesmo serviço e profissional ───────────────────────────────
+    if payload == "reagendar_mesmo":
+        appt_id = UUID(ctx["managing_appointment_id"])
+        try:
+            appt = appointment_svc.get_appointment_or_404(db, company_id, appt_id)
+        except Exception:
+            reset_session(session)
+            return
+
         ctx = dict(ctx)
         if appt.services:
             ctx["service_id"]   = str(appt.services[0].service_id)
@@ -105,10 +143,27 @@ def handle(
         ctx["professional_name"] = appt.professional.name if appt.professional else ""
         ctx.pop("selected_date", None)
         ctx.pop("slot_start_at", None)
-        ctx["is_rescheduling"] = True   # flag para confirmando.py bifurcar para reschedule
+        ctx.pop("slot_offset", None)
         session.context = ctx
         session.state   = STATE_REAGENDANDO
         start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+        return
+
+    # ── Sub-opção: mudar serviço (recomeça seleção do zero) ───────────────────
+    if payload == "reagendar_mudar":
+        if not start_escolhendo_servico:
+            # Fallback: comportamento de "mesmo serviço" se função não injetada
+            sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+            return
+
+        ctx = dict(ctx)
+        # Limpa contexto de serviço/profissional/slot para recomeçar do início
+        for key in ("service_id", "service_name", "professional_id", "professional_name",
+                    "selected_date", "slot_start_at", "slot_offset"):
+            ctx.pop(key, None)
+        session.context = ctx
+        session.state   = STATE_REAGENDANDO
+        start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
 
     sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
