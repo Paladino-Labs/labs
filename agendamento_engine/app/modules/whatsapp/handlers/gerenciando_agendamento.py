@@ -104,6 +104,8 @@ def handle(
         ctx["professional_id"]   = str(appt.professional_id)
         ctx["professional_name"] = appt.professional.name if appt.professional else ""
         ctx.pop("selected_date", None)
+        ctx.pop("slot_start_at", None)
+        ctx["is_rescheduling"] = True   # flag para confirmando.py bifurcar para reschedule
         session.context = ctx
         session.state   = STATE_REAGENDANDO
         start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)

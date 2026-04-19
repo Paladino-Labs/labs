@@ -54,6 +54,16 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleComplete(id: string) {
+    if (!confirm("Marcar este atendimento como concluído? O cliente receberá uma mensagem de agradecimento.")) return
+    try {
+      await api.patch(`/appointments/${id}/complete`, {})
+      fetchAppointments()
+    } catch (err: unknown) {
+      alert((err as Error).message)
+    }
+  }
+
   async function handleReschedule() {
     if (!rescheduleId || !newStartAt) return
     setRescheduling(true)
@@ -126,6 +136,13 @@ export default function DashboardPage() {
 
                 {!["CANCELLED", "NO_SHOW", "COMPLETED"].includes(a.status) && (
                   <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => handleComplete(a.id)}
+                    >
+                      ✅ Concluir
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

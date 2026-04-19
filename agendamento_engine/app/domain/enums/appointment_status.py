@@ -26,6 +26,7 @@ class AppointmentStatus(str, Enum):
 _ALLOWED_TRANSITIONS: dict = {
     AppointmentStatus.SCHEDULED: {
         AppointmentStatus.IN_PROGRESS,
+        AppointmentStatus.COMPLETED,    # admin pode concluir diretamente sem IN_PROGRESS
         AppointmentStatus.CANCELLED,
         AppointmentStatus.NO_SHOW,
     },

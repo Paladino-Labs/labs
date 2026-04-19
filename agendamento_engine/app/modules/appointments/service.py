@@ -286,3 +286,20 @@ def reschedule_appointment(
     db.commit()
     db.refresh(appointment)
     return appointment
+
+
+def complete_appointment(
+    db: Session, company_id: UUID, appointment_id: UUID,
+    user_id: UUID | None = None,
+) -> Appointment:
+    """
+    Marca um agendamento como COMPLETED.
+    Disponível apenas no painel (admin) — sem restrição de política.
+    Válido a partir de SCHEDULED ou IN_PROGRESS.
+    """
+    appointment = get_appointment_or_404(db, company_id, appointment_id)
+    transition(db, appointment, AppointmentStatus.COMPLETED, changed_by_id=user_id,
+               note="Concluído pelo painel")
+    db.commit()
+    db.refresh(appointment)
+    return appointment

@@ -337,3 +337,16 @@ ERRO_GENERICO = (
 )
 
 INPUT_INVALIDO = "Ops! Escolha uma das opções acima. 😊"
+
+
+# ─── Pós-atendimento ─────────────────────────────────────────────────────────
+
+def pos_atendimento(first_name: str, service_name: str) -> str:
+    """Mensagem enviada automaticamente após o atendimento ser marcado como concluído."""
+    saudacao = f"Olá, {first_name}! " if first_name else "Olá! "
+    return (
+        f"{saudacao}Obrigado por nos visitar! ✂️\n\n"
+        f"Esperamos que tenha ficado satisfeito com o *{service_name}*. "
+        f"Qualquer dúvida ou para agendar novamente, é só mandar uma mensagem. "
+        f"Até a próxima! 🙌"
+    )

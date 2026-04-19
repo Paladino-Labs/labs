@@ -1,4 +1,4 @@
-"""Handlers do estado CONFIRMANDO — resumo e criação do agendamento."""
+"""Handlers do estado CONFIRMANDO — resumo e criação/reagendamento do agendamento."""
 import logging
 import uuid as uuidlib
 from datetime import datetime
@@ -14,6 +14,7 @@ from app.modules.whatsapp.session import reset_session
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.schemas import BookingIntent
 from app.modules.booking.exceptions import SlotUnavailableError
+from app.modules.appointments.polices import PolicyViolationError
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -79,11 +80,12 @@ def handle(
         send_resumo(instance, whatsapp_id, ctx)
         return
 
-    # ── Criar agendamento ──────────────────────────────────────────────────────
+    # ── Confirmar: novo agendamento OU reagendamento ──────────────────────────
     start_at    = datetime.fromisoformat(ctx["slot_start_at"])
-    idem_key    = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
     prof_id_raw = ctx.get("professional_id")
     customer_id = ctx.get("customer_id")
+    nome        = first_name(ctx.get("customer_name", ""))
+    slot_label  = start_at.strftime("%d/%m às %H:%M")
 
     if not prof_id_raw or not customer_id:
         logger.error("CONFIRMANDO: dados incompletos ctx=%s whatsapp_id=%s", ctx, whatsapp_id)
@@ -91,6 +93,39 @@ def handle(
         reset_session(session)
         return
 
+    # ── Caminho de reagendamento ───────────────────────────────────────────────
+    if ctx.get("is_rescheduling"):
+        appt_id_str = ctx.get("managing_appointment_id")
+        if not appt_id_str:
+            logger.error("CONFIRMANDO reagendar: managing_appointment_id ausente ctx=%s", ctx)
+            sender.send_text(instance, whatsapp_id, messages.ERRO_DADOS_INCOMPLETOS)
+            reset_session(session)
+            return
+        try:
+            booking_engine.reschedule(db, company_id, UUID(appt_id_str), start_at)
+        except SlotUnavailableError:
+            sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_REAGENDANDO)
+            ctx = dict(ctx)
+            ctx.pop("slot_start_at", None)
+            ctx.pop("selected_date", None)
+            session.context = ctx
+            start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+            return
+        except PolicyViolationError as e:
+            sender.send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
+            reset_session(session)
+            return
+        except Exception:
+            logger.exception("booking_engine.reschedule failed appt_id=%s", appt_id_str)
+            sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
+            return
+        sender.send_text(instance, whatsapp_id,
+                         messages.reagendamento_confirmado(nome, slot_label))
+        reset_session(session)
+        return
+
+    # ── Caminho de novo agendamento ───────────────────────────────────────────
+    idem_key = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
     intent = BookingIntent(
         company_id=company_id,
         customer_id=UUID(customer_id),
@@ -114,8 +149,6 @@ def handle(
         sender.send_text(instance, whatsapp_id, messages.ERRO_CONFIRMAR_AGENDAMENTO)
         return
 
-    nome       = first_name(ctx.get("customer_name", ""))
-    slot_label = start_at.strftime("%d/%m às %H:%M")
     sender.send_text(
         instance, whatsapp_id,
         messages.agendamento_confirmado(

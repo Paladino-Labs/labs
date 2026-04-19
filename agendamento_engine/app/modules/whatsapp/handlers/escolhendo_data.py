@@ -1,5 +1,4 @@
 """Handlers do estado ESCOLHENDO_DATA."""
-from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -7,9 +6,12 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.whatsapp.helpers import label_date, first_name
+from app.modules.whatsapp.helpers import first_name
+from app.modules.booking.engine import booking_engine
 
 STATE_ESCOLHENDO_DATA = "ESCOLHENDO_DATA"
+
+_DAYS_AHEAD = 14  # janela de busca de datas disponíveis
 
 
 def send_escolher_data(
@@ -19,17 +21,50 @@ def send_escolher_data(
 ) -> None:
     """
     Exibe a lista de datas disponíveis para seleção.
+
+    Usa booking_engine.list_available_dates() para filtrar apenas dias
+    com disponibilidade real — evita o usuário escolher uma data vazia.
+
     Assinatura padronizada com (db, session, company_id, instance, whatsapp_id)
     para consistência com os outros start/send handlers.
     """
-    ctx   = dict(session.context or {})
-    today = datetime.now(timezone.utc).date()
+    ctx = dict(session.context or {})
 
-    rows, last_list = [], []
-    for i in range(7):
-        d          = today + timedelta(days=i)
-        row_id     = d.isoformat()
-        date_label = label_date(d)
+    svc_id_raw  = ctx.get("service_id")
+    prof_id_raw = ctx.get("professional_id")  # pode ser None ou UUID string
+
+    if not svc_id_raw:
+        # Contexto inválido — volta ao menu
+        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+
+    svc_id  = UUID(svc_id_raw)
+    prof_id = UUID(prof_id_raw) if prof_id_raw else None
+
+    date_options = booking_engine.list_available_dates(
+        db, company_id, prof_id, svc_id, days=_DAYS_AHEAD
+    )
+
+    # Filtra apenas dias com disponibilidade real
+    available = [d for d in date_options if d.has_availability]
+
+    if not available:
+        svc  = ctx.get("service_name", "serviço")
+        prof = ctx.get("professional_name", "")
+        msg  = (
+            f"😕 Não há horários disponíveis para *{svc}*"
+            + (f" com *{prof}*" if prof and prof != "Qualquer disponível" else "")
+            + f" nos próximos {_DAYS_AHEAD} dias.\n\n"
+            "Digite *0* para voltar ao menu principal."
+        )
+        sender.send_text(instance, whatsapp_id, msg)
+        return
+
+    rows      = []
+    last_list = []
+    for d in available:
+        row_id     = d.date.isoformat()   # payload: "2026-04-20"
+        date_label = d.label              # "Hoje (20/04)", "Amanhã (21/04)", etc.
         rows.append({"rowId": row_id, "title": date_label, "description": ""})
         last_list.append({"row_id": row_id, "payload": row_id, "title": date_label})
 
