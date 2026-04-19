@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
 import type { Professional } from "@/types"
 import { ActiveBadge } from "@/components/ActiveBadge"
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 
 export default function ProfessionalsPage() {
+  const router = useRouter()
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -120,13 +122,22 @@ export default function ProfessionalsPage() {
                     <ActiveBadge active={p.active} />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => toggleActive(p)}
-                    >
-                      {p.active ? "Desativar" : "Ativar"}
-                    </Button>
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => router.push(`/professionals/${p.id}`)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => toggleActive(p)}
+                      >
+                        {p.active ? "Desativar" : "Ativar"}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
