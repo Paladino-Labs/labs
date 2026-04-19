@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp.helpers import label_date
 from app.modules.booking.engine import booking_engine
 from app.core.config import settings
 
@@ -99,11 +100,19 @@ def start(
     for s in display_slots:
         row_id     = f"{s.start_at.isoformat()}|{s.professional_id}"
         time_label = s.start_at.strftime("%H:%M")
-        title_str  = f"{time_label} — {s.professional_name}" if any_prof else time_label
+        date_label = label_date(s.start_at.date())
+
+        # Formato: "Hoje (16/04) — 12:15" ou "Hoje (16/04) — 12:15 — Hemerson"
+        # description sempre vazio — evita que o fallback texto duplique o nome
+        if any_prof:
+            title_str = f"{date_label} — {time_label} — {s.professional_name}"
+        else:
+            title_str = f"{date_label} — {time_label}"
+
         rows.append({
             "rowId":       row_id,
             "title":       title_str,
-            "description": s.professional_name if any_prof else "",
+            "description": "",          # sempre vazio: impede "nome — nome" no fallback
         })
         last_list.append({"row_id": row_id, "payload": row_id,
                           "professional_name": s.professional_name,

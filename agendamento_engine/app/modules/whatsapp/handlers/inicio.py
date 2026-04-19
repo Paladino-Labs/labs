@@ -137,6 +137,12 @@ def _identify_customer(
     )
 
     if offer:
+        nome       = first_name(customer.name)
+        slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
+
+        # ── Monta ctx COMPLETO antes de atribuir a session.context ──────────
+        # SQLAlchemy só rastreia a atribuição session.context = ctx;
+        # mutações in-place APÓS essa linha NÃO são detectadas.
         ctx["predicted_slot"] = {
             "start_at": offer.next_slot.isoformat(),
             "service_id": str(offer.service_id),
@@ -145,13 +151,6 @@ def _identify_customer(
             "professional_name": offer.professional_name,
             "expires_at": offer.expires_at.isoformat(),
         }
-
-        session.context = ctx
-        session.state = STATE_OFERTA_RECORRENTE
-
-        nome = first_name(customer.name)
-        slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
-
         ctx["last_list"] = [
             {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta",
              "title": f"✅ Sim, {slot_label}"},
@@ -160,6 +159,10 @@ def _identify_customer(
             {"row_id": "opt_outro_servico", "payload": "opt_outro_servico",
              "title": "🔁 Outro serviço"},
         ]
+
+        # ← Atribui ctx DEPOIS de todas as mutações
+        session.context = ctx
+        session.state   = STATE_OFERTA_RECORRENTE
 
         text = messages.oferta_recorrente(
             nome,

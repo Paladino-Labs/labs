@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 STATE_CONFIRMANDO = "CONFIRMANDO"
 
 
+def _to_utc(dt: datetime) -> datetime:
+    """Normaliza um datetime para UTC-aware. Naive → assume UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def handle(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, user_input: str,
@@ -65,8 +72,11 @@ def handle(
                 db, company_id, prof_id, svc_id,
                 predicted_start.date(), limit=0,
             )
+            # Normaliza ambos para UTC antes de comparar — evita mismatch
+            # entre datetime naive (armazenado no context) e UTC-aware (retornado pelo engine)
+            predicted_utc = _to_utc(predicted_start)
             slot_still_available = any(
-                s.start_at == predicted_start and s.professional_id == prof_id
+                _to_utc(s.start_at) == predicted_utc and s.professional_id == prof_id
                 for s in available
             )
         except Exception:
