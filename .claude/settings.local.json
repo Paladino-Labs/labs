@@ -3,7 +3,10 @@
     "allow": [
       "WebFetch(domain:doc.evolution-api.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(cd /d C:\\\\dev\\\\paladino\\\\agendamento_engine)",
+      "Bash(python -c \"content = open\\('requirements.txt', 'r', encoding='utf-16'\\).read\\(\\); print\\(repr\\(content[:200]\\)\\)\")",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
