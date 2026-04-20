@@ -34,6 +34,7 @@ class CompanyInfoResponse(BaseModel):
     active: bool
     online_booking_enabled: bool
     services_count: int
+    booking_url: str        # URL pública compartilhável — ex: "https://app.meupaladino.com.br/paladino-labs"
 
 
 # ─── Saída: /services ─────────────────────────────────────────────────────────

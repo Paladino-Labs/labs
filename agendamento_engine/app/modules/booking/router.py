@@ -72,6 +72,7 @@ from app.modules.booking.http_schemas import (
 )
 from app.modules.customers import service as customer_svc
 from app.modules.appointments.polices import PolicyViolationError
+from app.core.config import settings
 import uuid as uuidlib
 
 logger = logging.getLogger(__name__)
@@ -126,19 +127,20 @@ def get_company_info(slug: str, db: Session = Depends(get_db)):
     Não exige online_booking_enabled — a landing page precisa saber se pode abrir o fluxo.
     """
     company = _get_company_or_404(slug, db)
-    settings = _get_settings(company.id, db)
+    company_settings = _get_settings(company.id, db)
 
     services_count = (
         len(booking_engine.list_services(db, company.id))
-        if (settings and settings.online_booking_enabled)
+        if (company_settings and company_settings.online_booking_enabled)
         else 0
     )
 
     return CompanyInfoResponse(
         company_name=company.name,
         active=company.active,
-        online_booking_enabled=bool(settings and settings.online_booking_enabled),
+        online_booking_enabled=bool(company_settings and company_settings.online_booking_enabled),
         services_count=services_count,
+        booking_url=f"{settings.BOOKING_BASE_URL}/{company.slug}",
     )
 
 
