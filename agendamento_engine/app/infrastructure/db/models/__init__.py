@@ -10,6 +10,7 @@ from .company_settings import CompanySettings
 from .bot_session import BotSession
 from .whatsapp_connection import WhatsAppConnection
 from .web_booking_session import WebBookingSession
+from .booking_session import BookingSession
 
 __all__ = [
     "Company",
@@ -28,4 +29,5 @@ __all__ = [
     "BotSession",
     "WhatsAppConnection",
     "WebBookingSession",
+    "BookingSession",
 ]

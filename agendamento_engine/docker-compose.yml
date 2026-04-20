@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Paladino Labs — API
+#
+# O banco de dados é o Supabase (cloud). Não há serviço Postgres local.
+# Toda a configuração sensível fica no arquivo .env (nunca commitado).
+#
+# Comandos principais:
+#   Subir:           docker compose up -d
+#   Rebuild:         docker compose up -d --build
+#   Logs:            docker compose logs -f api
+#   Migrations:      docker compose exec api alembic upgrade head
+#   Acessar shell:   docker compose exec api bash
+#   Parar:           docker compose down
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paladino_api
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      # Hot-reload ativo em dev. Mude para 'false' em produção.
+      RELOAD: "true"
+      PORT: "8000"
+
+    volumes:
+      # Código-fonte montado para hot-reload funcionar (dev only)
+      - .:/app
+      # Uploads persistentes: arquivos sobrevivem a rebuild/restart
+      - uploads_data:/app/static/uploads
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+# Volume nomeado para uploads — persiste entre rebuilds
+volumes:
+  uploads_data:

@@ -39,8 +39,20 @@ class Settings(BaseSettings):
     BOT_REMINDER_ADVANCE_HOURS_FIRST: int = 24  # Primeiro lembrete (horas antes)
     BOT_REMINDER_ADVANCE_HOURS_SECOND: int = 2  # Segundo lembrete (horas antes)
 
+    # BookingSession unificado — TTL por canal
+    BOOKING_SESSION_TTL_WEB_MINUTES: int = 15       # Web: 15 min (fluxo assistido)
+    BOOKING_SESSION_TTL_WHATSAPP_MINUTES: int = 30  # WhatsApp: 30 min (digitação lenta)
+
+    # Fuso horário padrão quando company.timezone não estiver preenchido
+    DEFAULT_COMPANY_TIMEZONE: str = "America/Sao_Paulo"
+
+    # URL pública do booking (widget / link direto). Sem barra final.
+    # Exemplo: https://app.seudominio.com/book
+    BOOKING_BASE_URL: str = "http://localhost:3000/book"
+
     class Config:
         env_file = ".env"
+        extra = "ignore"   # ignora vars no .env não declaradas aqui
 
 
 settings = Settings()

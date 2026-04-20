@@ -1,0 +1,33 @@
+# Ambiente virtual local — nunca vai para o container
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Testes e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Uploads locais (montados via volume no docker-compose)
+static/
+
+# Alembic cache
+alembic/__pycache__/
+migrations/__pycache__/

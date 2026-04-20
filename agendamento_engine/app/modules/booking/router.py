@@ -5,7 +5,7 @@ Acesso por company slug — sem autenticação JWT.
 Validação de acesso: empresa deve existir, estar ativa e com online_booking_enabled=True.
 Exceção: /info não exige online_booking_enabled (a landing page precisa saber o status).
 
-Endpoints:
+Endpoints legados (stateless — mantidos para compatibilidade):
   GET  /booking/{slug}/info
   GET  /booking/{slug}/services
   GET  /booking/{slug}/professionals
@@ -14,21 +14,39 @@ Endpoints:
   POST /booking/{slug}/confirm
   GET  /booking/{slug}/appointments
   PATCH /booking/{slug}/appointments/{appointment_id}/cancel
+
+Endpoints FSM BookingSession (Fase 2):
+  POST /booking/{slug}/start              — cria sessão, retorna token
+  POST /booking/{slug}/update             — aplica ação FSM (SELECT FOR UPDATE NOWAIT)
+  GET  /booking/{slug}/session/{token}    — retoma sessão pelo token
 """
 import logging
-from datetime import date
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import Any, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models.company import Company
 from app.infrastructure.db.models.company_settings import CompanySettings
+from app.infrastructure.db.models.booking_session import BookingSession
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.exceptions import SlotUnavailableError, BookingNotFoundError
+from app.modules.booking.actions import BookingAction, SessionExpiredError, InvalidActionError
+from app.modules.booking.schemas import (
+    BookingIntent,
+    ServiceOption,
+    ProfessionalOption,
+    DateOption,
+    SlotOption,
+)
 from app.modules.booking.http_schemas import (
+    # Legados
     CompanyInfoResponse,
     ServiceOptionResponse,
     ProfessionalOptionResponse,
@@ -39,8 +57,19 @@ from app.modules.booking.http_schemas import (
     AppointmentSummaryResponse,
     CancelBookingRequest,
     CancelResultResponse,
+    # FSM
+    ServiceOptionHTTP,
+    ProfessionalOptionHTTP,
+    DateOptionHTTP,
+    SlotOptionHTTP,
+    ConfirmationHTTP,
+    CancelConfirmationHTTP,
+    StartSessionRequest,
+    StartSessionResponse,
+    UpdateSessionRequest,
+    UpdateSessionResponse,
+    SessionStateResponse,
 )
-from app.modules.booking.schemas import BookingIntent
 from app.modules.customers import service as customer_svc
 from app.modules.appointments.polices import PolicyViolationError
 import uuid as uuidlib
@@ -316,3 +345,333 @@ def cancel_booking(
         raise HTTPException(status_code=403, detail=e.detail)
 
     return CancelResultResponse(success=result.success, message=result.message)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BookingSession FSM — Fase 2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _display_time(dt: datetime, tz_name: str) -> str:
+    """Converte datetime UTC para HH:MM no timezone da empresa."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Sao_Paulo")
+    return dt.astimezone(tz).strftime("%H:%M")
+
+
+def _serialize_options(options: list, company_timezone: str) -> list[dict]:
+    """
+    Converte lista de dataclasses do engine (ServiceOption, ProfessionalOption,
+    DateOption, SlotOption) em dicts serializáveis pelo Pydantic.
+
+    SlotOption recebe campo extra `start_display` (HH:MM no tz da empresa).
+    """
+    result: list[dict] = []
+    for opt in options:
+        if isinstance(opt, SlotOption):
+            result.append(SlotOptionHTTP(
+                start_at=opt.start_at,
+                end_at=opt.end_at,
+                start_display=_display_time(opt.start_at, company_timezone),
+                professional_id=opt.professional_id,
+                professional_name=opt.professional_name,
+                row_key=opt.row_key,
+            ).model_dump(mode="json"))
+        elif isinstance(opt, ServiceOption):
+            result.append(ServiceOptionHTTP(
+                id=opt.id,
+                name=opt.name,
+                price=str(opt.price),
+                duration_minutes=opt.duration_minutes,
+                row_key=opt.row_key,
+            ).model_dump(mode="json"))
+        elif isinstance(opt, ProfessionalOption):
+            result.append(ProfessionalOptionHTTP(
+                id=opt.id,
+                name=opt.name,
+                row_key=opt.row_key,
+            ).model_dump(mode="json"))
+        elif isinstance(opt, DateOption):
+            result.append(DateOptionHTTP(
+                date=opt.date,
+                label=opt.label,
+                has_availability=opt.has_availability,
+                row_key=opt.row_key,
+            ).model_dump(mode="json"))
+        else:
+            # fallback: dataclass genérico ou dict passado direto
+            if hasattr(opt, "__dict__"):
+                result.append(opt.__dict__)
+            else:
+                result.append(opt)
+    return result
+
+
+def _get_session_locked(db: Session, session_id: UUID, company_id: UUID) -> BookingSession:
+    """
+    Carrega a sessão com SELECT FOR UPDATE NOWAIT.
+    Lança 404 se não encontrada ou não pertence à empresa.
+    Lança 409 se outra requisição está processando a mesma sessão simultaneamente.
+    """
+    try:
+        session = (
+            db.query(BookingSession)
+            .filter(
+                BookingSession.id == session_id,
+                BookingSession.company_id == company_id,
+            )
+            .with_for_update(nowait=True)
+            .first()
+        )
+    except OperationalError:
+        # PostgreSQL lança LockNotAvailable (código 55P03) quando NOWAIT falha
+        raise HTTPException(
+            status_code=409,
+            detail="Sessão em uso por outra requisição — tente novamente em instantes",
+        )
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
+    return session
+
+
+# ─── POST /booking/{slug}/start ──────────────────────────────────────────────
+
+@router.post("/{slug}/start", response_model=StartSessionResponse, status_code=201)
+def start_session(
+    slug: str,
+    body: StartSessionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Cria uma nova BookingSession para o fluxo de agendamento online.
+
+    Se customer_phone for fornecido e o cliente já existir no banco,
+    o cliente é identificado imediatamente e a sessão começa em AWAITING_SERVICE.
+    Caso contrário, começa em IDLE aguardando SET_CUSTOMER.
+    """
+    company, _ = _require_online_booking(slug, db)
+
+    # Snapshot do timezone no momento da criação
+    company_tz = getattr(company, "timezone", "America/Sao_Paulo") or "America/Sao_Paulo"
+
+    session = booking_engine.start_session(
+        db,
+        company_id=company.id,
+        channel="web",
+        company_timezone=company_tz,
+    )
+
+    # Atalho: se o cliente se identificou na abertura, avançar direto para AWAITING_SERVICE
+    if body.customer_phone:
+        customer = customer_svc.get_or_create_by_phone(
+            db,
+            company.id,
+            body.customer_phone,
+            body.customer_name or "",
+        )
+        session.customer_id = customer.id
+        ctx = dict(session.context or {})
+        ctx["customer_name"]  = customer.name
+        ctx["customer_phone"] = body.customer_phone
+        session.context = ctx
+        session.state = "AWAITING_SERVICE"
+
+    db.commit()
+    db.refresh(session)
+
+    # Se o cliente já foi identificado, retornar a lista de serviços na mesma resposta
+    # para evitar um round-trip extra do frontend (só há uma lista possível: serviços).
+    # OBRIGATÓRIO: também armazenar no contexto para que _handle_select_service possa
+    # resolver o row_key sem precisar re-buscar do banco.
+    initial_options: list = []
+    if session.state == "AWAITING_SERVICE":
+        services = booking_engine.list_services(db, session.company_id)
+        initial_options = _serialize_options(services, company_tz)
+        # Persiste last_listed_services para a sessão criada com fast-track
+        ctx = dict(session.context or {})
+        ctx["last_listed_services"] = [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "price": str(s.price),
+                "duration_minutes": s.duration_minutes,
+                "row_key": s.row_key,
+            }
+            for s in services
+        ]
+        session.context = ctx
+        db.commit()
+        db.refresh(session)
+
+    return StartSessionResponse(
+        session_id=session.id,
+        token=session.token,
+        state=session.state,
+        options=initial_options,
+        expires_at=session.expires_at,
+        company_timezone=company_tz,
+    )
+
+
+# ─── POST /booking/{slug}/update ─────────────────────────────────────────────
+
+@router.post("/{slug}/update", response_model=UpdateSessionResponse)
+def update_session(
+    slug: str,
+    body: UpdateSessionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Aplica uma ação FSM à sessão e retorna o novo estado + opções.
+
+    Concorrência: usa SELECT FOR UPDATE NOWAIT — requisições simultâneas
+    para a mesma sessão recebem 409 imediatamente (sem espera).
+
+    O caller deve persistir `expires_at` e atualizar o estado local do wizard.
+    """
+    company, _ = _require_online_booking(slug, db)
+
+    # Validar a action antes de adquirir o lock (falha rápida, sem I/O desnecessário)
+    try:
+        action = BookingAction(body.action)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ação desconhecida: '{body.action}'. "
+                   f"Valores válidos: {[a.value for a in BookingAction]}",
+        )
+
+    # Adquirir lock — lança 409 se sessão já está em uso
+    session = _get_session_locked(db, body.session_id, company.id)
+
+    try:
+        result = booking_engine.update(db, session, action, body.payload)
+    except SessionExpiredError:
+        raise HTTPException(
+            status_code=410,
+            detail="Sessão expirada — inicie uma nova sessão",
+        )
+    except InvalidActionError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    except SlotUnavailableError as e:
+        # Slot foi tomado durante a confirmação — engine já voltou para AWAITING_TIME
+        # com novos slots disponíveis. Retornamos 200 com error code para o frontend tratar.
+        db.commit()
+        db.refresh(session)
+        return UpdateSessionResponse(
+            state=session.state,
+            options=_serialize_options(result.options if result else [], session.company_timezone),
+            error="SLOT_UNAVAILABLE",
+            expires_at=session.expires_at,
+        )
+    except PolicyViolationError as e:
+        raise HTTPException(status_code=403, detail=e.detail)
+
+    # Commit persiste o estado atualizado (state, context, expires_at, last_action)
+    db.commit()
+    db.refresh(session)
+
+    # Serializar resposta
+    tz = session.company_timezone
+    confirmation = None
+    cancel_result = None
+
+    if result.confirmation_data:
+        c = result.confirmation_data
+        confirmation = ConfirmationHTTP(
+            appointment_id=c.appointment_id,
+            service_name=c.service_name,
+            professional_name=c.professional_name,
+            start_at=c.start_at,
+            start_display=_display_time(c.start_at, tz),
+            end_at=c.end_at,
+            total_amount=str(c.total_amount),
+        )
+
+    if result.cancel_data:
+        c = result.cancel_data
+        cancel_result = CancelConfirmationHTTP(
+            success=c.success,
+            message=c.message,
+        )
+
+    return UpdateSessionResponse(
+        state=result.next_state,
+        options=_serialize_options(result.options, tz),
+        confirmation=confirmation,
+        cancel_result=cancel_result,
+        error=result.error,
+        idempotent=result.idempotent_replay,
+        expires_at=session.expires_at,
+    )
+
+
+# ─── GET /booking/{slug}/session/{token} ─────────────────────────────────────
+
+@router.get("/{slug}/session/{token}", response_model=SessionStateResponse)
+def resume_session(
+    slug: str,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Retoma uma sessão existente pelo token (ex: ?t={token} na URL do frontend).
+
+    As opções são re-geradas do banco — slots podem ter mudado desde a última visita.
+    Se a sessão estiver expirada, retorna 410 para o frontend redirecionar ao /start.
+    """
+    company, _ = _require_online_booking(slug, db)
+
+    session = (
+        db.query(BookingSession)
+        .filter(
+            BookingSession.token == token,
+            BookingSession.company_id == company.id,
+        )
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
+
+    # Verificar TTL — sessões expiradas retornam 410 (não 404, para o frontend distinguir)
+    now = datetime.now(timezone.utc)
+    if session.expires_at and now > session.expires_at:
+        raise HTTPException(
+            status_code=410,
+            detail="Sessão expirada — inicie uma nova sessão",
+        )
+
+    # Re-listar opções do estado atual (slots podem ter mudado)
+    options = booking_engine.get_options_for_state(db, session)
+    tz = session.company_timezone
+
+    # Confirmação se sessão já está em CONFIRMED
+    confirmation = None
+    if session.state == "CONFIRMED" and session.appointment_id:
+        ctx = session.context or {}
+        start_at_raw = ctx.get("slot_start_at")
+        end_at_raw   = ctx.get("slot_end_at")
+        if start_at_raw and end_at_raw:
+            start_at = datetime.fromisoformat(start_at_raw)
+            end_at   = datetime.fromisoformat(end_at_raw)
+            confirmation = ConfirmationHTTP(
+                appointment_id=session.appointment_id,
+                service_name=ctx.get("service_name", ""),
+                professional_name=ctx.get("professional_name", ""),
+                start_at=start_at,
+                start_display=_display_time(start_at, tz),
+                end_at=end_at,
+                total_amount=str(ctx.get("total_amount", "0")),
+            )
+
+    return SessionStateResponse(
+        session_id=session.id,
+        token=session.token,
+        state=session.state,
+        options=_serialize_options(options, tz),
+        confirmation=confirmation,
+        expires_at=session.expires_at,
+        company_timezone=tz,
+    )

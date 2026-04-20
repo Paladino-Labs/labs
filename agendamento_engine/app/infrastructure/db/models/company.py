@@ -14,6 +14,11 @@ class Company(Base, TimestampMixin):
     slug = Column(String(100), nullable=True, unique=True)
     active = Column(Boolean, default=True, nullable=False)
 
+    # Fuso horário da empresa (IANA, ex: "America/Sao_Paulo").
+    # Obrigatório para geração correta de labels de data/hora e exibição no frontend.
+    # Backfill padrão: "America/Sao_Paulo" (aplicado pela migration).
+    timezone = Column(String(50), nullable=False, server_default="America/Sao_Paulo")
+
     users = relationship("User", back_populates="company", lazy="dynamic")
     professionals = relationship("Professional", back_populates="company", lazy="dynamic")
     services = relationship("Service", back_populates="company", lazy="dynamic")
