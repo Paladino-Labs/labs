@@ -123,6 +123,15 @@ def menu_principal(name: str) -> str:
     return f"Beleza, {name}! 👋\n\nQual a boa de hoje?"
 
 
+def menu_principal_com_link(name: str, booking_url: str) -> str:
+    """Variante do menu que exibe o link de agendamento online."""
+    return (
+        f"Beleza, {name}! 👋\n\n"
+        f"Qual a boa de hoje?\n\n"
+        f"🔗 Prefere agendar pelo link?\n{booking_url}"
+    )
+
+
 # ─── ESCOLHENDO_SERVICO ───────────────────────────────────────────────────────
 
 SEM_SERVICOS = (

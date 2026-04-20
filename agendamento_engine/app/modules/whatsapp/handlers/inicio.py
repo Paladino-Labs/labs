@@ -12,6 +12,7 @@ from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
 from app.modules.customers import service as customer_svc
+from app.infrastructure.db.models import Company, CompanySettings
 from app.core.config import settings
 
 booking_engine = BookingEngine()
@@ -78,6 +79,22 @@ def handle(
     )
 
 
+def _resolve_booking_url(db: Session, company_id: UUID) -> str | None:
+    """
+    Retorna a URL pública de agendamento online se habilitada, ou None.
+    Resultado armazenado em ctx["booking_url"] para evitar queries repetidas.
+    """
+    cfg = db.query(CompanySettings).filter(
+        CompanySettings.company_id == company_id
+    ).first()
+    if not cfg or not cfg.online_booking_enabled:
+        return None
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company or not company.slug:
+        return None
+    return f"{settings.FRONTEND_URL}/book/{company.slug}"
+
+
 def _identify_customer(
     db: Session, session: BotSession, company_id: UUID,
     whatsapp_id: str, instance: str, company_name: str,
@@ -113,6 +130,10 @@ def _identify_customer(
     ctx["customer_id"] = str(customer.id)
     ctx["customer_name"] = customer.name
     ctx["company_name"] = company_name
+
+    # Resolve booking URL (cached in ctx para não refazer a query a cada mensagem)
+    if "booking_url" not in ctx:
+        ctx["booking_url"] = _resolve_booking_url(db, company_id)
 
     # ✅ USAR ENGINE (não service direto)
     appointments = booking_engine.get_customer_appointments(
@@ -206,8 +227,13 @@ def show_menu_principal(
     instance: str, to: str, company_name: str, name: Optional[str],
 ) -> None:
     nome = first_name(name) if name else ""
+    booking_url: str | None = ctx.get("booking_url")
 
-    text = messages.menu_principal(nome)
+    text = (
+        messages.menu_principal_com_link(nome, booking_url)
+        if booking_url
+        else messages.menu_principal(nome)
+    )
 
     buttons = [
         {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},

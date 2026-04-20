@@ -159,31 +159,150 @@ export default function IntegrationsPage() {
   }
 
   async function handleToggleBot() {
-    // PATCH /companies/me com settings.bot_enabled
+    const next = !isBotEnabled
     try {
-      await api.patch("/companies/me", {
-        settings: { bot_enabled: !isBotEnabled },
-      })
-      setIsBotEnabled((v) => !v)
+      await api.patch("/companies/me", { settings: { bot_enabled: next } })
+      setIsBotEnabled(next)
     } catch (e: unknown) {
       setError((e as Error).message ?? "Erro ao alterar configuração do bot.")
     }
   }
 
-  // bot_enabled vem de /companies/me (carregado separadamente)
+  // Dados da empresa (bot_enabled + online_booking_enabled + slug)
+  interface CompanyData {
+    name: string
+    slug?: string | null
+    settings?: {
+      bot_enabled?: boolean
+      online_booking_enabled?: boolean
+    } | null
+  }
+  const [company, setCompany] = useState<CompanyData | null>(null)
   const [isBotEnabled, setIsBotEnabled] = useState(false)
+  const [isOnlineBookingEnabled, setIsOnlineBookingEnabled] = useState(false)
+  const [slugInput, setSlugInput] = useState("")
+  const [savingSlug, setSavingSlug] = useState(false)
+  const [copied, setCopied] = useState(false)
+
   useEffect(() => {
-    if (conn.status !== "CONNECTED") return
-    api.get<{ settings?: { bot_enabled?: boolean } }>("/companies/me")
-      .then((d) => setIsBotEnabled(d.settings?.bot_enabled ?? false))
+    api.get<CompanyData>("/companies/me")
+      .then((d) => {
+        setCompany(d)
+        setIsBotEnabled(d.settings?.bot_enabled ?? false)
+        setIsOnlineBookingEnabled(d.settings?.online_booking_enabled ?? false)
+        setSlugInput(d.slug ?? "")
+      })
       .catch(() => {})
-  }, [conn.status])
+  }, [])
+
+  const frontendBase = process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
+  const bookingUrl = company?.slug
+    ? `${frontendBase}/book/${company.slug}`
+    : null
+
+  async function handleSaveSlug() {
+    if (!slugInput.trim()) return
+    setSavingSlug(true)
+    try {
+      await api.patch("/companies/me", { company: { slug: slugInput.trim() } })
+      setCompany((c) => c ? { ...c, slug: slugInput.trim() } : c)
+    } catch (e: unknown) {
+      alert((e as Error).message)
+    } finally {
+      setSavingSlug(false)
+    }
+  }
+
+  async function handleToggleOnlineBooking() {
+    const next = !isOnlineBookingEnabled
+    try {
+      await api.patch("/companies/me", { settings: { online_booking_enabled: next } })
+      setIsOnlineBookingEnabled(next)
+    } catch (e: unknown) {
+      alert((e as Error).message)
+    }
+  }
+
+  function handleCopyLink() {
+    if (!bookingUrl) return
+    navigator.clipboard.writeText(bookingUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold">Integrações</h1>
+
+      {/* ── Agendamento Online ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">🔗 Agendamento Online</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Slug */}
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">
+              Link personalizado da sua empresa (somente letras, números e hífen).
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={slugInput}
+                onChange={(e) => setSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                placeholder="minha-barbearia"
+                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveSlug}
+                disabled={savingSlug || !slugInput.trim() || slugInput === company?.slug}
+              >
+                {savingSlug ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Toggle */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">Agendamento online:</span>
+            <button
+              onClick={handleToggleOnlineBooking}
+              disabled={!company?.slug}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${
+                isOnlineBookingEnabled ? "bg-primary" : "bg-muted"
+              }`}
+              aria-label="Toggle online booking"
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  isOnlineBookingEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+            <span className="text-sm font-medium">
+              {isOnlineBookingEnabled ? "Ativado" : "Desativado"}
+            </span>
+          </div>
+          {!company?.slug && (
+            <p className="text-xs text-muted-foreground">
+              Configure o link personalizado acima para ativar o agendamento online.
+            </p>
+          )}
+
+          {/* URL */}
+          {bookingUrl && isOnlineBookingEnabled && (
+            <div className="rounded-lg bg-muted px-3 py-2 text-sm break-all flex items-center justify-between gap-2">
+              <span className="text-muted-foreground font-mono text-xs">{bookingUrl}</span>
+              <Button size="sm" variant="outline" onClick={handleCopyLink}>
+                {copied ? "✓ Copiado" : "Copiar"}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">

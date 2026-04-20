@@ -12,10 +12,11 @@ router = APIRouter(prefix="/services", tags=["services"])
 
 @router.get("/", response_model=List[schemas.ServiceResponse])
 def list_services(
+    active_only: bool = True,
     company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
 ):
-    return svc.list_services(db, company_id)
+    return svc.list_services(db, company_id, active_only=active_only)
 
 
 @router.post("/", response_model=schemas.ServiceResponse, status_code=201)

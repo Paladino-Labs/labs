@@ -26,6 +26,7 @@ from app.modules.whatsapp.router import router as whatsapp_router
 from app.modules.booking.router import router as booking_router
 from app.modules.products.router import router as products_router
 from app.modules.uploads.router import router as uploads_router
+from app.modules.public.router import router as public_router
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ app.include_router(whatsapp_router)
 app.include_router(booking_router)
 app.include_router(products_router)
 app.include_router(uploads_router)
+app.include_router(public_router)
 
 # Static files (uploaded images)
 os.makedirs("static/uploads", exist_ok=True)

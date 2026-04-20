@@ -11,6 +11,7 @@ class CompanySettingsResponse(BaseModel):
     max_advance_booking_days: int
     require_payment_upfront: bool
     bot_enabled: bool
+    online_booking_enabled: bool
 
     model_config = {"from_attributes": True}
 
@@ -36,6 +37,7 @@ class CompanySettingsUpdate(BaseModel):
     max_advance_booking_days: Optional[int] = Field(None, ge=1, le=365)
     require_payment_upfront: Optional[bool] = None
     bot_enabled: Optional[bool] = None
+    online_booking_enabled: Optional[bool] = None
 
 
 class CompanyPatch(BaseModel):

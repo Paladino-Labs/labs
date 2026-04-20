@@ -9,6 +9,7 @@ from .availability_slot import WorkingHour, ScheduleBlock
 from .company_settings import CompanySettings
 from .bot_session import BotSession
 from .whatsapp_connection import WhatsAppConnection
+from .web_booking_session import WebBookingSession
 
 __all__ = [
     "Company",
@@ -26,4 +27,5 @@ __all__ = [
     "CompanySettings",
     "BotSession",
     "WhatsAppConnection",
+    "WebBookingSession",
 ]
