@@ -47,7 +47,8 @@ class Settings(BaseSettings):
     DEFAULT_COMPANY_TIMEZONE: str = "America/Sao_Paulo"
 
     # URL pública do booking (widget / link direto). Sem barra final.
-    # Exemplo: https://app.seudominio.com/book
+    # Deve incluir o segmento de rota — ex: https://app.seudominio.com/book
+    # O slug da empresa é concatenado: {BOOKING_BASE_URL}/{slug}
     BOOKING_BASE_URL: str = "http://localhost:3000/book"
 
     class Config:
