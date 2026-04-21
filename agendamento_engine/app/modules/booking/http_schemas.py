@@ -253,6 +253,24 @@ class UpdateSessionRequest(BaseModel):
     payload: dict = {}
 
 
+class ContextSummaryHTTP(BaseModel):
+    """
+    Snapshot dos campos de contexto relevantes para o frontend exibir o resumo
+    na etapa AWAITING_CONFIRMATION e ao retomar sessões persistidas.
+
+    Todos os campos são opcionais — preenchidos conforme o fluxo avança.
+    """
+    customer_name: Optional[str] = None
+    service_name: Optional[str] = None
+    service_price: Optional[str] = None
+    service_duration_minutes: Optional[int] = None
+    professional_name: Optional[str] = None
+    selected_date: Optional[str] = None   # "YYYY-MM-DD"
+    slot_start_at: Optional[str] = None   # ISO UTC — para exibição com start_display
+    slot_end_at: Optional[str] = None     # ISO UTC
+    slot_start_display: Optional[str] = None  # "HH:MM" no tz da empresa
+
+
 class UpdateSessionResponse(BaseModel):
     """
     Resposta de POST /booking/{slug}/update.
@@ -261,6 +279,8 @@ class UpdateSessionResponse(BaseModel):
     options         → lista de opções para o próximo passo
                       (tipo varia por estado: ServiceOptionHTTP | ProfessionalOptionHTTP |
                        DateOptionHTTP | SlotOptionHTTP)
+    context_summary → snapshot dos campos selecionados — usado para exibir resumo
+                      em AWAITING_CONFIRMATION e em sessões retomadas
     confirmation    → preenchido quando state='CONFIRMED'
     cancel_result   → preenchido quando state='CANCELLED'
     error           → código de erro se ação falhou mas sessão sobreviveu
@@ -270,6 +290,7 @@ class UpdateSessionResponse(BaseModel):
     """
     state: str
     options: list[Any]          # list[ServiceOptionHTTP | ProfessionalOptionHTTP | ...]
+    context_summary: ContextSummaryHTTP = ContextSummaryHTTP()
     confirmation: Optional[ConfirmationHTTP] = None
     cancel_result: Optional[CancelConfirmationHTTP] = None
     error: Optional[str] = None
@@ -290,6 +311,7 @@ class SessionStateResponse(BaseModel):
     token: str
     state: str
     options: list[Any]
+    context_summary: ContextSummaryHTTP = ContextSummaryHTTP()
     confirmation: Optional[ConfirmationHTTP] = None
     expires_at: datetime        # UTC
     company_timezone: str

@@ -1,87 +1,118 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { formatBRL } from "@/lib/utils"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Tipos de opção (espelham os schemas HTTP do backend) ─────────────────────
 
-interface CompanyInfo {
-  name: string
-  slug: string
-  online_booking_enabled: boolean
-}
-
-interface ServiceInfo {
+interface ServiceOpt {
   id: string
   name: string
   price: string
   duration_minutes: number
-  description?: string
-  image_url?: string
+  row_key: string
 }
 
-interface ProfessionalInfo {
+interface ProfOpt {
   id: string | null   // null = "Qualquer disponível"
   name: string
+  row_key: string
 }
 
-interface SlotInfo {
-  start_at: string
-  end_at: string
+interface DateOpt {
+  date: string            // "YYYY-MM-DD"
+  label: string           // "Hoje (20/04)"
+  has_availability: boolean
+  row_key: string
+}
+
+interface SlotOpt {
+  start_at: string        // ISO UTC
+  end_at: string          // ISO UTC
+  start_display: string   // "14:30" no tz da empresa
   professional_id: string
   professional_name: string
+  row_key: string
 }
 
-interface BookingConfirmation {
-  token: string
+// ─── Estado da sessão FSM ─────────────────────────────────────────────────────
+
+type SrvState =
+  | "IDLE"
+  | "AWAITING_SERVICE"
+  | "AWAITING_PROFESSIONAL"
+  | "AWAITING_DATE"
+  | "AWAITING_TIME"
+  | "AWAITING_CONFIRMATION"
+  | "CONFIRMED"
+  | "CANCELLED"
+
+interface ContextSummary {
+  customer_name?: string | null
+  service_name?: string | null
+  service_price?: string | null
+  service_duration_minutes?: number | null
+  professional_name?: string | null
+  selected_date?: string | null    // "YYYY-MM-DD"
+  slot_start_at?: string | null    // ISO UTC
+  slot_end_at?: string | null      // ISO UTC
+  slot_start_display?: string | null  // "14:30"
+}
+
+interface ConfirmData {
   appointment_id: string
   service_name: string
   professional_name: string
   start_at: string
+  start_display: string
   end_at: string
   total_amount: string
 }
 
-// ─── Step type ────────────────────────────────────────────────────────────────
+interface Session {
+  session_id: string
+  token: string
+  state: SrvState
+  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt)[]
+  context_summary: ContextSummary
+  confirmation: ConfirmData | null
+  expires_at: string
+  company_timezone: string
+  error?: string | null
+}
 
-type Step = "service" | "professional" | "date" | "time" | "customer" | "confirmed"
+interface CompanyInfo {
+  company_name: string
+  active: boolean
+  online_booking_enabled: boolean
+  booking_url: string
+}
 
-// ─── API base ─────────────────────────────────────────────────────────────────
+// ─── Helpers de API ───────────────────────────────────────────────────────────
 
 const API = process.env.NEXT_PUBLIC_API_URL!
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? "Erro desconhecido")
+    const err = Object.assign(new Error(body.detail ?? "Erro desconhecido"), { status: res.status })
+    throw err
   }
   return res.json()
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Componentes visuais ──────────────────────────────────────────────────────
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })
-}
-
-function addDays(base: Date, n: number): Date {
-  const d = new Date(base)
-  d.setDate(d.getDate() + n)
-  return d
-}
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-// ─── Sub-componentes visuais ──────────────────────────────────────────────────
-
-function StepHeader({ title, subtitle, onBack }: {
+function StepHeader({
+  title,
+  subtitle,
+  onBack,
+}: {
   title: string
   subtitle?: string
   onBack?: () => void
@@ -97,9 +128,13 @@ function StepHeader({ title, subtitle, onBack }: {
           ← Voltar
         </button>
       )}
-      <h2 className="text-xl font-bold" style={{ color: "var(--book-text)" }}>{title}</h2>
+      <h2 className="text-xl font-bold" style={{ color: "var(--book-text)" }}>
+        {title}
+      </h2>
       {subtitle && (
-        <p className="text-sm mt-1" style={{ color: "var(--book-text-secondary)" }}>{subtitle}</p>
+        <p className="text-sm mt-1" style={{ color: "var(--book-text-secondary)" }}>
+          {subtitle}
+        </p>
       )}
     </div>
   )
@@ -108,24 +143,27 @@ function StepHeader({ title, subtitle, onBack }: {
 function BookCard({
   children,
   onClick,
-  selected,
+  disabled,
 }: {
   children: React.ReactNode
   onClick?: () => void
-  selected?: boolean
+  disabled?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-xl p-4 transition-all duration-150"
+      disabled={disabled}
+      className="w-full text-left rounded-xl p-4 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
       style={{
         background: "var(--book-card)",
-        border: selected
-          ? "1px solid var(--book-primary)"
-          : "1px solid var(--book-border)",
-        boxShadow: selected
-          ? "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
-          : "none",
+        border: "1px solid var(--book-border)",
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled)
+          (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)"
+      }}
+      onMouseLeave={(e) => {
+        ;(e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)"
       }}
     >
       {children}
@@ -133,166 +171,190 @@ function BookCard({
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <p className="text-sm py-6 text-center" style={{ color: "var(--book-text-muted)" }}>
+      Carregando…
+    </p>
+  )
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  return (
+    <div
+      className="rounded-lg p-3 text-sm mb-4"
+      style={{
+        background: "color-mix(in srgb, #ef4444 10%, var(--book-card))",
+        border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)",
+        color: "#fca5a5",
+      }}
+    >
+      {msg}
+    </div>
+  )
+}
+
+function InputField({
+  label,
+  type,
+  value,
+  onChange,
+  placeholder,
+  minLength,
+  required,
+}: {
+  label: string
+  type: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  minLength?: number
+  required?: boolean
+}) {
+  return (
+    <div>
+      <label
+        className="block text-sm font-medium mb-1.5"
+        style={{ color: "var(--book-text-secondary)" }}
+      >
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        minLength={minLength}
+        placeholder={placeholder}
+        className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
+        style={{
+          background: "var(--book-card)",
+          border: "1px solid var(--book-border)",
+          color: "var(--book-text)",
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = "var(--book-primary)"
+          e.currentTarget.style.boxShadow =
+            "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = "var(--book-border)"
+          e.currentTarget.style.boxShadow = "none"
+        }}
+      />
+    </div>
+  )
+}
+
+// ─── Componente Principal ─────────────────────────────────────────────────────
 
 export default function BookingPage() {
   const { slug } = useParams<{ slug: string }>()
+  const searchParams = useSearchParams()
+  const router = useRouter()
 
-  // Company
+  // Info da empresa
   const [company, setCompany] = useState<CompanyInfo | null>(null)
   const [companyError, setCompanyError] = useState<string | null>(null)
 
-  // Wizard state
-  const [step, setStep] = useState<Step>("service")
-  const [services, setServices] = useState<ServiceInfo[]>([])
-  const [professionals, setProfessionals] = useState<ProfessionalInfo[]>([])
-  const [slots, setSlots] = useState<SlotInfo[]>([])
+  // Sessão FSM
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const [selectedService, setSelectedService] = useState<ServiceInfo | null>(null)
-  const [selectedProfessional, setSelectedProfessional] = useState<ProfessionalInfo | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string>("")
-  const [selectedSlot, setSelectedSlot] = useState<SlotInfo | null>(null)
+  // Formulário de identificação (exibido quando session=null ou state=IDLE)
+  const [custName, setCustName] = useState("")
+  const [custPhone, setCustPhone] = useState("")
 
-  // Customer form
-  const [customerName, setCustomerName] = useState("")
-  const [customerPhone, setCustomerPhone] = useState("")
-  const [customerEmail, setCustomerEmail] = useState("")
-
-  // UI state
-  const [loadingServices, setLoadingServices] = useState(false)
-  const [loadingProfs, setLoadingProfs] = useState(false)
-  const [loadingSlots, setLoadingSlots] = useState(false)
-  const [booking, setBooking] = useState(false)
-  const [bookingError, setBookingError] = useState<string | null>(null)
-  const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null)
-
-  // Date navigation — lógica inalterada
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const [dateOffset, setDateOffset] = useState(0)
-  const DATES_SHOWN = 7
-
-  const visibleDates = Array.from({ length: DATES_SHOWN }, (_, i) =>
-    addDays(today, dateOffset + i)
-  )
-
-  // ── Load company ─────────────────────────────────────────────────────────────
+  // ── Carregar info da empresa ─────────────────────────────────────────────────
   useEffect(() => {
-    apiFetch<CompanyInfo>(`/public/${slug}/info`)
+    apiFetch<CompanyInfo>(`/booking/${slug}/info`)
       .then(setCompany)
-      .catch((e) => setCompanyError(e.message))
+      .catch((e: Error) => setCompanyError(e.message))
   }, [slug])
 
-  // ── Load services ────────────────────────────────────────────────────────────
+  // ── Tentar retomar sessão existente pelo token na URL (?t=…) ─────────────────
   useEffect(() => {
-    if (!company) return
-    setLoadingServices(true)
-    apiFetch<ServiceInfo[]>(`/public/${slug}/services`)
-      .then(setServices)
-      .catch(() => {})
-      .finally(() => setLoadingServices(false))
-  }, [company, slug])
+    const token = searchParams.get("t")
+    if (!token || !company) return
 
-  // ── Load professionals when service selected ──────────────────────────────────
-  const loadProfessionals = useCallback(
-    async (serviceId: string) => {
-      setLoadingProfs(true)
-      try {
-        const data = await apiFetch<ProfessionalInfo[]>(
-          `/public/${slug}/professionals?service_id=${serviceId}`
-        )
-        setProfessionals(data)
-      } finally {
-        setLoadingProfs(false)
-      }
-    },
-    [slug]
-  )
+    apiFetch<Session>(`/booking/${slug}/session/${token}`)
+      .then(setSession)
+      .catch((e: { status?: number; message: string }) => {
+        // 410 = expirada → não tratar como erro; usuário verá o formulário normalmente
+        if (e.status !== 410) setError(e.message)
+        // Limpar token inválido da URL
+        const url = new URL(window.location.href)
+        url.searchParams.delete("t")
+        router.replace(url.pathname + url.search, { scroll: false })
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company]) // executa uma vez após carregar empresa
 
-  // ── Load slots ───────────────────────────────────────────────────────────────
-  const loadSlots = useCallback(
-    async (serviceId: string, professionalId: string | null, date: string) => {
-      setLoadingSlots(true)
-      setSlots([])
-      try {
-        const profParam = professionalId ? `&professional_id=${professionalId}` : ""
-        const data = await apiFetch<SlotInfo[]>(
-          `/public/${slug}/slots?service_id=${serviceId}&date=${date}${profParam}`
-        )
-        setSlots(data)
-      } finally {
-        setLoadingSlots(false)
-      }
-    },
-    [slug]
-  )
-
-  // ── Date selected → load slots ──────────────────────────────────────────────
-  useEffect(() => {
-    if (step === "time" && selectedService && selectedDate) {
-      loadSlots(selectedService.id, selectedProfessional?.id ?? null, selectedDate)
-    }
-  }, [step, selectedService, selectedProfessional, selectedDate, loadSlots])
-
-  // ── Step handlers — lógica inalterada ────────────────────────────────────────
-
-  function handleSelectService(svc: ServiceInfo) {
-    setSelectedService(svc)
-    setSelectedProfessional(null)
-    setSelectedDate("")
-    setSelectedSlot(null)
-    loadProfessionals(svc.id)
-    setStep("professional")
-  }
-
-  function handleSelectProfessional(prof: ProfessionalInfo) {
-    setSelectedProfessional(prof)
-    setSelectedDate(isoDate(today))
-    setStep("date")
-  }
-
-  function handleSelectDate(d: Date) {
-    const iso = isoDate(d)
-    setSelectedDate(iso)
-    setSelectedSlot(null)
-    setStep("time")
-  }
-
-  function handleSelectSlot(slot: SlotInfo) {
-    setSelectedSlot(slot)
-    setStep("customer")
-  }
-
-  async function handleBook(e: React.FormEvent) {
+  // ── Criar sessão (formulário de identificação) ────────────────────────────────
+  async function handleStart(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedService || !selectedSlot) return
-    setBookingError(null)
-    setBooking(true)
-
-    const professionalId = selectedSlot.professional_id
-
+    setError(null)
+    setLoading(true)
     try {
-      const result = await apiFetch<BookingConfirmation>(`/public/${slug}/book`, {
+      const result = await apiFetch<Session>(`/booking/${slug}/start`, {
         method: "POST",
         body: JSON.stringify({
-          service_id: selectedService.id,
-          professional_id: professionalId,
-          start_at: selectedSlot.start_at,
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          customer_email: customerEmail || undefined,
+          customer_name: custName.trim(),
+          customer_phone: custPhone.trim(),
         }),
       })
-      setConfirmation(result)
-      setStep("confirmed")
-    } catch (err: unknown) {
-      setBookingError((err as Error).message)
+      setSession(result)
+      // Persistir token na URL para retomada sem reload
+      const url = new URL(window.location.href)
+      url.searchParams.set("t", result.token)
+      router.replace(url.pathname + url.search, { scroll: false })
+    } catch (e: unknown) {
+      setError((e as Error).message)
     } finally {
-      setBooking(false)
+      setLoading(false)
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Dispatch: aplica qualquer ação FSM ───────────────────────────────────────
+  const dispatch = useCallback(
+    async (action: string, payload: Record<string, unknown> = {}) => {
+      if (!session) return
+      setError(null)
+      setLoading(true)
+      try {
+        const result = await apiFetch<Session>(`/booking/${slug}/update`, {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: session.session_id,
+            action,
+            payload,
+          }),
+        })
+        setSession(result)
+        if (result.error === "SLOT_UNAVAILABLE") {
+          setError("Este horário acabou de ser ocupado. Escolha outro.")
+        }
+      } catch (e: unknown) {
+        setError((e as Error).message)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [session, slug],
+  )
+
+  // ── Recomeçar do início (mantém sessão e token, vai para AWAITING_SERVICE) ───
+  function handleReset() {
+    dispatch("RESET")
+  }
+
+  // ── BACK ─────────────────────────────────────────────────────────────────────
+  function handleBack() {
+    dispatch("BACK")
+  }
+
+  // ─── Guards de carregamento / erro ────────────────────────────────────────────
 
   if (companyError) {
     return (
@@ -305,7 +367,9 @@ export default function BookingPage() {
           <h1 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>
             Página não encontrada
           </h1>
-          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>{companyError}</p>
+          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+            {companyError}
+          </p>
         </div>
       </div>
     )
@@ -317,11 +381,27 @@ export default function BookingPage() {
         className="book-page min-h-screen flex items-center justify-center"
         style={{ background: "var(--book-gradient-dark)" }}
       >
-        <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>Carregando…</p>
+        <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+          Carregando…
+        </p>
       </div>
     )
   }
 
+  // ─── Passos da barra de progresso ─────────────────────────────────────────────
+  const PROGRESS_STEPS: SrvState[] = [
+    "AWAITING_SERVICE",
+    "AWAITING_PROFESSIONAL",
+    "AWAITING_DATE",
+    "AWAITING_TIME",
+    "AWAITING_CONFIRMATION",
+  ]
+  const currentIdx = session ? PROGRESS_STEPS.indexOf(session.state) : -1
+  const showProgress =
+    session &&
+    !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
+
+  // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div
       className="book-page min-h-screen"
@@ -336,7 +416,7 @@ export default function BookingPage() {
       >
         <div className="max-w-lg mx-auto px-6 py-4">
           <h1 className="text-lg font-bold" style={{ color: "var(--book-text)" }}>
-            {company.name}
+            {company.company_name}
           </h1>
           <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
             Agendamento online
@@ -345,461 +425,663 @@ export default function BookingPage() {
       </div>
 
       {/* ── Barra de progresso ────────────────────────────────────────────────── */}
-      {step !== "confirmed" && (
+      {showProgress && (
         <div className="max-w-lg mx-auto px-6 pt-4">
           <div className="flex gap-1">
-            {(["service", "professional", "date", "time", "customer"] as Step[]).map((s, i) => {
-              const steps: Step[] = ["service", "professional", "date", "time", "customer"]
-              const active = steps.indexOf(step) >= i
-              return (
-                <div
-                  key={s}
-                  className="h-0.5 flex-1 rounded-full transition-colors duration-300"
-                  style={{
-                    background: active
+            {PROGRESS_STEPS.map((s, i) => (
+              <div
+                key={s}
+                className="h-0.5 flex-1 rounded-full transition-colors duration-300"
+                style={{
+                  background:
+                    currentIdx >= i
                       ? "var(--book-gradient-gold)"
                       : "var(--book-border)",
-                  }}
-                />
-              )
-            })}
+                }}
+              />
+            ))}
           </div>
         </div>
       )}
 
       <div className="max-w-lg mx-auto px-6 py-8">
 
-        {/* ── Step 1: Serviço ───────────────────────────────────────────────── */}
-        {step === "service" && (
-          <div>
-            <StepHeader title="Qual serviço você quer agendar?" />
-
-            {loadingServices ? (
-              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-                Carregando serviços…
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {services.map((svc) => (
-                  <BookCard key={svc.id} onClick={() => handleSelectService(svc)}>
-                    <div className="flex gap-4 items-center">
-                      {svc.image_url ? (
-                        <img
-                          src={svc.image_url}
-                          alt={svc.name}
-                          className="h-12 w-12 rounded-lg object-cover shrink-0"
-                        />
-                      ) : (
-                        <div
-                          className="h-12 w-12 rounded-lg flex items-center justify-center text-xl shrink-0"
-                          style={{
-                            background: "var(--book-black-600)",
-                            border: "1px solid var(--book-border)",
-                          }}
-                        >
-                          ✂️
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold" style={{ color: "var(--book-text)" }}>
-                          {svc.name}
-                        </div>
-                        {svc.description && (
-                          <div
-                            className="text-xs mt-0.5 truncate"
-                            style={{ color: "var(--book-text-muted)" }}
-                          >
-                            {svc.description}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-sm font-semibold" style={{ color: "var(--book-primary)" }}>
-                          {formatBRL(svc.price)}
-                        </div>
-                        <div className="text-xs" style={{ color: "var(--book-text-muted)" }}>
-                          {svc.duration_minutes} min
-                        </div>
-                      </div>
-                    </div>
-                  </BookCard>
-                ))}
-
-                {services.length === 0 && (
-                  <p
-                    className="text-sm text-center py-8"
-                    style={{ color: "var(--book-text-muted)" }}
-                  >
-                    Nenhum serviço disponível no momento.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+        {/* ── IDLE / sem sessão: formulário de identificação ────────────────── */}
+        {(!session || session.state === "IDLE") && (
+          <CustomerForm
+            name={custName}
+            phone={custPhone}
+            onName={setCustName}
+            onPhone={setCustPhone}
+            loading={loading}
+            error={error}
+            onSubmit={handleStart}
+            companyName={company.company_name}
+          />
         )}
 
-        {/* ── Step 2: Profissional ──────────────────────────────────────────── */}
-        {step === "professional" && (
-          <div>
-            <StepHeader
-              title="Com quem você prefere?"
-              subtitle={selectedService?.name}
-              onBack={() => setStep("service")}
-            />
-
-            {loadingProfs ? (
-              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-                Carregando…
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {professionals.map((prof, i) => (
-                  <BookCard key={prof.id ?? `any-${i}`} onClick={() => handleSelectProfessional(prof)}>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                        style={{
-                          background: "var(--book-black-600)",
-                          border: "1px solid var(--book-border)",
-                          color: "var(--book-primary)",
-                        }}
-                      >
-                        {prof.name[0]}
-                      </div>
-                      <span className="font-medium" style={{ color: "var(--book-text)" }}>
-                        {prof.name}
-                      </span>
-                    </div>
-                  </BookCard>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* ── AWAITING_SERVICE ──────────────────────────────────────────────── */}
+        {session?.state === "AWAITING_SERVICE" && (
+          <ServiceStep
+            options={session.options as ServiceOpt[]}
+            loading={loading}
+            onSelect={(opt) =>
+              dispatch("SELECT_SERVICE", { service_id: opt.id, row_key: opt.row_key })
+            }
+          />
         )}
 
-        {/* ── Step 3: Data ──────────────────────────────────────────────────── */}
-        {step === "date" && (
-          <div>
-            <StepHeader
-              title="Qual dia funciona para você?"
-              subtitle={`${selectedService?.name} · ${selectedProfessional?.name}`}
-              onBack={() => setStep("professional")}
-            />
-
-            {/* Seletor de datas */}
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-6">
-              {visibleDates.map((d) => {
-                const iso = isoDate(d)
-                const isSelected = iso === selectedDate
-                const isToday = iso === isoDate(today)
-                return (
-                  <button
-                    key={iso}
-                    onClick={() => handleSelectDate(d)}
-                    className="flex flex-col items-center rounded-xl px-3 py-2.5 min-w-[62px] transition-all duration-150"
-                    style={{
-                      background: isSelected ? "color-mix(in srgb, var(--book-primary) 12%, var(--book-card))" : "var(--book-card)",
-                      border: isSelected ? "1px solid var(--book-primary)" : "1px solid var(--book-border)",
-                      color: isSelected ? "var(--book-primary)" : "var(--book-text-secondary)",
-                    }}
-                  >
-                    <span className="text-xs font-medium uppercase">
-                      {d.toLocaleDateString("pt-BR", { weekday: "short" })}
-                    </span>
-                    <span className="text-lg font-bold leading-tight">{d.getDate()}</span>
-                    <span className="text-xs">{d.toLocaleDateString("pt-BR", { month: "short" })}</span>
-                    {isToday && (
-                      <span className="text-[10px] mt-0.5" style={{ color: "var(--book-primary)" }}>
-                        hoje
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Navegação entre semanas */}
-            <div className="flex justify-between text-sm mb-6">
-              <button
-                onClick={() => setDateOffset((o) => Math.max(0, o - DATES_SHOWN))}
-                disabled={dateOffset === 0}
-                className="transition-opacity disabled:opacity-30"
-                style={{ color: "var(--book-primary)" }}
-              >
-                ← Anterior
-              </button>
-              <button
-                onClick={() => setDateOffset((o) => o + DATES_SHOWN)}
-                style={{ color: "var(--book-primary)" }}
-              >
-                Próximos →
-              </button>
-            </div>
-
-            {selectedDate && (
-              <button
-                onClick={() => setStep("time")}
-                className="book-btn-primary w-full py-3 text-sm"
-              >
-                Ver horários disponíveis →
-              </button>
-            )}
-          </div>
+        {/* ── AWAITING_PROFESSIONAL ─────────────────────────────────────────── */}
+        {session?.state === "AWAITING_PROFESSIONAL" && (
+          <ProfessionalStep
+            options={session.options as ProfOpt[]}
+            summary={session.context_summary}
+            loading={loading}
+            onBack={handleBack}
+            onSelect={(opt) =>
+              dispatch(
+                "SELECT_PROFESSIONAL",
+                opt.id
+                  ? { professional_id: opt.id, row_key: opt.row_key }
+                  : { row_key: "prof_any" },
+              )
+            }
+          />
         )}
 
-        {/* ── Step 4: Horário ───────────────────────────────────────────────── */}
-        {step === "time" && (
-          <div>
-            <StepHeader
-              title="Escolha um horário"
-              subtitle={
-                selectedDate
-                  ? new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", {
-                      weekday: "long",
-                      day: "2-digit",
-                      month: "long",
-                    })
-                  : ""
-              }
-              onBack={() => setStep("date")}
-            />
-
-            {loadingSlots ? (
-              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-                Buscando horários…
-              </p>
-            ) : slots.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="mb-4" style={{ color: "var(--book-text-secondary)" }}>
-                  Nenhum horário disponível neste dia.
-                </p>
-                <button
-                  onClick={() => setStep("date")}
-                  className="text-sm underline"
-                  style={{ color: "var(--book-primary)" }}
-                >
-                  Escolher outra data
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2">
-                {slots.map((slot, i) => {
-                  const time = new Date(slot.start_at).toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => handleSelectSlot(slot)}
-                      className="rounded-xl py-3 text-sm font-medium transition-all duration-150"
-                      style={{
-                        background: "var(--book-card)",
-                        border: "1px solid var(--book-border)",
-                        color: "var(--book-text)",
-                      }}
-                      onMouseEnter={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-primary)"
-                        ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-primary)"
-                      }}
-                      onMouseLeave={(e) => {
-                        ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-border)"
-                        ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
-                      }}
-                    >
-                      {time}
-                      {!selectedProfessional?.id && (
-                        <div
-                          className="text-xs truncate px-1 mt-0.5"
-                          style={{ color: "var(--book-text-muted)" }}
-                        >
-                          {slot.professional_name}
-                        </div>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+        {/* ── AWAITING_DATE ─────────────────────────────────────────────────── */}
+        {session?.state === "AWAITING_DATE" && (
+          <DateStep
+            options={session.options as DateOpt[]}
+            summary={session.context_summary}
+            loading={loading}
+            onBack={handleBack}
+            onSelect={(opt) =>
+              dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })
+            }
+          />
         )}
 
-        {/* ── Step 5: Dados do cliente ──────────────────────────────────────── */}
-        {step === "customer" && (
-          <div>
-            <StepHeader
-              title="Seus dados"
-              subtitle="Para finalizar o agendamento"
-              onBack={() => setStep("time")}
-            />
+        {/* ── AWAITING_TIME ─────────────────────────────────────────────────── */}
+        {session?.state === "AWAITING_TIME" && (
+          <TimeStep
+            options={session.options as SlotOpt[]}
+            summary={session.context_summary}
+            loading={loading}
+            error={error}
+            onBack={handleBack}
+            onSelect={(opt) =>
+              dispatch("SELECT_TIME", {
+                start_at: opt.start_at,
+                end_at: opt.end_at,
+                professional_id: opt.professional_id,
+                row_key: opt.row_key,
+              })
+            }
+          />
+        )}
 
-            {/* Resumo do agendamento */}
-            {selectedService && selectedSlot && (
-              <div
-                className="rounded-xl p-4 mb-6"
-                style={{
-                  background: "var(--book-card)",
-                  border: "1px solid var(--book-border)",
-                  borderLeft: "3px solid var(--book-primary)",
-                }}
-              >
-                <div className="font-semibold mb-2" style={{ color: "var(--book-text)" }}>
-                  {selectedService.name}
-                </div>
-                <div className="text-sm space-y-1" style={{ color: "var(--book-text-secondary)" }}>
-                  <div>📅 {fmtDate(selectedSlot.start_at)}</div>
-                  <div>👤 {selectedSlot.professional_name}</div>
-                </div>
+        {/* ── AWAITING_CONFIRMATION ─────────────────────────────────────────── */}
+        {session?.state === "AWAITING_CONFIRMATION" && (
+          <ConfirmStep
+            summary={session.context_summary}
+            loading={loading}
+            error={error}
+            onBack={handleBack}
+            onConfirm={() => dispatch("CONFIRM")}
+          />
+        )}
+
+        {/* ── CONFIRMED ─────────────────────────────────────────────────────── */}
+        {session?.state === "CONFIRMED" && session.confirmation && (
+          <ConfirmedView
+            confirmation={session.confirmation}
+            token={session.token}
+            onReset={handleReset}
+          />
+        )}
+
+        {/* ── CANCELLED ─────────────────────────────────────────────────────── */}
+        {session?.state === "CANCELLED" && (
+          <CancelledView onReset={handleReset} />
+        )}
+
+      </div>
+    </div>
+  )
+}
+
+// ─── Etapa 0: Identificação do cliente ───────────────────────────────────────
+
+function CustomerForm({
+  name,
+  phone,
+  onName,
+  onPhone,
+  loading,
+  error,
+  onSubmit,
+  companyName,
+}: {
+  name: string
+  phone: string
+  onName: (v: string) => void
+  onPhone: (v: string) => void
+  loading: boolean
+  error: string | null
+  onSubmit: (e: React.FormEvent) => void
+  companyName: string
+}) {
+  return (
+    <div>
+      <StepHeader
+        title="Olá! Vamos agendar"
+        subtitle={`Informe seus dados para continuar em ${companyName}`}
+      />
+      <form onSubmit={onSubmit} className="space-y-4">
+        <InputField
+          label="Nome completo *"
+          type="text"
+          value={name}
+          onChange={onName}
+          placeholder="Seu nome"
+          minLength={2}
+          required
+        />
+        <InputField
+          label="WhatsApp / Telefone *"
+          type="tel"
+          value={phone}
+          onChange={onPhone}
+          placeholder="(11) 99999-9999"
+          minLength={10}
+          required
+        />
+        {error && <ErrorBanner msg={error} />}
+        <button
+          type="submit"
+          disabled={loading}
+          className="book-btn-primary w-full py-3 text-sm mt-2"
+        >
+          {loading ? "Aguarde…" : "Ver serviços disponíveis →"}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ─── Etapa 1: Serviços ────────────────────────────────────────────────────────
+
+function ServiceStep({
+  options,
+  loading,
+  onSelect,
+}: {
+  options: ServiceOpt[]
+  loading: boolean
+  onSelect: (opt: ServiceOpt) => void
+}) {
+  return (
+    <div>
+      <StepHeader title="Qual serviço você quer agendar?" />
+      {loading ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-3">
+          {options.map((svc) => (
+            <BookCard key={svc.row_key} onClick={() => onSelect(svc)} disabled={loading}>
+              <div className="flex gap-4 items-center">
                 <div
-                  className="text-sm font-semibold mt-3 pt-3"
+                  className="h-12 w-12 rounded-lg flex items-center justify-center text-xl shrink-0"
                   style={{
-                    color: "var(--book-primary)",
-                    borderTop: "1px solid var(--book-border)",
+                    background: "var(--book-black-600)",
+                    border: "1px solid var(--book-border)",
                   }}
                 >
-                  {formatBRL(selectedService.price)} · {selectedService.duration_minutes} min
+                  ✂️
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold" style={{ color: "var(--book-text)" }}>
+                    {svc.name}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--book-text-muted)" }}>
+                    {svc.duration_minutes} min
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div
+                    className="text-sm font-semibold"
+                    style={{ color: "var(--book-primary)" }}
+                  >
+                    {formatBRL(svc.price)}
+                  </div>
                 </div>
               </div>
-            )}
-
-            <form onSubmit={handleBook} className="space-y-4">
-              {[
-                { label: "Nome completo *", type: "text", value: customerName, onChange: setCustomerName, placeholder: "Seu nome", required: true, minLength: 2 },
-                { label: "WhatsApp / Telefone *", type: "tel", value: customerPhone, onChange: setCustomerPhone, placeholder: "(11) 99999-9999", required: true },
-                { label: "E-mail (opcional)", type: "email", value: customerEmail, onChange: setCustomerEmail, placeholder: "seu@email.com", required: false },
-              ].map(({ label, type, value, onChange, placeholder, required, minLength }) => (
-                <div key={label}>
-                  <label
-                    className="block text-sm font-medium mb-1.5"
-                    style={{ color: "var(--book-text-secondary)" }}
-                  >
-                    {label}
-                  </label>
-                  <input
-                    type={type}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    required={required}
-                    minLength={minLength}
-                    placeholder={placeholder}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
-                    style={{
-                      background: "var(--book-card)",
-                      border: "1px solid var(--book-border)",
-                      color: "var(--book-text)",
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.borderColor = "var(--book-primary)"
-                      e.currentTarget.style.boxShadow = "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.borderColor = "var(--book-border)"
-                      e.currentTarget.style.boxShadow = "none"
-                    }}
-                  />
-                </div>
-              ))}
-
-              {bookingError && (
-                <div
-                  className="rounded-lg p-3 text-sm"
-                  style={{
-                    background: "color-mix(in srgb, #ef4444 10%, var(--book-card))",
-                    border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)",
-                    color: "#fca5a5",
-                  }}
-                >
-                  {bookingError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={booking}
-                className="book-btn-primary w-full py-3 text-sm mt-2"
-              >
-                {booking ? "Confirmando…" : "Confirmar agendamento"}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ── Step 6: Confirmação ───────────────────────────────────────────── */}
-        {step === "confirmed" && confirmation && (
-          <div className="text-center py-6">
-            <div
-              className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-5"
-              style={{
-                background: "color-mix(in srgb, var(--book-primary) 15%, var(--book-card))",
-                border: "1px solid var(--book-primary)",
-              }}
+            </BookCard>
+          ))}
+          {options.length === 0 && (
+            <p
+              className="text-sm text-center py-8"
+              style={{ color: "var(--book-text-muted)" }}
             >
-              ✓
-            </div>
-
-            <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--book-text)" }}>
-              Agendado!
-            </h2>
-            <p className="mb-8" style={{ color: "var(--book-text-secondary)" }}>
-              Seu horário está confirmado.
+              Nenhum serviço disponível no momento.
             </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
-            <div
-              className="rounded-2xl p-6 text-left space-y-3 mb-6"
+// ─── Etapa 2: Profissional ────────────────────────────────────────────────────
+
+function ProfessionalStep({
+  options,
+  summary,
+  loading,
+  onBack,
+  onSelect,
+}: {
+  options: ProfOpt[]
+  summary: ContextSummary
+  loading: boolean
+  onBack: () => void
+  onSelect: (opt: ProfOpt) => void
+}) {
+  return (
+    <div>
+      <StepHeader
+        title="Com quem você prefere?"
+        subtitle={summary.service_name ?? undefined}
+        onBack={onBack}
+      />
+      {loading ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-3">
+          {options.map((prof, i) => (
+            <BookCard
+              key={prof.row_key ?? `p-${i}`}
+              onClick={() => onSelect(prof)}
+              disabled={loading}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                  style={{
+                    background: "var(--book-black-600)",
+                    border: "1px solid var(--book-border)",
+                    color: "var(--book-primary)",
+                  }}
+                >
+                  {prof.name[0]}
+                </div>
+                <span className="font-medium" style={{ color: "var(--book-text)" }}>
+                  {prof.name}
+                </span>
+              </div>
+            </BookCard>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Etapa 3: Data ────────────────────────────────────────────────────────────
+
+function DateStep({
+  options,
+  summary,
+  loading,
+  onBack,
+  onSelect,
+}: {
+  options: DateOpt[]
+  summary: ContextSummary
+  loading: boolean
+  onBack: () => void
+  onSelect: (opt: DateOpt) => void
+}) {
+  const subtitle = [summary.service_name, summary.professional_name]
+    .filter(Boolean)
+    .join(" · ")
+
+  const available = options.filter((d) => d.has_availability)
+  const unavailableCount = options.length - available.length
+
+  return (
+    <div>
+      <StepHeader
+        title="Qual dia funciona para você?"
+        subtitle={subtitle || undefined}
+        onBack={onBack}
+      />
+      {loading ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-2">
+          {available.length === 0 ? (
+            <p
+              className="text-sm py-8 text-center"
+              style={{ color: "var(--book-text-muted)" }}
+            >
+              Nenhum dia disponível nos próximos 30 dias.
+            </p>
+          ) : (
+            <>
+              {available.map((d) => (
+                <button
+                  key={d.row_key}
+                  onClick={() => onSelect(d)}
+                  disabled={loading}
+                  className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
+                  style={{
+                    background: "var(--book-card)",
+                    border: "1px solid var(--book-border)",
+                  }}
+                  onMouseEnter={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.borderColor =
+                      "var(--book-primary)"
+                  }}
+                  onMouseLeave={(e) => {
+                    ;(e.currentTarget as HTMLElement).style.borderColor =
+                      "var(--book-border)"
+                  }}
+                >
+                  <span className="font-medium" style={{ color: "var(--book-text)" }}>
+                    {d.label}
+                  </span>
+                </button>
+              ))}
+              {unavailableCount > 0 && (
+                <p className="text-xs pt-2" style={{ color: "var(--book-text-muted)" }}>
+                  {unavailableCount} dia{unavailableCount > 1 ? "s" : ""} sem
+                  disponibilidade no período.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Etapa 4: Horário ─────────────────────────────────────────────────────────
+
+function TimeStep({
+  options,
+  summary,
+  loading,
+  error,
+  onBack,
+  onSelect,
+}: {
+  options: SlotOpt[]
+  summary: ContextSummary
+  loading: boolean
+  error: string | null
+  onBack: () => void
+  onSelect: (opt: SlotOpt) => void
+}) {
+  // Formatar a data selecionada para o subtitle
+  const dateLabel = summary.selected_date
+    ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+      })
+    : undefined
+
+  return (
+    <div>
+      <StepHeader
+        title="Escolha um horário"
+        subtitle={dateLabel}
+        onBack={onBack}
+      />
+      {error && <ErrorBanner msg={error} />}
+      {loading ? (
+        <Spinner />
+      ) : options.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="mb-4" style={{ color: "var(--book-text-secondary)" }}>
+            Nenhum horário disponível neste dia.
+          </p>
+          <button
+            onClick={onBack}
+            className="text-sm underline"
+            style={{ color: "var(--book-primary)" }}
+          >
+            Escolher outra data
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {options.map((slot) => (
+            <button
+              key={slot.row_key}
+              onClick={() => onSelect(slot)}
+              disabled={loading}
+              className="rounded-xl py-3 text-sm font-medium transition-all duration-150 disabled:opacity-40"
               style={{
                 background: "var(--book-card)",
                 border: "1px solid var(--book-border)",
+                color: "var(--book-text)",
+              }}
+              onMouseEnter={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "var(--book-primary)"
+                ;(e.currentTarget as HTMLButtonElement).style.color =
+                  "var(--book-primary)"
+              }}
+              onMouseLeave={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "var(--book-border)"
+                ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
               }}
             >
-              {[
-                { label: "Serviço", value: confirmation.service_name },
-                { label: "Profissional", value: confirmation.professional_name },
-                { label: "Data e hora", value: fmtDate(confirmation.start_at) },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between text-sm">
-                  <span style={{ color: "var(--book-text-muted)" }}>{label}</span>
-                  <span className="font-medium text-right" style={{ color: "var(--book-text)" }}>{value}</span>
-                </div>
-              ))}
-
+              {slot.start_display}
               <div
-                className="flex justify-between text-sm pt-3 book-divider"
-                style={{ borderTop: "1px solid color-mix(in srgb, var(--book-primary) 20%, transparent)" }}
+                className="text-xs truncate px-1 mt-0.5"
+                style={{ color: "var(--book-text-muted)" }}
               >
-                <span style={{ color: "var(--book-text-muted)" }}>Total</span>
-                <span className="font-bold" style={{ color: "var(--book-primary)" }}>
-                  {formatBRL(confirmation.total_amount)}
-                </span>
+                {slot.professional_name}
               </div>
-            </div>
-
-            <p className="text-xs mb-6" style={{ color: "var(--book-text-muted)" }}>
-              Código de confirmação:{" "}
-              <span className="font-mono" style={{ color: "var(--book-text-secondary)" }}>
-                {confirmation.token.slice(0, 8).toUpperCase()}
-              </span>
-            </p>
-
-            <button
-              onClick={() => {
-                setStep("service")
-                setSelectedService(null)
-                setSelectedProfessional(null)
-                setSelectedDate("")
-                setSelectedSlot(null)
-                setConfirmation(null)
-                setCustomerName("")
-                setCustomerPhone("")
-                setCustomerEmail("")
-              }}
-              className="text-sm underline"
-              style={{ color: "var(--book-primary)" }}
-            >
-              Fazer outro agendamento
             </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Etapa 5: Confirmar ───────────────────────────────────────────────────────
+
+function ConfirmStep({
+  summary,
+  loading,
+  error,
+  onBack,
+  onConfirm,
+}: {
+  summary: ContextSummary
+  loading: boolean
+  error: string | null
+  onBack: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div>
+      <StepHeader title="Confirmar agendamento" onBack={onBack} />
+
+      {/* Resumo */}
+      <div
+        className="rounded-xl p-4 mb-6"
+        style={{
+          background: "var(--book-card)",
+          border: "1px solid var(--book-border)",
+          borderLeft: "3px solid var(--book-primary)",
+        }}
+      >
+        <div className="font-semibold mb-3" style={{ color: "var(--book-text)" }}>
+          {summary.service_name ?? "Serviço"}
+        </div>
+        <div className="text-sm space-y-1.5" style={{ color: "var(--book-text-secondary)" }}>
+          {summary.professional_name && (
+            <div>👤 {summary.professional_name}</div>
+          )}
+          {summary.selected_date && (
+            <div>
+              📅{" "}
+              {new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+              })}
+              {summary.slot_start_display && ` às ${summary.slot_start_display}`}
+            </div>
+          )}
+          {summary.service_duration_minutes && (
+            <div>⏱ {summary.service_duration_minutes} min</div>
+          )}
+        </div>
+        {summary.service_price && (
+          <div
+            className="text-sm font-semibold mt-3 pt-3"
+            style={{
+              color: "var(--book-primary)",
+              borderTop: "1px solid var(--book-border)",
+            }}
+          >
+            {formatBRL(summary.service_price)}
           </div>
         )}
       </div>
+
+      {error && <ErrorBanner msg={error} />}
+
+      <button
+        onClick={onConfirm}
+        disabled={loading}
+        className="book-btn-primary w-full py-3 text-sm"
+      >
+        {loading ? "Confirmando…" : "Confirmar agendamento"}
+      </button>
+    </div>
+  )
+}
+
+// ─── Etapa 6: Confirmado ──────────────────────────────────────────────────────
+
+function ConfirmedView({
+  confirmation,
+  token,
+  onReset,
+}: {
+  confirmation: ConfirmData
+  token: string
+  onReset: () => void
+}) {
+  // Formatar data e hora
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleString("pt-BR", {
+      dateStyle: "full",
+      timeStyle: "short",
+    })
+  }
+
+  return (
+    <div className="text-center py-6">
+      <div
+        className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-5"
+        style={{
+          background: "color-mix(in srgb, var(--book-primary) 15%, var(--book-card))",
+          border: "1px solid var(--book-primary)",
+        }}
+      >
+        ✓
+      </div>
+
+      <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--book-text)" }}>
+        Agendado!
+      </h2>
+      <p className="mb-8" style={{ color: "var(--book-text-secondary)" }}>
+        Seu horário está confirmado.
+      </p>
+
+      <div
+        className="rounded-2xl p-6 text-left space-y-3 mb-6"
+        style={{
+          background: "var(--book-card)",
+          border: "1px solid var(--book-border)",
+        }}
+      >
+        {[
+          { label: "Serviço", value: confirmation.service_name },
+          { label: "Profissional", value: confirmation.professional_name },
+          { label: "Data e hora", value: fmtDate(confirmation.start_at) },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex justify-between text-sm">
+            <span style={{ color: "var(--book-text-muted)" }}>{label}</span>
+            <span
+              className="font-medium text-right"
+              style={{ color: "var(--book-text)" }}
+            >
+              {value}
+            </span>
+          </div>
+        ))}
+        <div
+          className="flex justify-between text-sm pt-3"
+          style={{
+            borderTop: "1px solid color-mix(in srgb, var(--book-primary) 20%, transparent)",
+          }}
+        >
+          <span style={{ color: "var(--book-text-muted)" }}>Total</span>
+          <span className="font-bold" style={{ color: "var(--book-primary)" }}>
+            {formatBRL(confirmation.total_amount)}
+          </span>
+        </div>
+      </div>
+
+      <p className="text-xs mb-6" style={{ color: "var(--book-text-muted)" }}>
+        Código:{" "}
+        <span className="font-mono" style={{ color: "var(--book-text-secondary)" }}>
+          {token.slice(0, 8).toUpperCase()}
+        </span>
+      </p>
+
+      <button
+        onClick={onReset}
+        className="text-sm underline"
+        style={{ color: "var(--book-primary)" }}
+      >
+        Fazer outro agendamento
+      </button>
+    </div>
+  )
+}
+
+// ─── Etapa: Cancelado ─────────────────────────────────────────────────────────
+
+function CancelledView({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="text-center py-6">
+      <div className="text-4xl mb-4">✕</div>
+      <h2 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>
+        Agendamento cancelado
+      </h2>
+      <p className="mb-8 text-sm" style={{ color: "var(--book-text-secondary)" }}>
+        Seu agendamento foi cancelado com sucesso.
+      </p>
+      <button
+        onClick={onReset}
+        className="book-btn-primary px-6 py-3 text-sm"
+      >
+        Fazer novo agendamento
+      </button>
     </div>
   )
 }

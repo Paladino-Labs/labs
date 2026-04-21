@@ -64,6 +64,7 @@ from app.modules.booking.http_schemas import (
     SlotOptionHTTP,
     ConfirmationHTTP,
     CancelConfirmationHTTP,
+    ContextSummaryHTTP,
     StartSessionRequest,
     StartSessionResponse,
     UpdateSessionRequest,
@@ -362,6 +363,38 @@ def _display_time(dt: datetime, tz_name: str) -> str:
     return dt.astimezone(tz).strftime("%H:%M")
 
 
+def _build_context_summary(session: BookingSession) -> ContextSummaryHTTP:
+    """
+    Extrai campos relevantes do context JSONB para o frontend exibir o resumo
+    em AWAITING_CONFIRMATION e ao retomar sessões.
+    Todos os campos são opcionais — ausentes se o fluxo ainda não chegou lá.
+    """
+    ctx = session.context or {}
+    tz = session.company_timezone or "America/Sao_Paulo"
+
+    slot_display: Optional[str] = None
+    slot_raw = ctx.get("slot_start_at")
+    if slot_raw:
+        try:
+            slot_display = _display_time(datetime.fromisoformat(slot_raw), tz)
+        except (ValueError, TypeError):
+            pass
+
+    dur = ctx.get("service_duration_minutes")
+
+    return ContextSummaryHTTP(
+        customer_name=ctx.get("customer_name"),
+        service_name=ctx.get("service_name"),
+        service_price=ctx.get("service_price"),
+        service_duration_minutes=int(dur) if dur is not None else None,
+        professional_name=ctx.get("professional_name"),
+        selected_date=ctx.get("selected_date"),
+        slot_start_at=slot_raw,
+        slot_end_at=ctx.get("slot_end_at"),
+        slot_start_display=slot_display,
+    )
+
+
 def _serialize_options(options: list, company_timezone: str) -> list[dict]:
     """
     Converte lista de dataclasses do engine (ServiceOption, ProfessionalOption,
@@ -565,6 +598,7 @@ def update_session(
         return UpdateSessionResponse(
             state=session.state,
             options=_serialize_options(result.options if result else [], session.company_timezone),
+            context_summary=_build_context_summary(session),
             error="SLOT_UNAVAILABLE",
             expires_at=session.expires_at,
         )
@@ -602,6 +636,7 @@ def update_session(
     return UpdateSessionResponse(
         state=result.next_state,
         options=_serialize_options(result.options, tz),
+        context_summary=_build_context_summary(session),
         confirmation=confirmation,
         cancel_result=cancel_result,
         error=result.error,
@@ -673,6 +708,7 @@ def resume_session(
         token=session.token,
         state=session.state,
         options=_serialize_options(options, tz),
+        context_summary=_build_context_summary(session),
         confirmation=confirmation,
         expires_at=session.expires_at,
         company_timezone=tz,
