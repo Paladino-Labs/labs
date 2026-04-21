@@ -4,9 +4,10 @@
     {
       "name": "Backend (FastAPI)",
       "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["app.main:app", "--reload", "--port", "8000"],
+      "runtimeArgs": ["app.main:app", "--reload"],
       "cwd": "C:/dev/paladino/agendamento_engine",
-      "port": 8000
+      "port": 8000,
+      "autoPort": true
     },
     {
       "name": "Frontend (Next.js)",

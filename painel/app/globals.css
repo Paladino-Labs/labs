@@ -128,3 +128,75 @@
     @apply font-sans;
   }
 }
+
+/* ─── Design tokens: página de agendamento público (/book) ────────────────────
+   Escopo isolado em .book-page — não afeta o dashboard interno.
+   SaaS-ready: troque os valores aqui para customizar por tenant.
+   ──────────────────────────────────────────────────────────────────────────── */
+.book-page {
+  /* Escala de pretos */
+  --book-black-900: #0B0B0B;
+  --book-black-800: #121212;
+  --book-black-700: #1A1A1A;
+  --book-black-600: #242424;
+
+  /* Escala de dourado */
+  --book-gold-600: #B8962E;
+  --book-gold-500: #D4AF37;
+  --book-gold-400: #E6C65C;
+  --book-gold-300: #F2D98A;
+
+  /* Texto */
+  --book-white:          #FFFFFF;
+  --book-gray-300:       #CFCFCF;
+  --book-gray-500:       #9A9A9A;
+
+  /* Gradientes */
+  --book-gradient-gold: linear-gradient(135deg, #D4AF37 0%, #E6C65C 50%, #B8962E 100%);
+  --book-gradient-dark: linear-gradient(180deg, #0B0B0B 0%, #121212 100%);
+
+  /* Camada semântica (troque apenas aqui para retemizar) */
+  --book-primary:          var(--book-gold-500);
+  --book-primary-hover:    var(--book-gold-400);
+  --book-background:       var(--book-black-900);
+  --book-surface:          var(--book-black-800);
+  --book-card:             var(--book-black-700);
+  --book-border:           var(--book-black-600);
+  --book-text:             var(--book-white);
+  --book-text-secondary:   var(--book-gray-300);
+  --book-text-muted:       var(--book-gray-500);
+}
+
+/* Botão primário (CTA) — gradiente dourado */
+.book-btn-primary {
+  background: var(--book-gradient-gold);
+  color: var(--book-black-900);
+  font-weight: 600;
+  border-radius: 10px;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.book-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: scale(1.02);
+}
+.book-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Botão secundário — contorno dourado */
+.book-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--book-primary);
+  color: var(--book-primary);
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.book-btn-secondary:hover {
+  background: color-mix(in srgb, var(--book-primary) 10%, transparent);
+}
+
+/* Divisor fino em dourado */
+.book-divider {
+  border-color: color-mix(in srgb, var(--book-primary) 20%, transparent);
+}

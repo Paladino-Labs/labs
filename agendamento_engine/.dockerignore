@@ -1,3 +1,8 @@
+# Variáveis de ambiente locais — nunca vão para a imagem
+# Em produção (Railway), configure as variáveis no dashboard
+.env
+.env.*
+
 # Ambiente virtual local — nunca vai para o container
 venv/
 .venv/

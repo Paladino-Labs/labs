@@ -183,6 +183,8 @@ export default function IntegrationsPage() {
   const [slugInput, setSlugInput] = useState("")
   const [savingSlug, setSavingSlug] = useState(false)
   const [copied, setCopied] = useState(false)
+  // URL vinda do backend — fonte única de verdade (BOOKING_BASE_URL no .env do servidor)
+  const [bookingUrl, setBookingUrl] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<CompanyData>("/companies/me")
@@ -191,21 +193,29 @@ export default function IntegrationsPage() {
         setIsBotEnabled(d.settings?.bot_enabled ?? false)
         setIsOnlineBookingEnabled(d.settings?.online_booking_enabled ?? false)
         setSlugInput(d.slug ?? "")
+
+        // Busca o booking_url real do backend (evita depender de NEXT_PUBLIC_FRONTEND_URL)
+        if (d.slug) {
+          api.get<{ booking_url: string }>(`/booking/${d.slug}/info`)
+            .then((info) => setBookingUrl(info.booking_url))
+            .catch(() => {})
+        }
       })
       .catch(() => {})
   }, [])
-
-  const frontendBase = process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
-  const bookingUrl = company?.slug
-    ? `${frontendBase}/book/${company.slug}`
-    : null
 
   async function handleSaveSlug() {
     if (!slugInput.trim()) return
     setSavingSlug(true)
     try {
-      await api.patch("/companies/me", { company: { slug: slugInput.trim() } })
-      setCompany((c) => c ? { ...c, slug: slugInput.trim() } : c)
+      const newSlug = slugInput.trim()
+      await api.patch("/companies/me", { company: { slug: newSlug } })
+      setCompany((c) => c ? { ...c, slug: newSlug } : c)
+
+      // Atualiza booking_url com o novo slug
+      api.get<{ booking_url: string }>(`/booking/${newSlug}/info`)
+        .then((info) => setBookingUrl(info.booking_url))
+        .catch(() => {})
     } catch (e: unknown) {
       alert((e as Error).message)
     } finally {

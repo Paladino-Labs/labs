@@ -79,35 +79,54 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function fmtDateLabel(d: Date): string {
-  return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })
-}
+// ─── Sub-componentes visuais ──────────────────────────────────────────────────
 
-// ─── Step components ──────────────────────────────────────────────────────────
-
-function StepHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
+function StepHeader({ title, subtitle, onBack }: {
+  title: string
+  subtitle?: string
+  onBack?: () => void
+}) {
   return (
     <div className="mb-6">
       {onBack && (
-        <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-800 mb-3 flex items-center gap-1">
+        <button
+          onClick={onBack}
+          className="text-sm mb-3 flex items-center gap-1 transition-colors"
+          style={{ color: "var(--book-primary)" }}
+        >
           ← Voltar
         </button>
       )}
-      <h2 className="text-xl font-bold text-gray-800">{title}</h2>
-      {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
+      <h2 className="text-xl font-bold" style={{ color: "var(--book-text)" }}>{title}</h2>
+      {subtitle && (
+        <p className="text-sm mt-1" style={{ color: "var(--book-text-secondary)" }}>{subtitle}</p>
+      )}
     </div>
   )
 }
 
-function Card({ children, onClick, selected }: { children: React.ReactNode; onClick?: () => void; selected?: boolean }) {
+function BookCard({
+  children,
+  onClick,
+  selected,
+}: {
+  children: React.ReactNode
+  onClick?: () => void
+  selected?: boolean
+}) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-xl border p-4 transition-all duration-150 ${
-        selected
-          ? "border-indigo-600 bg-indigo-50 ring-2 ring-indigo-300"
-          : "border-gray-200 bg-white hover:border-indigo-400 hover:shadow-sm"
-      }`}
+      className="w-full text-left rounded-xl p-4 transition-all duration-150"
+      style={{
+        background: "var(--book-card)",
+        border: selected
+          ? "1px solid var(--book-primary)"
+          : "1px solid var(--book-border)",
+        boxShadow: selected
+          ? "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
+          : "none",
+      }}
     >
       {children}
     </button>
@@ -147,24 +166,24 @@ export default function BookingPage() {
   const [bookingError, setBookingError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null)
 
-  // Date navigation
+  // Date navigation — lógica inalterada
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const [dateOffset, setDateOffset] = useState(0)  // days from today shown as the "week start"
+  const [dateOffset, setDateOffset] = useState(0)
   const DATES_SHOWN = 7
 
   const visibleDates = Array.from({ length: DATES_SHOWN }, (_, i) =>
     addDays(today, dateOffset + i)
   )
 
-  // ── Load company ────────────────────────────────────────────────────────────
+  // ── Load company ─────────────────────────────────────────────────────────────
   useEffect(() => {
     apiFetch<CompanyInfo>(`/public/${slug}/info`)
       .then(setCompany)
       .catch((e) => setCompanyError(e.message))
   }, [slug])
 
-  // ── Load services ───────────────────────────────────────────────────────────
+  // ── Load services ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!company) return
     setLoadingServices(true)
@@ -174,7 +193,7 @@ export default function BookingPage() {
       .finally(() => setLoadingServices(false))
   }, [company, slug])
 
-  // ── Load professionals when service selected ────────────────────────────────
+  // ── Load professionals when service selected ──────────────────────────────────
   const loadProfessionals = useCallback(
     async (serviceId: string) => {
       setLoadingProfs(true)
@@ -190,7 +209,7 @@ export default function BookingPage() {
     [slug]
   )
 
-  // ── Load slots ──────────────────────────────────────────────────────────────
+  // ── Load slots ───────────────────────────────────────────────────────────────
   const loadSlots = useCallback(
     async (serviceId: string, professionalId: string | null, date: string) => {
       setLoadingSlots(true)
@@ -215,7 +234,7 @@ export default function BookingPage() {
     }
   }, [step, selectedService, selectedProfessional, selectedDate, loadSlots])
 
-  // ── Step handlers ────────────────────────────────────────────────────────────
+  // ── Step handlers — lógica inalterada ────────────────────────────────────────
 
   function handleSelectService(svc: ServiceInfo) {
     setSelectedService(svc)
@@ -250,7 +269,6 @@ export default function BookingPage() {
     setBookingError(null)
     setBooking(true)
 
-    // Resolve professional_id: use slot's professional (already resolved for "any")
     const professionalId = selectedSlot.professional_id
 
     try {
@@ -278,11 +296,16 @@ export default function BookingPage() {
 
   if (companyError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div
+        className="book-page min-h-screen flex items-center justify-center"
+        style={{ background: "var(--book-gradient-dark)" }}
+      >
         <div className="text-center max-w-sm px-6">
           <div className="text-4xl mb-4">😕</div>
-          <h1 className="text-xl font-bold text-gray-800 mb-2">Página não encontrada</h1>
-          <p className="text-sm text-gray-500">{companyError}</p>
+          <h1 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>
+            Página não encontrada
+          </h1>
+          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>{companyError}</p>
         </div>
       </div>
     )
@@ -290,75 +313,123 @@ export default function BookingPage() {
 
   if (!company) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-400 text-sm">Carregando…</p>
+      <div
+        className="book-page min-h-screen flex items-center justify-center"
+        style={{ background: "var(--book-gradient-dark)" }}
+      >
+        <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>Carregando…</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b shadow-sm">
+    <div
+      className="book-page min-h-screen"
+      style={{ background: "var(--book-gradient-dark)" }}
+    >
+      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          background: "var(--book-surface)",
+          borderBottom: "1px solid var(--book-border)",
+        }}
+      >
         <div className="max-w-lg mx-auto px-6 py-4">
-          <h1 className="text-lg font-bold text-gray-900">{company.name}</h1>
-          <p className="text-sm text-gray-500">Agendamento online</p>
+          <h1 className="text-lg font-bold" style={{ color: "var(--book-text)" }}>
+            {company.name}
+          </h1>
+          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+            Agendamento online
+          </p>
         </div>
       </div>
 
-      {/* Progress indicator */}
+      {/* ── Barra de progresso ────────────────────────────────────────────────── */}
       {step !== "confirmed" && (
         <div className="max-w-lg mx-auto px-6 pt-4">
           <div className="flex gap-1">
-            {(["service", "professional", "date", "time", "customer"] as Step[]).map((s, i) => (
-              <div
-                key={s}
-                className={`h-1 flex-1 rounded-full transition-colors ${
-                  ["service", "professional", "date", "time", "customer"].indexOf(step) >= i
-                    ? "bg-indigo-600"
-                    : "bg-gray-200"
-                }`}
-              />
-            ))}
+            {(["service", "professional", "date", "time", "customer"] as Step[]).map((s, i) => {
+              const steps: Step[] = ["service", "professional", "date", "time", "customer"]
+              const active = steps.indexOf(step) >= i
+              return (
+                <div
+                  key={s}
+                  className="h-0.5 flex-1 rounded-full transition-colors duration-300"
+                  style={{
+                    background: active
+                      ? "var(--book-gradient-gold)"
+                      : "var(--book-border)",
+                  }}
+                />
+              )
+            })}
           </div>
         </div>
       )}
 
-      <div className="max-w-lg mx-auto px-6 py-6">
+      <div className="max-w-lg mx-auto px-6 py-8">
 
-        {/* ── Step 1: Serviço ──────────────────────────────────────────────── */}
+        {/* ── Step 1: Serviço ───────────────────────────────────────────────── */}
         {step === "service" && (
           <div>
             <StepHeader title="Qual serviço você quer agendar?" />
+
             {loadingServices ? (
-              <p className="text-sm text-gray-400">Carregando serviços…</p>
+              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+                Carregando serviços…
+              </p>
             ) : (
               <div className="space-y-3">
                 {services.map((svc) => (
-                  <Card key={svc.id} onClick={() => handleSelectService(svc)}>
-                    <div className="flex gap-3 items-center">
+                  <BookCard key={svc.id} onClick={() => handleSelectService(svc)}>
+                    <div className="flex gap-4 items-center">
                       {svc.image_url ? (
-                        <img src={svc.image_url} alt={svc.name} className="h-12 w-12 rounded-lg object-cover shrink-0" />
+                        <img
+                          src={svc.image_url}
+                          alt={svc.name}
+                          className="h-12 w-12 rounded-lg object-cover shrink-0"
+                        />
                       ) : (
-                        <div className="h-12 w-12 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 text-xl shrink-0">
+                        <div
+                          className="h-12 w-12 rounded-lg flex items-center justify-center text-xl shrink-0"
+                          style={{
+                            background: "var(--book-black-600)",
+                            border: "1px solid var(--book-border)",
+                          }}
+                        >
                           ✂️
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-800">{svc.name}</div>
+                        <div className="font-semibold" style={{ color: "var(--book-text)" }}>
+                          {svc.name}
+                        </div>
                         {svc.description && (
-                          <div className="text-xs text-gray-500 mt-0.5 truncate">{svc.description}</div>
+                          <div
+                            className="text-xs mt-0.5 truncate"
+                            style={{ color: "var(--book-text-muted)" }}
+                          >
+                            {svc.description}
+                          </div>
                         )}
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sm font-semibold text-indigo-700">{formatBRL(svc.price)}</div>
-                        <div className="text-xs text-gray-400">{svc.duration_minutes} min</div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--book-primary)" }}>
+                          {formatBRL(svc.price)}
+                        </div>
+                        <div className="text-xs" style={{ color: "var(--book-text-muted)" }}>
+                          {svc.duration_minutes} min
+                        </div>
                       </div>
                     </div>
-                  </Card>
+                  </BookCard>
                 ))}
+
                 {services.length === 0 && (
-                  <p className="text-sm text-gray-400 text-center py-8">
+                  <p
+                    className="text-sm text-center py-8"
+                    style={{ color: "var(--book-text-muted)" }}
+                  >
                     Nenhum serviço disponível no momento.
                   </p>
                 )}
@@ -367,7 +438,7 @@ export default function BookingPage() {
           </div>
         )}
 
-        {/* ── Step 2: Profissional ─────────────────────────────────────────── */}
+        {/* ── Step 2: Profissional ──────────────────────────────────────────── */}
         {step === "professional" && (
           <div>
             <StepHeader
@@ -375,26 +446,38 @@ export default function BookingPage() {
               subtitle={selectedService?.name}
               onBack={() => setStep("service")}
             />
+
             {loadingProfs ? (
-              <p className="text-sm text-gray-400">Carregando…</p>
+              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+                Carregando…
+              </p>
             ) : (
               <div className="space-y-3">
                 {professionals.map((prof, i) => (
-                  <Card key={prof.id ?? `any-${i}`} onClick={() => handleSelectProfessional(prof)}>
+                  <BookCard key={prof.id ?? `any-${i}`} onClick={() => handleSelectProfessional(prof)}>
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                      <div
+                        className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                        style={{
+                          background: "var(--book-black-600)",
+                          border: "1px solid var(--book-border)",
+                          color: "var(--book-primary)",
+                        }}
+                      >
                         {prof.name[0]}
                       </div>
-                      <span className="font-medium text-gray-800">{prof.name}</span>
+                      <span className="font-medium" style={{ color: "var(--book-text)" }}>
+                        {prof.name}
+                      </span>
                     </div>
-                  </Card>
+                  </BookCard>
                 ))}
               </div>
             )}
           </div>
         )}
 
-        {/* ── Step 3: Data ─────────────────────────────────────────────────── */}
+        {/* ── Step 3: Data ──────────────────────────────────────────────────── */}
         {step === "date" && (
           <div>
             <StepHeader
@@ -403,8 +486,8 @@ export default function BookingPage() {
               onBack={() => setStep("professional")}
             />
 
-            {/* Date strip */}
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+            {/* Seletor de datas */}
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-6">
               {visibleDates.map((d) => {
                 const iso = isoDate(d)
                 const isSelected = iso === selectedDate
@@ -413,85 +496,125 @@ export default function BookingPage() {
                   <button
                     key={iso}
                     onClick={() => handleSelectDate(d)}
-                    className={`flex flex-col items-center rounded-xl px-3 py-2 min-w-[60px] border transition-all ${
-                      isSelected
-                        ? "bg-indigo-600 border-indigo-600 text-white"
-                        : "bg-white border-gray-200 text-gray-700 hover:border-indigo-400"
-                    }`}
+                    className="flex flex-col items-center rounded-xl px-3 py-2.5 min-w-[62px] transition-all duration-150"
+                    style={{
+                      background: isSelected ? "color-mix(in srgb, var(--book-primary) 12%, var(--book-card))" : "var(--book-card)",
+                      border: isSelected ? "1px solid var(--book-primary)" : "1px solid var(--book-border)",
+                      color: isSelected ? "var(--book-primary)" : "var(--book-text-secondary)",
+                    }}
                   >
                     <span className="text-xs font-medium uppercase">
                       {d.toLocaleDateString("pt-BR", { weekday: "short" })}
                     </span>
                     <span className="text-lg font-bold leading-tight">{d.getDate()}</span>
                     <span className="text-xs">{d.toLocaleDateString("pt-BR", { month: "short" })}</span>
-                    {isToday && <span className="text-[10px] mt-0.5 opacity-80">hoje</span>}
+                    {isToday && (
+                      <span className="text-[10px] mt-0.5" style={{ color: "var(--book-primary)" }}>
+                        hoje
+                      </span>
+                    )}
                   </button>
                 )
               })}
             </div>
 
-            {/* Navigation */}
-            <div className="flex justify-between text-sm">
+            {/* Navegação entre semanas */}
+            <div className="flex justify-between text-sm mb-6">
               <button
                 onClick={() => setDateOffset((o) => Math.max(0, o - DATES_SHOWN))}
                 disabled={dateOffset === 0}
-                className="text-indigo-600 disabled:opacity-30"
+                className="transition-opacity disabled:opacity-30"
+                style={{ color: "var(--book-primary)" }}
               >
                 ← Anterior
               </button>
               <button
                 onClick={() => setDateOffset((o) => o + DATES_SHOWN)}
-                className="text-indigo-600"
+                style={{ color: "var(--book-primary)" }}
               >
                 Próximos →
               </button>
             </div>
 
             {selectedDate && (
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setStep("time")}
-                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700"
-                >
-                  Ver horários disponíveis →
-                </button>
-              </div>
+              <button
+                onClick={() => setStep("time")}
+                className="book-btn-primary w-full py-3 text-sm"
+              >
+                Ver horários disponíveis →
+              </button>
             )}
           </div>
         )}
 
-        {/* ── Step 4: Horário ──────────────────────────────────────────────── */}
+        {/* ── Step 4: Horário ───────────────────────────────────────────────── */}
         {step === "time" && (
           <div>
             <StepHeader
               title="Escolha um horário"
-              subtitle={selectedDate
-                ? new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })
-                : ""}
+              subtitle={
+                selectedDate
+                  ? new Date(selectedDate + "T12:00:00").toLocaleDateString("pt-BR", {
+                      weekday: "long",
+                      day: "2-digit",
+                      month: "long",
+                    })
+                  : ""
+              }
               onBack={() => setStep("date")}
             />
+
             {loadingSlots ? (
-              <p className="text-sm text-gray-400">Buscando horários…</p>
+              <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
+                Buscando horários…
+              </p>
             ) : slots.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-3">Nenhum horário disponível neste dia.</p>
-                <button onClick={() => setStep("date")} className="text-indigo-600 text-sm underline">
+                <p className="mb-4" style={{ color: "var(--book-text-secondary)" }}>
+                  Nenhum horário disponível neste dia.
+                </p>
+                <button
+                  onClick={() => setStep("date")}
+                  className="text-sm underline"
+                  style={{ color: "var(--book-primary)" }}
+                >
                   Escolher outra data
                 </button>
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {slots.map((slot, i) => {
-                  const time = new Date(slot.start_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+                  const time = new Date(slot.start_at).toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
                   return (
                     <button
                       key={i}
                       onClick={() => handleSelectSlot(slot)}
-                      className="rounded-xl border border-gray-200 bg-white py-3 text-sm font-medium text-gray-800 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                      className="rounded-xl py-3 text-sm font-medium transition-all duration-150"
+                      style={{
+                        background: "var(--book-card)",
+                        border: "1px solid var(--book-border)",
+                        color: "var(--book-text)",
+                      }}
+                      onMouseEnter={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-primary)"
+                        ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-primary)"
+                      }}
+                      onMouseLeave={(e) => {
+                        ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-border)"
+                        ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
+                      }}
                     >
                       {time}
                       {!selectedProfessional?.id && (
-                        <div className="text-xs text-gray-400 truncate px-1">{slot.professional_name}</div>
+                        <div
+                          className="text-xs truncate px-1 mt-0.5"
+                          style={{ color: "var(--book-text-muted)" }}
+                        >
+                          {slot.professional_name}
+                        </div>
                       )}
                     </button>
                   )
@@ -501,7 +624,7 @@ export default function BookingPage() {
           </div>
         )}
 
-        {/* ── Step 5: Dados do cliente ─────────────────────────────────────── */}
+        {/* ── Step 5: Dados do cliente ──────────────────────────────────────── */}
         {step === "customer" && (
           <div>
             <StepHeader
@@ -510,65 +633,82 @@ export default function BookingPage() {
               onBack={() => setStep("time")}
             />
 
-            {/* Summary card */}
+            {/* Resumo do agendamento */}
             {selectedService && selectedSlot && (
-              <div className="bg-indigo-50 rounded-xl p-4 mb-6 text-sm">
-                <div className="font-semibold text-indigo-800 mb-1">{selectedService.name}</div>
-                <div className="text-indigo-600">
-                  📅 {fmtDate(selectedSlot.start_at)}
+              <div
+                className="rounded-xl p-4 mb-6"
+                style={{
+                  background: "var(--book-card)",
+                  border: "1px solid var(--book-border)",
+                  borderLeft: "3px solid var(--book-primary)",
+                }}
+              >
+                <div className="font-semibold mb-2" style={{ color: "var(--book-text)" }}>
+                  {selectedService.name}
                 </div>
-                <div className="text-indigo-600">
-                  👤 {selectedSlot.professional_name}
+                <div className="text-sm space-y-1" style={{ color: "var(--book-text-secondary)" }}>
+                  <div>📅 {fmtDate(selectedSlot.start_at)}</div>
+                  <div>👤 {selectedSlot.professional_name}</div>
                 </div>
-                <div className="text-indigo-700 font-medium mt-1">
+                <div
+                  className="text-sm font-semibold mt-3 pt-3"
+                  style={{
+                    color: "var(--book-primary)",
+                    borderTop: "1px solid var(--book-border)",
+                  }}
+                >
                   {formatBRL(selectedService.price)} · {selectedService.duration_minutes} min
                 </div>
               </div>
             )}
 
             <form onSubmit={handleBook} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome completo *
-                </label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  required
-                  minLength={2}
-                  placeholder="Seu nome"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  WhatsApp / Telefone *
-                </label>
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  required
-                  placeholder="(11) 99999-9999"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  E-mail (opcional)
-                </label>
-                <input
-                  type="email"
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                />
-              </div>
+              {[
+                { label: "Nome completo *", type: "text", value: customerName, onChange: setCustomerName, placeholder: "Seu nome", required: true, minLength: 2 },
+                { label: "WhatsApp / Telefone *", type: "tel", value: customerPhone, onChange: setCustomerPhone, placeholder: "(11) 99999-9999", required: true },
+                { label: "E-mail (opcional)", type: "email", value: customerEmail, onChange: setCustomerEmail, placeholder: "seu@email.com", required: false },
+              ].map(({ label, type, value, onChange, placeholder, required, minLength }) => (
+                <div key={label}>
+                  <label
+                    className="block text-sm font-medium mb-1.5"
+                    style={{ color: "var(--book-text-secondary)" }}
+                  >
+                    {label}
+                  </label>
+                  <input
+                    type={type}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    required={required}
+                    minLength={minLength}
+                    placeholder={placeholder}
+                    className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
+                    style={{
+                      background: "var(--book-card)",
+                      border: "1px solid var(--book-border)",
+                      color: "var(--book-text)",
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = "var(--book-primary)"
+                      e.currentTarget.style.boxShadow = "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = "var(--book-border)"
+                      e.currentTarget.style.boxShadow = "none"
+                    }}
+                  />
+                </div>
+              ))}
 
               {bookingError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <div
+                  className="rounded-lg p-3 text-sm"
+                  style={{
+                    background: "color-mix(in srgb, #ef4444 10%, var(--book-card))",
+                    border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)",
+                    color: "#fca5a5",
+                  }}
+                >
                   {bookingError}
                 </div>
               )}
@@ -576,7 +716,7 @@ export default function BookingPage() {
               <button
                 type="submit"
                 disabled={booking}
-                className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors mt-2"
+                className="book-btn-primary w-full py-3 text-sm mt-2"
               >
                 {booking ? "Confirmando…" : "Confirmar agendamento"}
               </button>
@@ -584,34 +724,60 @@ export default function BookingPage() {
           </div>
         )}
 
-        {/* ── Step 6: Confirmação ──────────────────────────────────────────── */}
+        {/* ── Step 6: Confirmação ───────────────────────────────────────────── */}
         {step === "confirmed" && confirmation && (
           <div className="text-center py-6">
-            <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Agendado!</h2>
-            <p className="text-gray-500 mb-6">Seu horário está confirmado.</p>
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-5"
+              style={{
+                background: "color-mix(in srgb, var(--book-primary) 15%, var(--book-card))",
+                border: "1px solid var(--book-primary)",
+              }}
+            >
+              ✓
+            </div>
 
-            <div className="bg-white rounded-2xl border shadow-sm p-6 text-left space-y-3 mb-6">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Serviço</span>
-                <span className="font-medium text-gray-800">{confirmation.service_name}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Profissional</span>
-                <span className="font-medium text-gray-800">{confirmation.professional_name}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Data e hora</span>
-                <span className="font-medium text-gray-800 text-right">{fmtDate(confirmation.start_at)}</span>
-              </div>
-              <div className="flex justify-between text-sm border-t pt-3">
-                <span className="text-gray-500">Total</span>
-                <span className="font-bold text-indigo-700">{formatBRL(confirmation.total_amount)}</span>
+            <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--book-text)" }}>
+              Agendado!
+            </h2>
+            <p className="mb-8" style={{ color: "var(--book-text-secondary)" }}>
+              Seu horário está confirmado.
+            </p>
+
+            <div
+              className="rounded-2xl p-6 text-left space-y-3 mb-6"
+              style={{
+                background: "var(--book-card)",
+                border: "1px solid var(--book-border)",
+              }}
+            >
+              {[
+                { label: "Serviço", value: confirmation.service_name },
+                { label: "Profissional", value: confirmation.professional_name },
+                { label: "Data e hora", value: fmtDate(confirmation.start_at) },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between text-sm">
+                  <span style={{ color: "var(--book-text-muted)" }}>{label}</span>
+                  <span className="font-medium text-right" style={{ color: "var(--book-text)" }}>{value}</span>
+                </div>
+              ))}
+
+              <div
+                className="flex justify-between text-sm pt-3 book-divider"
+                style={{ borderTop: "1px solid color-mix(in srgb, var(--book-primary) 20%, transparent)" }}
+              >
+                <span style={{ color: "var(--book-text-muted)" }}>Total</span>
+                <span className="font-bold" style={{ color: "var(--book-primary)" }}>
+                  {formatBRL(confirmation.total_amount)}
+                </span>
               </div>
             </div>
 
-            <p className="text-xs text-gray-400 mb-6">
-              Código de confirmação: <span className="font-mono">{confirmation.token.slice(0, 8).toUpperCase()}</span>
+            <p className="text-xs mb-6" style={{ color: "var(--book-text-muted)" }}>
+              Código de confirmação:{" "}
+              <span className="font-mono" style={{ color: "var(--book-text-secondary)" }}>
+                {confirmation.token.slice(0, 8).toUpperCase()}
+              </span>
             </p>
 
             <button
@@ -622,9 +788,12 @@ export default function BookingPage() {
                 setSelectedDate("")
                 setSelectedSlot(null)
                 setConfirmation(null)
-                setCustomerName(""); setCustomerPhone(""); setCustomerEmail("")
+                setCustomerName("")
+                setCustomerPhone("")
+                setCustomerEmail("")
               }}
-              className="text-indigo-600 text-sm underline"
+              className="text-sm underline"
+              style={{ color: "var(--book-primary)" }}
             >
               Fazer outro agendamento
             </button>
