@@ -1,15 +1,26 @@
 from datetime import datetime, timedelta, date, timezone
 from uuid import UUID
 from typing import List
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import (
-    WorkingHour, ScheduleBlock, Appointment, Service, Professional
+    WorkingHour, ScheduleBlock, Appointment, Service, Professional, Company,
 )
 from app.domain.constants.scheduling import SLOT_INTERVAL_MINUTES
 from app.modules.availability.schemas import AvailableSlot
+
+
+def _company_tz(db: Session, company_id: UUID) -> ZoneInfo:
+    """Retorna o ZoneInfo da empresa, com fallback para América/São Paulo."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    tz_name = (company.timezone if company else None) or "America/Sao_Paulo"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("America/Sao_Paulo")
 
 
 def get_next_available_slots(
@@ -86,9 +97,11 @@ def get_available_slots(
     if not working_hour:
         return []
 
-    # Janela do dia — sempre em UTC para comparar corretamente com o banco
-    day_start = datetime.combine(target_date, working_hour.opening_time, tzinfo=timezone.utc)
-    day_end   = datetime.combine(target_date, working_hour.closing_time, tzinfo=timezone.utc)
+    # Janela do dia — converte horário local da empresa para UTC
+    # opening_time/closing_time são horários locais (ex: 09:00 América/São Paulo)
+    tz = _company_tz(db, company_id)
+    day_start = datetime.combine(target_date, working_hour.opening_time).replace(tzinfo=tz).astimezone(timezone.utc)
+    day_end   = datetime.combine(target_date, working_hour.closing_time).replace(tzinfo=tz).astimezone(timezone.utc)
 
     # Agendamentos existentes no dia (apenas ativos)
     day_appointments = db.query(Appointment).filter(

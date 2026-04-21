@@ -43,14 +43,18 @@ def get_customer_or_404(db: Session, company_id: UUID, customer_id: UUID) -> Cus
 
 
 def create_customer(db: Session, company_id: UUID, data: CustomerCreate) -> Customer:
+    # Normaliza o telefone antes de persistir — garante consistência com o lookup do bot
+    normalized = normalize_phone(data.phone)
     existing = db.query(Customer).filter(
-        Customer.phone == data.phone,
+        Customer.phone == normalized,
         Customer.company_id == company_id,
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Telefone já cadastrado para outro cliente")
 
-    customer = Customer(company_id=company_id, **data.model_dump())
+    payload = data.model_dump()
+    payload["phone"] = normalized
+    customer = Customer(company_id=company_id, **payload)
     db.add(customer)
     db.commit()
     db.refresh(customer)

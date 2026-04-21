@@ -328,7 +328,13 @@ export default function AppointmentsPage() {
                             title="Remarcar"
                             onClick={() => {
                               setRescheduleId(a.id)
-                              setNewStartAt(a.start_at.slice(0, 16))
+                              // Converte UTC para horário local antes de exibir no input datetime-local
+                              const d = new Date(a.start_at)
+                              const pad = (n: number) => String(n).padStart(2, "0")
+                              setNewStartAt(
+                                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+                                `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                              )
                             }}
                           >
                             🔄

@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.infrastructure.db.models import (
-    Appointment, Customer, Professional, Service, WorkingHour, ScheduleBlock,
+    Appointment, Customer, Professional, Service, WorkingHour, ScheduleBlock, Company,
 )
 from app.domain.enums import AppointmentStatus, FinancialStatus
 from app.modules.appointments.schemas import AppointmentCreate, RescheduleRequest
@@ -54,8 +55,16 @@ def _assert_slot_available(
         )
 
     # 2. Slot dentro da janela de trabalho?
-    day_start = datetime.combine(start_at.date(), working_hour.opening_time, tzinfo=timezone.utc)
-    day_end   = datetime.combine(start_at.date(), working_hour.closing_time, tzinfo=timezone.utc)
+    # opening_time/closing_time são horários locais da empresa — converter para UTC
+    company = db.query(Company).filter(Company.id == company_id).first()
+    tz_name = (company.timezone if company else None) or "America/Sao_Paulo"
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Sao_Paulo")
+
+    day_start = datetime.combine(start_at.date(), working_hour.opening_time).replace(tzinfo=tz).astimezone(timezone.utc)
+    day_end   = datetime.combine(start_at.date(), working_hour.closing_time).replace(tzinfo=tz).astimezone(timezone.utc)
 
     if start_at < day_start or end_at > day_end:
         raise HTTPException(
@@ -63,7 +72,7 @@ def _assert_slot_available(
             detail=(
                 f"Horário fora da janela de trabalho do profissional "
                 f"({working_hour.opening_time.strftime('%H:%M')}–"
-                f"{working_hour.closing_time.strftime('%H:%M')} UTC)"
+                f"{working_hour.closing_time.strftime('%H:%M')} horário local)"
             ),
         )
 

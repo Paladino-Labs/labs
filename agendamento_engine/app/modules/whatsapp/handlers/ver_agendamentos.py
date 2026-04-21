@@ -1,5 +1,6 @@
 """Handlers do estado VER_AGENDAMENTOS."""
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -37,12 +38,19 @@ def handle_ver_agendamentos(
         session.state    = STATE_INICIO
         return
 
+    tz_name = ctx.get("company_timezone") or "America/Sao_Paulo"
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Sao_Paulo")
+
     rows, last_list = [], []
     for i, a in enumerate(appointments):
-        svc_name   = a.service_name
-        prof_name  = a.professional_name
-        date_label = a.start_at.strftime("%d/%m")
-        time_label = a.start_at.strftime("%H:%M")
+        svc_name    = a.service_name
+        prof_name   = a.professional_name
+        local_start = a.start_at.astimezone(tz)
+        date_label  = local_start.strftime("%d/%m")
+        time_label  = local_start.strftime("%H:%M")
         row_id     = f"appt_{i}"
         rows.append({"rowId": row_id,
                      "title": f"{date_label} às {time_label} — {svc_name}",

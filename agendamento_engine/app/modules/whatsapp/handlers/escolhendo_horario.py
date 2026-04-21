@@ -2,6 +2,7 @@
 import uuid as uuidlib
 from datetime import datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,14 @@ from app.modules.whatsapp.helpers import label_date
 from app.modules.booking.engine import booking_engine
 from app.core.config import settings
 
+
+def _get_tz(ctx: dict) -> ZoneInfo:
+    tz_name = ctx.get("company_timezone") or "America/Sao_Paulo"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("America/Sao_Paulo")
+
 STATE_ESCOLHENDO_HORARIO = "ESCOLHENDO_HORARIO"
 STATE_ESCOLHENDO_DATA    = "ESCOLHENDO_DATA"
 STATE_CONFIRMANDO        = "CONFIRMANDO"
@@ -20,14 +29,22 @@ STATE_CONFIRMANDO        = "CONFIRMANDO"
 _POOL_MULTIPLIER = 5
 
 
-def _filter_by_turno(slots, turno: str | None):
-    """Filtra slots pelo turno selecionado. Sem turno → retorna todos."""
+def _filter_by_turno(slots, turno: str | None, tz: ZoneInfo | None = None):
+    """Filtra slots pelo turno selecionado usando hora local da empresa. Sem turno → retorna todos."""
+    if not turno:
+        return slots
+    if tz is None:
+        tz = ZoneInfo("America/Sao_Paulo")
+
+    def local_hour(s) -> int:
+        return s.start_at.astimezone(tz).hour
+
     if turno == "manha":
-        return [s for s in slots if s.start_at.hour < 12]
+        return [s for s in slots if local_hour(s) < 12]
     if turno == "tarde":
-        return [s for s in slots if 12 <= s.start_at.hour < 18]
+        return [s for s in slots if 12 <= local_hour(s) < 18]
     if turno == "noite":
-        return [s for s in slots if s.start_at.hour >= 18]
+        return [s for s in slots if local_hour(s) >= 18]
     return slots
 
 
@@ -59,8 +76,9 @@ def start(
             db, company_id, prof_id_val, svc_id, days=7, limit=pool,
         )
 
-    # ── Filtra pelo turno escolhido ───────────────────────────────────────────
-    all_slots = _filter_by_turno(raw_slots, turno)
+    # ── Filtra pelo turno escolhido (horário local da empresa) ───────────────
+    tz        = _get_tz(ctx)
+    all_slots = _filter_by_turno(raw_slots, turno, tz)
     any_prof  = (prof_raw is None)
 
     # ── Sem horários no turno ─────────────────────────────────────────────────
@@ -98,9 +116,10 @@ def start(
     # ── Monta rows / last_list ────────────────────────────────────────────────
     rows, last_list = [], []
     for s in display_slots:
-        row_id     = f"{s.start_at.isoformat()}|{s.professional_id}"
-        time_label = s.start_at.strftime("%H:%M")
-        date_label = label_date(s.start_at.date())
+        row_id       = f"{s.start_at.isoformat()}|{s.professional_id}"
+        local_start  = s.start_at.astimezone(tz)
+        time_label   = local_start.strftime("%H:%M")
+        date_label   = label_date(local_start.date())
 
         # Formato: "Hoje (16/04) — 12:15" ou "Hoje (16/04) — 12:15 — Hemerson"
         # description sempre vazio — evita que o fallback texto duplique o nome

@@ -188,9 +188,10 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         logger.info("handle_inbound: bot desativado. company_id=%s", company_id)
         return
 
-    company      = db.query(Company).filter(Company.id == company_id).first()
-    company_name = company.name if company else "Barbearia"
-    user_input   = extract_user_text(data)
+    company          = db.query(Company).filter(Company.id == company_id).first()
+    company_name     = company.name if company else "Barbearia"
+    company_timezone = (company.timezone if company else None) or "America/Sao_Paulo"
+    user_input       = extract_user_text(data)
 
     logger.info("whatsapp_id=%s msg_id=%s input=%r", whatsapp_id, message_id, user_input[:50])
 
@@ -215,6 +216,13 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             exp = exp.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > exp:
             reset_session(session, keep_customer=False)
+
+    # Injeta timezone da empresa no contexto — handlers usam para exibir horários locais
+    ctx = session.context or {}
+    if ctx.get("company_timezone") != company_timezone:
+        ctx = dict(ctx)
+        ctx["company_timezone"] = company_timezone
+        session.context = ctx
 
     state = session.state
     logger.info("dispatcher: state=%s whatsapp_id=%s input=%r", state, whatsapp_id, user_input[:60])
