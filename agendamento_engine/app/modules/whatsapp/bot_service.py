@@ -65,6 +65,10 @@ STATE_CANCELANDO              = "CANCELANDO"
 STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
 
+# ── BookingEngine FSM — estados roteados pelo novo pipeline ───────────────────
+# Importado de input_parser para evitar duplicação
+from app.modules.whatsapp.input_parser import BOOKING_STATES  # noqa: E402
+
 
 # ─── Wrappers locais (evitam repetir db/session nos handlers) ─────────────────
 # Cada _start_* é uma função local que fecha sobre db/session/company_id,
@@ -78,7 +82,69 @@ def _mk_start_servico(db, session, company_id):
 
 def _start_escolhendo_servico(db: Session, session: BotSession, company_id: UUID,
                                instance: str, whatsapp_id: str) -> None:
-    h_servico.start(db, session, company_id, instance, whatsapp_id)
+    """
+    Inicia o fluxo de agendamento via BookingEngine FSM.
+
+    Cria uma BookingSession (channel="whatsapp"), inicializa com o cliente
+    já identificado e envia a lista de serviços ao usuário.
+    """
+    from app.infrastructure.db.models.booking_session import BookingSession as _BookingSession
+    from app.modules.booking.engine import booking_engine
+    from app.modules.booking.schemas import SessionUpdateResult
+    from app.modules.whatsapp.response_formatter import whatsapp_response_formatter
+
+    ctx              = session.context or {}
+    customer_id      = ctx.get("customer_id")
+    customer_name    = ctx.get("customer_name", "")
+    company_timezone = ctx.get("company_timezone", "America/Sao_Paulo")
+
+    if not customer_id:
+        logger.error("_start_escolhendo_servico: sem customer_id no contexto. whatsapp_id=%s", whatsapp_id)
+        sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
+        return
+
+    # ── Cria BookingSession (IDLE) e inicializa com cliente já identificado ───
+    booking_session = booking_engine.start_session(
+        db, company_id,
+        channel="whatsapp",
+        company_timezone=company_timezone,
+    )
+
+    # Bypass de SET_CUSTOMER: cliente foi identificado pelo fluxo de INICIO.
+    # Definir customer_id e estado diretamente evita segundo round-trip ao banco
+    # e o problema do LID addressing mode (whatsapp_id não é telefone real).
+    from uuid import UUID as _UUID
+    booking_session.customer_id = _UUID(customer_id)
+    booking_session.state = "AWAITING_SERVICE"
+
+    # ── Lista serviços e persiste no contexto da BookingSession ───────────────
+    options = booking_engine.list_services(db, company_id)
+    booking_session.context = {
+        "customer_name":         customer_name,
+        "last_listed_services": [
+            {
+                "id":               str(o.id),
+                "name":             o.name,
+                "price":            str(o.price),
+                "duration_minutes": o.duration_minutes,
+                "row_key":          o.row_key,
+            }
+            for o in options
+        ],
+    }
+
+    # ── Vincula BookingSession à BotSession via contexto ─────────────────────
+    ctx2 = dict(ctx)
+    ctx2["booking_session_id"] = str(booking_session.id)
+    session.context = ctx2
+    session.state   = "AWAITING_SERVICE"
+
+    # ── Envia lista de serviços ───────────────────────────────────────────────
+    result = SessionUpdateResult(next_state="AWAITING_SERVICE", options=options)
+    whatsapp_response_formatter.format_and_send(
+        result, instance, whatsapp_id,
+        booking_session.context, company_timezone,
+    )
 
 
 def _start_escolhendo_profissional(db: Session, session: BotSession, company_id: UUID,
@@ -121,6 +187,143 @@ def _start_cancelando(db: Session, session: BotSession, company_id: UUID,
                       whatsapp_id: str, instance: str) -> None:
     h_cancelando.start(db, session, company_id, whatsapp_id, instance,
                        start_gerenciando_agendamento=_start_gerenciando_agendamento)
+
+
+def _handle_booking_state(
+    db: Session,
+    session: BotSession,
+    company_id: UUID,
+    instance: str,
+    whatsapp_id: str,
+    user_input: str,
+    company_timezone: str,
+) -> None:
+    """
+    Handler unificado para os estados de agendamento roteados pelo BookingEngine.
+
+    Fluxo:
+      1. Carrega BookingSession pelo ID armazenado no contexto da BotSession
+      2. Parseia o input do usuário → (BookingAction, payload)
+      3. Chama booking_engine.update() com a ação
+      4. Sincroniza o estado da BotSession com o novo estado da BookingSession
+      5. Envia as mensagens via WhatsAppResponseFormatter
+    """
+    from app.infrastructure.db.models.booking_session import BookingSession as _BookingSession
+    from uuid import UUID as _UUID
+    from app.modules.booking.engine import booking_engine
+    from app.modules.booking.actions import BookingAction, SessionExpiredError, InvalidActionError
+    from app.modules.whatsapp.input_parser import whatsapp_input_parser
+    from app.modules.whatsapp.response_formatter import whatsapp_response_formatter
+
+    ctx                = session.context or {}
+    booking_session_id = ctx.get("booking_session_id")
+    state              = session.state
+
+    # ── Guard: sem booking_session_id → contexto corrompido ──────────────────
+    if not booking_session_id:
+        logger.warning(
+            "BOOKING_STATE sem booking_session_id. state=%s whatsapp_id=%s", state, whatsapp_id
+        )
+        reset_session(session, keep_customer=True)
+        ctx2 = session.context or {}
+        h_inicio.show_menu_principal(
+            session, ctx2, instance, whatsapp_id,
+            ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+
+    # ── Carregar BookingSession ───────────────────────────────────────────────
+    try:
+        bs_id = _UUID(booking_session_id)
+    except (ValueError, TypeError):
+        logger.error("booking_session_id inválido=%s", booking_session_id)
+        reset_session(session, keep_customer=True)
+        sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
+        return
+
+    booking_session = (
+        db.query(_BookingSession)
+        .filter(
+            _BookingSession.id == bs_id,
+            _BookingSession.company_id == company_id,
+        )
+        .first()
+    )
+
+    if not booking_session:
+        logger.warning("BookingSession não encontrada id=%s, reiniciando fluxo", booking_session_id)
+        reset_session(session, keep_customer=True)
+        ctx2 = session.context or {}
+        h_inicio.show_menu_principal(
+            session, ctx2, instance, whatsapp_id,
+            ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+
+    # ── Parsear input ─────────────────────────────────────────────────────────
+    parse_result = whatsapp_input_parser.parse(
+        user_input, state, booking_session.context or {}, company_timezone
+    )
+
+    if parse_result is None:
+        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+
+    action, payload = parse_result
+
+    # ── RESET → volta ao menu principal sem chamar o engine ──────────────────
+    if action == BookingAction.RESET:
+        reset_session(session, keep_customer=True)
+        ctx2 = session.context or {}
+        h_inicio.show_menu_principal(
+            session, ctx2, instance, whatsapp_id,
+            ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+
+    # ── Aplicar ação no BookingEngine ────────────────────────────────────────
+    try:
+        result = booking_engine.update(db, booking_session, action, payload)
+    except SessionExpiredError:
+        reset_session(session, keep_customer=True)
+        ctx2 = session.context or {}
+        sender.send_text(instance, whatsapp_id, "⏰ Sua sessão expirou. Começando de novo 😊")
+        h_inicio.show_menu_principal(
+            session, ctx2, instance, whatsapp_id,
+            ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+    except InvalidActionError as e:
+        logger.warning("InvalidActionError state=%s action=%s: %s", state, action, e)
+        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        return
+    except Exception:
+        logger.exception("booking_engine.update error state=%s whatsapp_id=%s", state, whatsapp_id)
+        sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
+        return
+
+    # ── Sincronizar estado da BotSession com o novo estado da BookingSession ──
+    new_state = result.next_state
+
+    if new_state in ("CONFIRMED", "CANCELLED"):
+        # Fluxo concluído → resetar mantendo cliente identificado para próxima conversa
+        reset_session(session, keep_customer=True)
+    elif new_state in BOOKING_STATES:
+        session.state = new_state
+    else:
+        # Estado transitório (CONFIRMING) ou inesperado → manter estado atual
+        # O engine pode ter voltado a um BOOKING_STATE via BACK/RESET
+        if booking_session.state in BOOKING_STATES:
+            session.state = booking_session.state
+        else:
+            logger.warning("Estado inesperado após update new_state=%s bs_state=%s",
+                           new_state, booking_session.state)
+
+    # ── Enviar mensagens ao usuário ───────────────────────────────────────────
+    whatsapp_response_formatter.format_and_send(
+        result, instance, whatsapp_id,
+        booking_session.context or {}, company_timezone,
+    )
 
 
 # ─── Entry point — webhook messages.upsert ────────────────────────────────────
@@ -362,6 +565,13 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 resolve_input=resolve_input,
                 send_escolher_data=_send_escolher_data,
                 start_escolhendo_horario=_start_escolhendo_horario,
+            )
+
+        elif state in BOOKING_STATES:
+            # Fluxo unificado via BookingEngine FSM
+            _handle_booking_state(
+                db, session, company_id, instance_name, whatsapp_id,
+                user_input, company_timezone,
             )
 
         elif state == STATE_HUMANO:
