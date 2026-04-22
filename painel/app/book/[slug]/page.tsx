@@ -481,7 +481,6 @@ export default function BookingPage() {
             onSelect={(opt) =>
               dispatch("SELECT_SERVICE", {
                 service_id: opt.id,
-                row_key: opt.row_key,
               })
             }
           />
@@ -497,7 +496,6 @@ export default function BookingPage() {
             onSelect={(opt) =>
               dispatch("SELECT_PROFESSIONAL", {
                 professional_id: opt.id ?? "any",
-                row_key: opt.row_key,
               })
             }
           />
