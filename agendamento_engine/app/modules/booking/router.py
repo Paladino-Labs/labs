@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models.company import Company
@@ -589,6 +590,11 @@ def update_session(
             detail="Sessão expirada — inicie uma nova sessão",
         )
     except InvalidActionError as e:
+        logger.error("InvalidActionError | session=%s state=%s action=%s payload=%s ctx=%s | %s",
+        session.id, session.state, action, body.payload,
+        dict(session.context or {}),
+        e.detail,
+        )
         raise HTTPException(status_code=422, detail=e.detail)
     except SlotUnavailableError as e:
         # Slot foi tomado durante a confirmação — engine já voltou para AWAITING_TIME
@@ -606,6 +612,7 @@ def update_session(
         raise HTTPException(status_code=403, detail=e.detail)
 
     # Commit persiste o estado atualizado (state, context, expires_at, last_action)
+    flag_modified(session, "context")
     db.commit()
     db.refresh(session)
 
