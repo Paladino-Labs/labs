@@ -28,8 +28,8 @@ interface DateOpt {
 }
 
 interface SlotOpt {
-  start_at: string        // ISO UTC
-  end_at: string          // ISO UTC
+  start_at: string        // ISO com timezone da empresa
+  end_at: string          // ISO com timezone da empresa
   start_display: string   // "14:30" no tz da empresa
   professional_id: string
   professional_name: string
@@ -55,10 +55,10 @@ interface ContextSummary {
   service_price?: string | null
   service_duration_minutes?: number | null
   professional_name?: string | null
-  selected_date?: string | null    // "YYYY-MM-DD"
-  slot_start_at?: string | null    // ISO UTC
-  slot_end_at?: string | null      // ISO UTC
-  slot_start_display?: string | null  // "14:30"
+  selected_date?: string | null
+  slot_start_at?: string | null
+  slot_end_at?: string | null
+  slot_start_display?: string | null
 }
 
 interface ConfirmData {
@@ -263,50 +263,61 @@ export default function BookingPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Formulário de identificação (exibido quando session=null ou state=IDLE)
+  // Formulário de identificação — usado em AWAITING_CUSTOMER
   const [custName, setCustName] = useState("")
   const [custPhone, setCustPhone] = useState("")
 
-  // ── Carregar info da empresa ─────────────────────────────────────────────────
+  // ── Carregar info da empresa ──────────────────────────────────────────────
   useEffect(() => {
     apiFetch<CompanyInfo>(`/booking/${slug}/info`)
       .then(setCompany)
       .catch((e: Error) => setCompanyError(e.message))
   }, [slug])
 
-  // ── Tentar retomar sessão existente pelo token na URL (?t=…) ─────────────────
+  // ── Iniciar ou retomar sessão após carregar empresa ───────────────────────
+  // FIX: O backend começa em AWAITING_SERVICE, então criamos a sessão
+  // automaticamente ao carregar a página — sem botão "Começar".
+  // Se há token na URL tentamos retomar; caso falhe (expirado/inválido),
+  // criamos uma nova sessão imediatamente.
   useEffect(() => {
+    if (!company) return
+
     const token = searchParams.get("t")
-    if (!token || !company) return
 
-    apiFetch<Session>(`/booking/${slug}/session/${token}`)
-      .then(setSession)
-      .catch((e: { status?: number; message: string }) => {
-        // 410 = expirada → não tratar como erro; usuário verá o formulário normalmente
-        if (e.status !== 410) setError(e.message)
-        // Limpar token inválido da URL
-        const url = new URL(window.location.href)
-        url.searchParams.delete("t")
-        router.replace(url.pathname + url.search, { scroll: false })
-      })
+    if (token) {
+      // Tentar retomar sessão existente
+      apiFetch<Session>(`/booking/${slug}/session/${token}`)
+        .then(setSession)
+        .catch((e: { status?: number; message: string }) => {
+          // Sessão expirada ou inválida — limpar token e iniciar nova sessão
+          const url = new URL(window.location.href)
+          url.searchParams.delete("t")
+          router.replace(url.pathname + url.search, { scroll: false })
+
+          if (e.status !== 410) {
+            // Erro inesperado — ainda assim tenta iniciar nova sessão
+            console.warn("Falha ao retomar sessão:", e.message)
+          }
+          startNewSession()
+        })
+    } else {
+      // Sem token — iniciar nova sessão diretamente
+      startNewSession()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company]) // executa uma vez após carregar empresa
+  }, [company])
 
-  // ── Criar sessão (formulário de identificação) ────────────────────────────────
-  async function handleConfirmWithCustomerData(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
+  // ── Criar nova sessão no backend ──────────────────────────────────────────
+  async function startNewSession() {
     setLoading(true)
+    setError(null)
     try {
       const result = await apiFetch<Session>(`/booking/${slug}/start`, {
         method: "POST",
-        body: JSON.stringify({
-          customer_name: custName.trim(),
-          customer_phone: custPhone.trim(),
-        }),
+        body: JSON.stringify({}),
       })
       setSession(result)
-      // Persistir token na URL para retomada sem reload
+      // Persistir token na URL para possível retomada
       const url = new URL(window.location.href)
       url.searchParams.set("t", result.token)
       router.replace(url.pathname + url.search, { scroll: false })
@@ -317,7 +328,7 @@ export default function BookingPage() {
     }
   }
 
-  // ── Dispatch: aplica qualquer ação FSM ───────────────────────────────────────
+  // ── Dispatch: aplica qualquer ação FSM ────────────────────────────────────
   const dispatch = useCallback(
     async (action: string, payload: Record<string, unknown> = {}) => {
       if (!session) return
@@ -345,17 +356,17 @@ export default function BookingPage() {
     [session, slug],
   )
 
-  // ── Recomeçar do início (mantém sessão e token, vai para AWAITING_SERVICE) ───
+  // ── RESET: volta para AWAITING_SERVICE preservando sessão ────────────────
   function handleReset() {
     dispatch("RESET")
   }
 
-  // ── BACK ─────────────────────────────────────────────────────────────────────
+  // ── BACK ──────────────────────────────────────────────────────────────────
   function handleBack() {
     dispatch("BACK")
   }
 
-  // ─── Guards de carregamento / erro ────────────────────────────────────────────
+  // ─── Guards de carregamento / erro ────────────────────────────────────────
 
   if (companyError) {
     return (
@@ -376,7 +387,7 @@ export default function BookingPage() {
     )
   }
 
-  if (!company) {
+  if (!company || (!session && loading)) {
     return (
       <div
         className="book-page min-h-screen flex items-center justify-center"
@@ -389,12 +400,14 @@ export default function BookingPage() {
     )
   }
 
-  // ─── Passos da barra de progresso ─────────────────────────────────────────────
+  // ─── Barra de progresso ───────────────────────────────────────────────────
+  // FIX: inclui AWAITING_CUSTOMER como passo visível antes da confirmação
   const PROGRESS_STEPS: SrvState[] = [
     "AWAITING_SERVICE",
     "AWAITING_PROFESSIONAL",
     "AWAITING_DATE",
     "AWAITING_TIME",
+    "AWAITING_CUSTOMER",
     "AWAITING_CONFIRMATION",
   ]
   const currentIdx = session ? PROGRESS_STEPS.indexOf(session.state) : -1
@@ -402,13 +415,13 @@ export default function BookingPage() {
     session &&
     !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div
       className="book-page min-h-screen"
       style={{ background: "var(--book-gradient-dark)" }}
     >
-      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div
         style={{
           background: "var(--book-surface)",
@@ -425,7 +438,7 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* ── Barra de progresso ────────────────────────────────────────────────── */}
+      {/* ── Barra de progresso ──────────────────────────────────────────────── */}
       {showProgress && (
         <div className="max-w-lg mx-auto px-6 pt-4">
           <div className="flex gap-1">
@@ -447,19 +460,20 @@ export default function BookingPage() {
 
       <div className="max-w-lg mx-auto px-6 py-8">
 
-        {/* ── IDLE / sem sessão: formulário de identificação ────────────────── */}
-        {(!session || session.state === "IDLE") && (
-          <div className="text-center">
+        {/* ── Erro de inicialização (sessão não criada ainda) ──────────────── */}
+        {!session && error && (
+          <div className="text-center py-8">
+            <ErrorBanner msg={error} />
             <button
-              onClick={() => dispatch("START")}
-              className="book-btn-primary px-6 py-3 text-sm"
+              onClick={startNewSession}
+              className="book-btn-primary px-6 py-3 text-sm mt-4"
             >
-              Começar agendamento
+              Tentar novamente
             </button>
           </div>
         )}
 
-        {/* ── AWAITING_SERVICE ──────────────────────────────────────────────── */}
+        {/* ── AWAITING_SERVICE ────────────────────────────────────────────── */}
         {session?.state === "AWAITING_SERVICE" && (
           <ServiceStep
             options={session.options as ServiceOpt[]}
@@ -473,7 +487,7 @@ export default function BookingPage() {
           />
         )}
 
-        {/* ── AWAITING_PROFESSIONAL ─────────────────────────────────────────── */}
+        {/* ── AWAITING_PROFESSIONAL ───────────────────────────────────────── */}
         {session?.state === "AWAITING_PROFESSIONAL" && (
           <ProfessionalStep
             options={session.options as ProfOpt[]}
@@ -481,18 +495,15 @@ export default function BookingPage() {
             loading={loading}
             onBack={handleBack}
             onSelect={(opt) =>
-              dispatch(
-                "SELECT_PROFESSIONAL",
-                {
-                  professional_id: opt.id ?? null,
-                  row_key: opt.row_key,
-                }
-              )
+              dispatch("SELECT_PROFESSIONAL", {
+                professional_id: opt.id ?? "any",
+                row_key: opt.row_key,
+              })
             }
           />
         )}
 
-        {/* ── AWAITING_DATE ─────────────────────────────────────────────────── */}
+        {/* ── AWAITING_DATE ───────────────────────────────────────────────── */}
         {session?.state === "AWAITING_DATE" && (
           <DateStep
             options={session.options as DateOpt[]}
@@ -505,7 +516,7 @@ export default function BookingPage() {
           />
         )}
 
-        {/* ── AWAITING_TIME ─────────────────────────────────────────────────── */}
+        {/* ── AWAITING_TIME ───────────────────────────────────────────────── */}
         {session?.state === "AWAITING_TIME" && (
           <TimeStep
             options={session.options as SlotOpt[]}
@@ -524,7 +535,8 @@ export default function BookingPage() {
           />
         )}
 
-        {/* ── AWAITING_CONFIRMATION ─────────────────────────────────────────── */}
+        {/* ── AWAITING_CUSTOMER ───────────────────────────────────────────── */}
+        {/* FIX: estado correto é AWAITING_CUSTOMER; ação correta é SET_CUSTOMER */}
         {session?.state === "AWAITING_CUSTOMER" && (
           <CustomerForm
             name={custName}
@@ -533,18 +545,20 @@ export default function BookingPage() {
             onPhone={setCustPhone}
             loading={loading}
             error={error}
+            onBack={handleBack}
             onSubmit={(e) => {
               e.preventDefault()
-              dispatch("SUBMIT_CUSTOMER", {
-                customer_name: custName,
-                customer_phone: custPhone,
+              // FIX: ação era "SUBMIT_CUSTOMER" (inexistente); corrigido para "SET_CUSTOMER"
+              dispatch("SET_CUSTOMER", {
+                name: custName,
+                phone: custPhone,
               })
             }}
             companyName={company.company_name}
           />
         )}
 
-        {/* ── AWAITING_CONFIRMATION ─────────────────────────────────────────── */}
+        {/* ── AWAITING_CONFIRMATION ───────────────────────────────────────── */}
         {session?.state === "AWAITING_CONFIRMATION" && (
           <ConfirmStep
             summary={session.context_summary}
@@ -555,7 +569,7 @@ export default function BookingPage() {
           />
         )}
 
-        {/* ── CONFIRMED ─────────────────────────────────────────────────────── */}
+        {/* ── CONFIRMED ───────────────────────────────────────────────────── */}
         {session?.state === "CONFIRMED" && session.confirmation && (
           <ConfirmedView
             confirmation={session.confirmation}
@@ -564,71 +578,12 @@ export default function BookingPage() {
           />
         )}
 
-        {/* ── CANCELLED ─────────────────────────────────────────────────────── */}
+        {/* ── CANCELLED ───────────────────────────────────────────────────── */}
         {session?.state === "CANCELLED" && (
           <CancelledView onReset={handleReset} />
         )}
 
       </div>
-    </div>
-  )
-}
-
-// ─── Etapa 0: Identificação do cliente ───────────────────────────────────────
-
-function CustomerForm({
-  name,
-  phone,
-  onName,
-  onPhone,
-  loading,
-  error,
-  onSubmit,
-  companyName,
-}: {
-  name: string
-  phone: string
-  onName: (v: string) => void
-  onPhone: (v: string) => void
-  loading: boolean
-  error: string | null
-  onSubmit: (e: React.FormEvent) => void
-  companyName: string
-}) {
-  return (
-    <div>
-      <StepHeader
-        title="Olá! Vamos agendar"
-        subtitle={`Informe seus dados para continuar em ${companyName}`}
-      />
-      <form onSubmit={onSubmit} className="space-y-4">
-        <InputField
-          label="Nome completo *"
-          type="text"
-          value={name}
-          onChange={onName}
-          placeholder="Seu nome"
-          minLength={2}
-          required
-        />
-        <InputField
-          label="WhatsApp / Telefone *"
-          type="tel"
-          value={phone}
-          onChange={onPhone}
-          placeholder="(11) 99999-9999"
-          minLength={10}
-          required
-        />
-        {error && <ErrorBanner msg={error} />}
-        <button
-          type="submit"
-          disabled={loading}
-          className="book-btn-primary w-full py-3 text-sm mt-2"
-        >
-          {loading ? "Aguarde…" : "Ver serviços disponíveis →"}
-        </button>
-      </form>
     </div>
   )
 }
@@ -848,7 +803,6 @@ function TimeStep({
   onBack: () => void
   onSelect: (opt: SlotOpt) => void
 }) {
-  // Formatar a data selecionada para o subtitle
   const dateLabel = summary.selected_date
     ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
         weekday: "long",
@@ -920,7 +874,69 @@ function TimeStep({
   )
 }
 
-// ─── Etapa 5: Confirmar ───────────────────────────────────────────────────────
+// ─── Etapa 5: Dados do cliente ────────────────────────────────────────────────
+
+function CustomerForm({
+  name,
+  phone,
+  onName,
+  onPhone,
+  loading,
+  error,
+  onBack,
+  onSubmit,
+  companyName,
+}: {
+  name: string
+  phone: string
+  onName: (v: string) => void
+  onPhone: (v: string) => void
+  loading: boolean
+  error: string | null
+  onBack: () => void   // FIX: adicionado onBack — permite voltar para AWAITING_TIME
+  onSubmit: (e: React.FormEvent) => void
+  companyName: string
+}) {
+  return (
+    <div>
+      <StepHeader
+        title="Quase lá! Seus dados"
+        subtitle={`Para confirmar seu horário em ${companyName}`}
+        onBack={onBack}
+      />
+      <form onSubmit={onSubmit} className="space-y-4">
+        <InputField
+          label="Nome completo *"
+          type="text"
+          value={name}
+          onChange={onName}
+          placeholder="Seu nome"
+          minLength={2}
+          required
+        />
+        <InputField
+          label="WhatsApp / Telefone *"
+          type="tel"
+          value={phone}
+          onChange={onPhone}
+          placeholder="(11) 99999-9999"
+          minLength={10}
+          required
+        />
+        {error && <ErrorBanner msg={error} />}
+        <button
+          type="submit"
+          disabled={loading}
+          className="book-btn-primary w-full py-3 text-sm mt-2"
+        >
+          {loading ? "Aguarde…" : "Continuar →"}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ─── Etapa 6: Confirmar ───────────────────────────────────────────────────────
 
 function ConfirmStep({
   summary,
@@ -939,7 +955,6 @@ function ConfirmStep({
     <div>
       <StepHeader title="Confirmar agendamento" onBack={onBack} />
 
-      {/* Resumo */}
       <div
         className="rounded-xl p-4 mb-6"
         style={{
@@ -952,8 +967,11 @@ function ConfirmStep({
           {summary.service_name ?? "Serviço"}
         </div>
         <div className="text-sm space-y-1.5" style={{ color: "var(--book-text-secondary)" }}>
+          {summary.customer_name && (
+            <div>👤 {summary.customer_name}</div>
+          )}
           {summary.professional_name && (
-            <div>👤 {summary.professional_name}</div>
+            <div>💈 {summary.professional_name}</div>
           )}
           {summary.selected_date && (
             <div>
@@ -996,7 +1014,7 @@ function ConfirmStep({
   )
 }
 
-// ─── Etapa 6: Confirmado ──────────────────────────────────────────────────────
+// ─── Etapa 7: Confirmado ──────────────────────────────────────────────────────
 
 function ConfirmedView({
   confirmation,
@@ -1007,7 +1025,6 @@ function ConfirmedView({
   token: string
   onReset: () => void
 }) {
-  // Formatar data e hora
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleString("pt-BR", {
       dateStyle: "full",
