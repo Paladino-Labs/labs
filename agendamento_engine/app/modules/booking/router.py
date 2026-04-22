@@ -481,16 +481,14 @@ def start_session(
 ):
     """
     Cria uma nova BookingSession para o fluxo de agendamento online.
-
-    Se customer_phone for fornecido e o cliente já existir no banco,
-    o cliente é identificado imediatamente e a sessão começa em AWAITING_SERVICE.
-    Caso contrário, começa em IDLE aguardando SET_CUSTOMER.
+    A sessão começa sempre em AWAITING_SERVICE — o engine já não usa IDLE.
+    Opcionalmente aceita customer_phone para identificar o cliente de imediato.
     """
     company, _ = _require_online_booking(slug, db)
 
-    # Snapshot do timezone no momento da criação
     company_tz = getattr(company, "timezone", "America/Sao_Paulo") or "America/Sao_Paulo"
 
+    # Engine cria a sessão já em AWAITING_SERVICE (sem IDLE)
     session = booking_engine.start_session(
         db,
         company_id=company.id,
@@ -498,7 +496,7 @@ def start_session(
         company_timezone=company_tz,
     )
 
-    # Atalho: se o cliente se identificou na abertura, avançar direto para AWAITING_SERVICE
+    # Atalho: cliente se identificou na abertura — salvar no contexto imediatamente
     if body.customer_phone:
         customer = customer_svc.get_or_create_by_phone(
             db,
@@ -507,38 +505,40 @@ def start_session(
             body.customer_name or "",
         )
         session.customer_id = customer.id
-        ctx = dict(session.context or {})
-        ctx["customer_name"]  = customer.name
-        ctx["customer_phone"] = body.customer_phone
-        session.context = ctx
-        session.state = "AWAITING_SERVICE"
+        # Não atribuir session.context aqui ainda — será feito junto com
+        # last_listed_services logo abaixo para garantir atribuição única
 
+    # Sempre listar serviços (sessão começa em AWAITING_SERVICE)
+    # e persistir last_listed_services no contexto em UMA única atribuição
+    # para garantir que o SQLAlchemy rastreie a mudança corretamente.
+    services = booking_engine.list_services(db, session.company_id)
+
+    ctx = dict(session.context or {})
+
+    # Incluir dados do cliente se veio no /start
+    if body.customer_phone:
+        ctx["customer_name"]  = customer.name  # type: ignore[name-defined]
+        ctx["customer_phone"] = body.customer_phone
+
+    # last_listed_services permite que _handle_select_service resolva row_key
+    ctx["last_listed_services"] = [
+        {
+            "id": str(s.id),
+            "name": s.name,
+            "price": str(s.price),
+            "duration_minutes": s.duration_minutes,
+            "row_key": s.row_key,
+        }
+        for s in services
+    ]
+
+    session.context = ctx  # atribuição única — SQLAlchemy detecta a mudança
+
+    # Commit único — elimina o problema de double-commit + refresh perdendo o contexto
     db.commit()
     db.refresh(session)
 
-    # Se o cliente já foi identificado, retornar a lista de serviços na mesma resposta
-    # para evitar um round-trip extra do frontend (só há uma lista possível: serviços).
-    # OBRIGATÓRIO: também armazenar no contexto para que _handle_select_service possa
-    # resolver o row_key sem precisar re-buscar do banco.
-    initial_options: list = []
-    if session.state == "AWAITING_SERVICE":
-        services = booking_engine.list_services(db, session.company_id)
-        initial_options = _serialize_options(services, company_tz)
-        # Persiste last_listed_services para a sessão criada com fast-track
-        ctx = dict(session.context or {})
-        ctx["last_listed_services"] = [
-            {
-                "id": str(s.id),
-                "name": s.name,
-                "price": str(s.price),
-                "duration_minutes": s.duration_minutes,
-                "row_key": s.row_key,
-            }
-            for s in services
-        ]
-        session.context = ctx
-        db.commit()
-        db.refresh(session)
+    initial_options = _serialize_options(services, company_tz)
 
     return StartSessionResponse(
         session_id=session.id,
