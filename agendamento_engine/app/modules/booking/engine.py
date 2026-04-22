@@ -14,6 +14,18 @@ Contrato:
   - Recebe IDs e datetimes, devolve estruturas tipadas de booking/schemas.py
   - Delega toda lógica de domínio aos services existentes (appointments, availability, etc.)
   - Converte HTTPException 409 em SlotUnavailableError (agnóstica de canal)
+
+Correções aplicadas:
+  [FIX 1] Ordem do fluxo invertida: IDLE agora vai direto para AWAITING_SERVICE.
+          Dados do cliente (SET_CUSTOMER) são coletados após AWAITING_TIME,
+          no novo estado AWAITING_CUSTOMER, antes de AWAITING_CONFIRMATION.
+  [FIX 2] Trava ao escolher profissional: o contexto (last_listed_*) é montado
+          completamente antes de uma única atribuição session.context = ctx,
+          garantindo que o SQLAlchemy detecte a mutação corretamente em todos
+          os handlers.
+  [FIX 3] Fuso horário: slots e datetimes são convertidos para o timezone da
+          empresa antes de serem serializados no contexto ou retornados ao
+          cliente. Helper _to_company_tz() centraliza a conversão.
 """
 import logging
 import secrets
@@ -61,7 +73,7 @@ logger = logging.getLogger(__name__)
 def _http_exc_to_domain(exc: Exception) -> Exception:
     """
     Translate an HTTPException from the service layer into a domain exception.
- 
+
     The existing services use FastAPI's HTTPException as their error mechanism.
     This helper converts status codes to domain exceptions without requiring
     the engine to import from fastapi.
@@ -71,8 +83,8 @@ def _http_exc_to_domain(exc: Exception) -> Exception:
     if status == 404:
         return BookingNotFoundError(detail)
     return SlotUnavailableError(detail)
- 
- 
+
+
 _DIAS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 
@@ -101,12 +113,13 @@ _CHANNEL_TTL: dict[str, timedelta] = {
     "admin":    timedelta(hours=2),
 }
 
-# Mapa de estado → estado anterior (para BACK)
+# [FIX 1] Mapa de estado → estado anterior (para BACK) atualizado com AWAITING_CUSTOMER
 _BACK_STATE: dict[str, str] = {
     "AWAITING_PROFESSIONAL":   "AWAITING_SERVICE",
     "AWAITING_DATE":           "AWAITING_PROFESSIONAL",
     "AWAITING_TIME":           "AWAITING_DATE",
-    "AWAITING_CONFIRMATION":   "AWAITING_TIME",
+    "AWAITING_CUSTOMER":       "AWAITING_TIME",        # novo — volta para seleção de horário
+    "AWAITING_CONFIRMATION":   "AWAITING_CUSTOMER",    # alterado — volta para dados do cliente
     "AWAITING_CANCEL_CONFIRM": "AWAITING_CONFIRMATION",
 }
 
@@ -116,6 +129,22 @@ class BookingEngine:
     Orquestrador central de agendamento.
     Instanciar uma vez por módulo; é stateless (sem estado de instância).
     """
+
+    # ─── Timezone helper ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _to_company_tz(dt: datetime, tz_str: str) -> datetime:
+        """
+        [FIX 3] Converte datetime para o fuso da empresa, preservando o instante.
+        Datetimes naive são tratados como UTC antes da conversão.
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(ZoneInfo(tz_str))
+        except Exception:
+            return dt
 
     # ─── Serviços ─────────────────────────────────────────────────────────────
 
@@ -215,11 +244,13 @@ class BookingEngine:
         service_id: UUID,
         target_date: date,
         limit: int = 0,
+        company_timezone: str = "America/Sao_Paulo",
     ) -> list[SlotOption]:
         """
         Retorna slots disponíveis para a data.
         Se professional_id=None, agrega slots de todos os profissionais do serviço.
         limit=0 significa sem limite.
+        [FIX 3] Os datetimes dos slots são convertidos para o fuso da empresa.
         """
         if professional_id:
             raw = availability_svc.get_available_slots(
@@ -245,8 +276,9 @@ class BookingEngine:
 
         return [
             SlotOption(
-                start_at=s.start_at,
-                end_at=s.end_at,
+                # [FIX 3] Converter para timezone da empresa antes de expor ao cliente
+                start_at=self._to_company_tz(s.start_at, company_timezone),
+                end_at=self._to_company_tz(s.end_at, company_timezone),
                 professional_id=s.professional_id,
                 professional_name=s.professional_name,
                 row_key=f"slot_{i + 1}",
@@ -262,10 +294,12 @@ class BookingEngine:
         service_id: UUID,
         days: int = 30,
         limit: int = 0,
+        company_timezone: str = "America/Sao_Paulo",
     ) -> list[SlotOption]:
         """
         Retorna os próximos slots disponíveis nos próximos <days> dias.
         Usado quando o cliente ainda não escolheu uma data.
+        [FIX 3] Os datetimes dos slots são convertidos para o fuso da empresa.
         """
         effective_limit = limit or settings.BOT_MAX_SLOTS_DISPLAYED
 
@@ -291,8 +325,9 @@ class BookingEngine:
 
         return [
             SlotOption(
-                start_at=s.start_at,
-                end_at=s.end_at,
+                # [FIX 3] Converter para timezone da empresa antes de expor ao cliente
+                start_at=self._to_company_tz(s.start_at, company_timezone),
+                end_at=self._to_company_tz(s.end_at, company_timezone),
                 professional_id=s.professional_id,
                 professional_name=s.professional_name,
                 row_key=f"slot_{i + 1}",
@@ -465,13 +500,16 @@ class BookingEngine:
 
     # ─── BookingSession FSM ───────────────────────────────────────────────────
 
-    # Transições válidas: (estado_atual, ação) → nome do handler privado
+    # [FIX 1] Transições válidas atualizadas:
+    #   - IDLE agora inicia em AWAITING_SERVICE (sem SET_CUSTOMER inicial)
+    #   - Novo estado AWAITING_CUSTOMER inserido entre AWAITING_TIME e AWAITING_CONFIRMATION
     _VALID_TRANSITIONS: dict[tuple[str, str], str] = {
-        ("IDLE",                    BookingAction.SET_CUSTOMER):        "_handle_set_customer",
+        ("IDLE",                    BookingAction.SELECT_SERVICE):      "_handle_select_service",
         ("AWAITING_SERVICE",        BookingAction.SELECT_SERVICE):      "_handle_select_service",
         ("AWAITING_PROFESSIONAL",   BookingAction.SELECT_PROFESSIONAL): "_handle_select_professional",
         ("AWAITING_DATE",           BookingAction.SELECT_DATE):         "_handle_select_date",
         ("AWAITING_TIME",           BookingAction.SELECT_TIME):         "_handle_select_time",
+        ("AWAITING_CUSTOMER",       BookingAction.SET_CUSTOMER):        "_handle_set_customer",  # [FIX 1] movido para cá
         ("AWAITING_CONFIRMATION",   BookingAction.CONFIRM):             "_handle_confirm",
         ("CONFIRMED",               BookingAction.RESCHEDULE_START):    "_handle_reschedule_start",
         ("CONFIRMED",               BookingAction.CANCEL_START):        "_handle_cancel_start",
@@ -487,15 +525,18 @@ class BookingEngine:
     ) -> "BookingSession":
         """
         Cria e persiste uma nova BookingSession no estado IDLE.
+        [FIX 1] O estado inicial é AWAITING_SERVICE — o fluxo começa pela
+        escolha do serviço, sem solicitar dados do cliente antecipadamente.
         db.flush() popula o ID sem commitar — o caller controla o commit.
         """
-        # Import local para evitar circular (models → engine → models)
         from app.infrastructure.db.models.booking_session import BookingSession
 
         session = BookingSession(
             company_id=company_id,
             channel=channel,
             company_timezone=company_timezone,
+            # [FIX 1] Começa diretamente em AWAITING_SERVICE, não em IDLE
+            state="AWAITING_SERVICE",
             expires_at=self._new_expiry(channel),
         )
         db.add(session)
@@ -534,7 +575,6 @@ class BookingEngine:
             result = self._handle_back(db, session, payload)
         elif action == BookingAction.CONFIRM and session.state == "CONFIRMED":
             # Idempotency replay: CONFIRM re-enviado após agendamento já criado.
-            # Retorna os dados do contexto sem criar novo agendamento.
             result = self._handle_confirm_replay(session)
         else:
             # Validar transição
@@ -556,8 +596,8 @@ class BookingEngine:
     def get_options_for_state(self, db: Session, session: "BookingSession") -> list:
         """
         Re-lista as opções para o estado atual da sessão.
-        Usado ao hidratar uma sessão retomada via token (GET /booking/{slug}/session/{token}).
-        As listas são re-geradas do banco — slots podem ter mudado desde a última visita.
+        Usado ao hidratar uma sessão retomada via token.
+        [FIX 1] Inclui AWAITING_CUSTOMER (sem opções — formulário de dados).
         """
         ctx = session.context or {}
         state = session.state
@@ -581,8 +621,12 @@ class BookingEngine:
             service_id = UUID(ctx["service_id"])
             prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
             target_date = date.fromisoformat(ctx["selected_date"])
-            return self.list_available_slots(db, company_id, prof_id, service_id, target_date)
+            return self.list_available_slots(
+                db, company_id, prof_id, service_id, target_date,
+                company_timezone=tz,
+            )
 
+        # [FIX 1] AWAITING_CUSTOMER: sem lista — frontend exibe formulário de dados
         # AWAITING_CONFIRMATION, AWAITING_CANCEL_CONFIRM, CONFIRMED, CANCELLED:
         # sem lista de opções — o cliente usa botões de confirmação
         return []
@@ -593,9 +637,10 @@ class BookingEngine:
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
+        [FIX 1] Identificação do cliente movida para APÓS a seleção de horário.
         Identifica ou cria o cliente pelo telefone.
         Armazena customer_id na sessão e snapshot de nome/telefone no context.
-        Transição: IDLE → AWAITING_SERVICE.
+        Transição: AWAITING_CUSTOMER → AWAITING_CONFIRMATION.
         """
         name  = str(payload.get("name", "")).strip()
         phone = str(payload.get("phone", "")).strip()
@@ -612,28 +657,26 @@ class BookingEngine:
             name=name,
         )
 
-        session.customer_id = customer.id
-        session.context = dict(session.context or {})
-        session.context.update({
+        # [FIX 2] Montar ctx completo antes de uma única atribuição
+        ctx = dict(session.context or {})
+        ctx.update({
             "customer_name":  customer.name,
             "customer_phone": phone,
             "customer_email": payload.get("email"),
         })
-        session.state = "AWAITING_SERVICE"
+        session.customer_id = customer.id
+        session.context = ctx  # atribuição única — SQLAlchemy detecta corretamente
+        session.state = "AWAITING_CONFIRMATION"
 
-        options = self.list_services(db, session.company_id)
-        session.context["last_listed_services"] = [
-            {"id": str(o.id), "name": o.name, "price": str(o.price),
-             "duration_minutes": o.duration_minutes, "row_key": o.row_key}
-            for o in options
-        ]
-        return SessionUpdateResult(next_state="AWAITING_SERVICE", options=options)
+        return SessionUpdateResult(next_state="AWAITING_CONFIRMATION", options=[])
 
     def _handle_select_service(
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
         Valida e armazena o serviço selecionado.
+        [FIX 1] Aceita IDLE como estado de origem (além de AWAITING_SERVICE).
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
         Transição: AWAITING_SERVICE → AWAITING_PROFESSIONAL.
         """
         service_id = self._resolve_id_from_payload(
@@ -641,21 +684,25 @@ class BookingEngine:
         )
         svc = service_svc.get_service_or_404(db, session.company_id, service_id)
 
+        # [FIX 2] Listar opções ANTES de montar o ctx final
+        options = self.list_professionals(db, session.company_id, svc.id)
+
+        # [FIX 2] Montar ctx completo (incluindo last_listed_professionals) antes
+        # de uma única atribuição — garante que o SQLAlchemy rastreie a mudança
         ctx = dict(session.context or {})
         ctx.update({
             "service_id":               str(svc.id),
             "service_name":             svc.name,
             "service_price":            str(svc.price),
             "service_duration_minutes": int(svc.duration),
+            "last_listed_professionals": [
+                {"id": str(o.id) if o.id else None, "name": o.name, "row_key": o.row_key}
+                for o in options
+            ],
         })
-        session.context = ctx
+        session.context = ctx  # atribuição única
         session.state = "AWAITING_PROFESSIONAL"
 
-        options = self.list_professionals(db, session.company_id, svc.id)
-        session.context["last_listed_professionals"] = [
-            {"id": str(o.id) if o.id else None, "name": o.name, "row_key": o.row_key}
-            for o in options
-        ]
         return SessionUpdateResult(next_state="AWAITING_PROFESSIONAL", options=options)
 
     def _handle_select_professional(
@@ -663,39 +710,42 @@ class BookingEngine:
     ) -> SessionUpdateResult:
         """
         Valida e armazena o profissional selecionado (ou None para "qualquer").
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
         Transição: AWAITING_PROFESSIONAL → AWAITING_DATE.
         """
         ctx = dict(session.context or {})
 
-        # Resolver row_key ou professional_id
         if payload.get("row_key") == "prof_any" or payload.get("professional_id") == "any":
             prof_id = None
             prof_name = "Qualquer disponível"
         else:
             prof_id = self._resolve_id_from_payload(
                 payload, "professional_id",
-                session.context.get("last_listed_professionals", [])
+                ctx.get("last_listed_professionals", [])
             )
             prof = professional_svc.get_professional_or_404(db, session.company_id, prof_id)
             prof_name = prof.name
 
-        ctx.update({
-            "professional_id":   str(prof_id) if prof_id else None,
-            "professional_name": prof_name,
-        })
-        session.context = ctx
-        session.state = "AWAITING_DATE"
-
+        # [FIX 2] Listar opções ANTES de montar o ctx final
         options = self.list_available_dates(
             db, session.company_id, prof_id,
             UUID(ctx["service_id"]),
             reference_tz=session.company_timezone,
         )
-        session.context["last_listed_dates"] = [
-            {"date": str(o.date), "label": o.label,
-             "has_availability": o.has_availability, "row_key": o.row_key}
-            for o in options
-        ]
+
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx.update({
+            "professional_id":   str(prof_id) if prof_id else None,
+            "professional_name": prof_name,
+            "last_listed_dates": [
+                {"date": str(o.date), "label": o.label,
+                 "has_availability": o.has_availability, "row_key": o.row_key}
+                for o in options
+            ],
+        })
+        session.context = ctx  # atribuição única
+        session.state = "AWAITING_DATE"
+
         return SessionUpdateResult(next_state="AWAITING_DATE", options=options)
 
     def _handle_select_date(
@@ -703,13 +753,14 @@ class BookingEngine:
     ) -> SessionUpdateResult:
         """
         Armazena a data e lista os horários disponíveis.
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
+        [FIX 3] Slots retornados já no timezone da empresa.
         Transição: AWAITING_DATE → AWAITING_TIME.
         """
         ctx = dict(session.context or {})
 
-        # Resolver date via row_key ou string ISO
         if "row_key" in payload:
-            listed = session.context.get("last_listed_dates", [])
+            listed = ctx.get("last_listed_dates", [])
             matched = next((d for d in listed if d["row_key"] == payload["row_key"]), None)
             if not matched:
                 raise InvalidActionError(f"row_key '{payload['row_key']}' não encontrado na sessão")
@@ -719,25 +770,33 @@ class BookingEngine:
         else:
             raise InvalidActionError("payload deve ter 'date' ou 'row_key'")
 
-        ctx["selected_date"] = selected_date.isoformat()
-        session.context = ctx
-        session.state = "AWAITING_TIME"
-
         prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+
+        # [FIX 2] Listar opções ANTES de montar o ctx final
+        # [FIX 3] Passar company_timezone para conversão correta dos slots
         options = self.list_available_slots(
             db, session.company_id, prof_id, UUID(ctx["service_id"]), selected_date,
             limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+            company_timezone=session.company_timezone,
         )
-        session.context["last_listed_slots"] = [
-            {
-                "start_at":          o.start_at.isoformat(),
-                "end_at":            o.end_at.isoformat(),
-                "professional_id":   str(o.professional_id),
-                "professional_name": o.professional_name,
-                "row_key":           o.row_key,
-            }
-            for o in options
-        ]
+
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx.update({
+            "selected_date": selected_date.isoformat(),
+            "last_listed_slots": [
+                {
+                    "start_at":          o.start_at.isoformat(),
+                    "end_at":            o.end_at.isoformat(),
+                    "professional_id":   str(o.professional_id),
+                    "professional_name": o.professional_name,
+                    "row_key":           o.row_key,
+                }
+                for o in options
+            ],
+        })
+        session.context = ctx  # atribuição única
+        session.state = "AWAITING_TIME"
+
         return SessionUpdateResult(next_state="AWAITING_TIME", options=options)
 
     def _handle_select_time(
@@ -745,12 +804,14 @@ class BookingEngine:
     ) -> SessionUpdateResult:
         """
         Armazena o slot selecionado e gera a idempotency_key.
-        Transição: AWAITING_TIME → AWAITING_CONFIRMATION.
+        [FIX 1] Transição: AWAITING_TIME → AWAITING_CUSTOMER (não mais AWAITING_CONFIRMATION).
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
+        [FIX 3] slot_start_at serializado com timezone da empresa já aplicado.
         """
         ctx = dict(session.context or {})
 
         if "row_key" in payload:
-            listed = session.context.get("last_listed_slots", [])
+            listed = ctx.get("last_listed_slots", [])
             matched = next((s for s in listed if s["row_key"] == payload["row_key"]), None)
             if not matched:
                 raise InvalidActionError(f"row_key '{payload['row_key']}' não encontrado na sessão")
@@ -758,28 +819,36 @@ class BookingEngine:
             slot_end   = matched["end_at"]
             prof_id    = matched["professional_id"]
         elif "start_at" in payload:
-            # Web envia ISO direto (sabe o start_at exato)
-            slot_start = payload["start_at"]
-            slot_end   = payload.get("end_at", "")
-            prof_id    = str(payload.get("professional_id", ctx.get("professional_id", "")))
+            # [FIX 3] Web envia ISO — converter para timezone da empresa antes de salvar
+            raw_start = datetime.fromisoformat(str(payload["start_at"]))
+            slot_start = self._to_company_tz(raw_start, session.company_timezone).isoformat()
+            raw_end = payload.get("end_at")
+            slot_end = (
+                self._to_company_tz(datetime.fromisoformat(str(raw_end)), session.company_timezone).isoformat()
+                if raw_end else ""
+            )
+            prof_id = str(payload.get("professional_id", ctx.get("professional_id", "")))
         else:
             raise InvalidActionError("payload deve ter 'start_at' ou 'row_key'")
 
-        ctx.update({
-            "slot_start_at":  slot_start,
-            "slot_end_at":    slot_end,
-            "professional_id": prof_id,
-        })
-
         # Gerar chave de idempotência — evita double-booking por duplo clique
         customer_phone = ctx.get("customer_phone", str(session.customer_id or ""))
-        ctx["idempotency_key"] = (
+        idempotency_key = (
             f"session|{customer_phone}|{ctx.get('service_id', '')}|{slot_start}"
         )
 
-        session.context = ctx
-        session.state = "AWAITING_CONFIRMATION"
-        return SessionUpdateResult(next_state="AWAITING_CONFIRMATION", options=[])
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx.update({
+            "slot_start_at":   slot_start,
+            "slot_end_at":     slot_end,
+            "professional_id": prof_id,
+            "idempotency_key": idempotency_key,
+        })
+        session.context = ctx  # atribuição única
+        # [FIX 1] Próximo estado é AWAITING_CUSTOMER, não AWAITING_CONFIRMATION
+        session.state = "AWAITING_CUSTOMER"
+
+        return SessionUpdateResult(next_state="AWAITING_CUSTOMER", options=[])
 
     def _handle_confirm(
         self, db: Session, session: "BookingSession", payload: dict
@@ -820,24 +889,19 @@ class BookingEngine:
                     idempotent_replay=True,
                 )
             except Exception:
-                pass  # appointment pode ter sido deletado — continua o fluxo normal
+                pass
 
-        # Validar customer_id PRIMEIRO — antes de qualquer flush
-        # (evita FK violation se customer_id for inválido e o flush tentar persistir)
         if not session.customer_id:
             raise InvalidActionError("Cliente não identificado na sessão")
 
-        # Validar campos obrigatórios no contexto
         for field_name in ("service_id", "professional_id", "slot_start_at", "idempotency_key"):
             if not ctx.get(field_name):
                 raise InvalidActionError(f"Contexto incompleto: falta '{field_name}'")
 
-        # Camada 2: transição para CONFIRMING antes de criar (guard de state)
-        # flush() propaga o novo estado sem commit — dentro da mesma transação do caller
+        # Camada 2: transição para CONFIRMING antes de criar
         session.state = "CONFIRMING"
         db.flush()
 
-        # Reler serviço do banco — preço pode ter mudado desde o início do fluxo
         service_id = UUID(ctx["service_id"])
         svc = service_svc.get_service_or_404(db, session.company_id, service_id)
 
@@ -845,7 +909,7 @@ class BookingEngine:
             company_id=session.company_id,
             customer_id=session.customer_id,
             professional_id=UUID(ctx["professional_id"]),
-            service_id=svc.id,              # do banco, não do context
+            service_id=svc.id,
             start_at=datetime.fromisoformat(ctx["slot_start_at"]),
             idempotency_key=ctx["idempotency_key"],
         )
@@ -858,19 +922,32 @@ class BookingEngine:
             ctx2.pop("slot_start_at", None)
             ctx2.pop("slot_end_at", None)
             ctx2.pop("idempotency_key", None)
-            session.context = ctx2
-            session.state = "AWAITING_TIME"
 
-            # Re-listar slots para a mesma data
             prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
             try:
                 target_date = date.fromisoformat(ctx["selected_date"])
+                # [FIX 3] Passar company_timezone na re-listagem de slots
                 options = self.list_available_slots(
                     db, session.company_id, prof_id, svc.id, target_date,
                     limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+                    company_timezone=session.company_timezone,
                 )
+                # [FIX 2] Atualizar last_listed_slots na mesma atribuição
+                ctx2["last_listed_slots"] = [
+                    {
+                        "start_at":          o.start_at.isoformat(),
+                        "end_at":            o.end_at.isoformat(),
+                        "professional_id":   str(o.professional_id),
+                        "professional_name": o.professional_name,
+                        "row_key":           o.row_key,
+                    }
+                    for o in options
+                ]
             except Exception:
                 options = []
+
+            session.context = ctx2  # atribuição única
+            session.state = "AWAITING_TIME"
 
             return SessionUpdateResult(
                 next_state="AWAITING_TIME",
@@ -878,7 +955,6 @@ class BookingEngine:
                 error="SLOT_UNAVAILABLE",
             )
 
-        # Sucesso — atualizar sessão
         session.appointment_id = result.appointment_id
         session.state = "CONFIRMED"
         return SessionUpdateResult(
@@ -891,14 +967,12 @@ class BookingEngine:
         """
         Idempotency replay: retorna os dados do agendamento já criado sem DB adicional.
         Chamado quando CONFIRM é enviado com a sessão já em estado CONFIRMED.
-        Lê os dados diretamente do contexto JSONB (snapshot imutável após confirmação).
         """
         ctx = session.context or {}
         start_raw = ctx.get("slot_start_at")
         end_raw   = ctx.get("slot_end_at")
 
         if not start_raw or not session.appointment_id:
-            # contexto inconsistente — não deve acontecer em condições normais
             return SessionUpdateResult(next_state="CONFIRMED", options=[], idempotent_replay=True)
 
         confirmation = BookingResult(
@@ -920,20 +994,22 @@ class BookingEngine:
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
-        Inicia fluxo de cancelamento — armazena ID do agendamento e aguarda confirmação.
+        Inicia fluxo de cancelamento.
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
         Transição: CONFIRMED → AWAITING_CANCEL_CONFIRM.
         """
         appt_id = payload.get("appointment_id")
         if not appt_id:
             raise InvalidActionError("payload deve ter 'appointment_id'")
 
-        # Validar que o agendamento existe e pertence à empresa
         appointment_svc.get_appointment_or_404(db, session.company_id, UUID(appt_id))
 
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
         ctx = dict(session.context or {})
         ctx["managing_appointment_id"] = str(appt_id)
-        session.context = ctx
+        session.context = ctx  # atribuição única
         session.state = "AWAITING_CANCEL_CONFIRM"
+
         return SessionUpdateResult(next_state="AWAITING_CANCEL_CONFIRM", options=[])
 
     def _handle_confirm_cancel(
@@ -963,7 +1039,9 @@ class BookingEngine:
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
-        Inicia fluxo de reagendamento — preserva service/professional, volta para seleção de data.
+        Inicia fluxo de reagendamento.
+        [FIX 2] Contexto montado completamente antes de uma única atribuição.
+        [FIX 3] Datas listadas com timezone da empresa.
         Transição: CONFIRMED → AWAITING_DATE.
         """
         appt_id = payload.get("appointment_id")
@@ -976,34 +1054,38 @@ class BookingEngine:
         ctx["managing_appointment_id"] = str(appt_id)
         ctx["is_rescheduling"] = True
 
-        # Preservar service/professional do agendamento original se não estiverem no context
         if not ctx.get("service_id") and appt.services:
             ctx["service_id"] = str(appt.services[0].service_id)
         if not ctx.get("professional_id"):
             ctx["professional_id"] = str(appt.professional_id)
 
-        session.context = ctx
-        session.state = "AWAITING_DATE"
-
         prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+
+        # [FIX 2] Listar datas ANTES de montar o ctx final
         options = self.list_available_dates(
             db, session.company_id, prof_id,
             UUID(ctx["service_id"]),
             reference_tz=session.company_timezone,
         )
-        session.context["last_listed_dates"] = [
+
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx["last_listed_dates"] = [
             {"date": str(o.date), "label": o.label,
              "has_availability": o.has_availability, "row_key": o.row_key}
             for o in options
         ]
+        session.context = ctx  # atribuição única
+        session.state = "AWAITING_DATE"
+
         return SessionUpdateResult(next_state="AWAITING_DATE", options=options)
 
     def _handle_reset(
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
-        Volta ao início — limpa seleções mas preserva customer_id e dados do cliente.
-        Válido em qualquer estado exceto IDLE.
+        Volta ao início — limpa seleções mas preserva dados do cliente se já coletados.
+        [FIX 1] Preserva também customer_id caso o cliente já tenha se identificado.
+        Válido em qualquer estado.
         """
         ctx = session.context or {}
         preserved = {
@@ -1013,15 +1095,18 @@ class BookingEngine:
             )
             if k in ctx
         }
-        session.context = preserved
-        session.state = "AWAITING_SERVICE"
 
         options = self.list_services(db, session.company_id)
-        session.context["last_listed_services"] = [
+
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        preserved["last_listed_services"] = [
             {"id": str(o.id), "name": o.name, "price": str(o.price),
              "duration_minutes": o.duration_minutes, "row_key": o.row_key}
             for o in options
         ]
+        session.context = preserved  # atribuição única
+        session.state = "AWAITING_SERVICE"
+
         return SessionUpdateResult(next_state="AWAITING_SERVICE", options=options)
 
     def _handle_back(
@@ -1029,11 +1114,9 @@ class BookingEngine:
     ) -> SessionUpdateResult:
         """
         Volta um passo no fluxo e re-lista as opções do passo anterior.
-        Válido nos estados de seleção (AWAITING_PROFESSIONAL → AWAITING_DATE → ...).
         """
         prev_state = _BACK_STATE.get(session.state)
         if not prev_state:
-            # Estado sem "voltar" definido → RESET silencioso
             return self._handle_reset(db, session, payload)
 
         session.state = prev_state
@@ -1055,7 +1138,7 @@ class BookingEngine:
     ) -> UUID:
         """
         Resolve UUID a partir de payload com 'row_key' ou com o id direto.
-        Usado em SELECT_SERVICE, SELECT_PROFESSIONAL para suportar:
+        Suporta:
           - Web: envia {service_id: "uuid"}
           - Bot: envia {row_key: "serv_1"}
         """

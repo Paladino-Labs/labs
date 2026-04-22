@@ -44,6 +44,7 @@ type SrvState =
   | "AWAITING_PROFESSIONAL"
   | "AWAITING_DATE"
   | "AWAITING_TIME"
+  | "AWAITING_CUSTOMER"
   | "AWAITING_CONFIRMATION"
   | "CONFIRMED"
   | "CANCELLED"
@@ -292,7 +293,7 @@ export default function BookingPage() {
   }, [company]) // executa uma vez após carregar empresa
 
   // ── Criar sessão (formulário de identificação) ────────────────────────────────
-  async function handleStart(e: React.FormEvent) {
+  async function handleConfirmWithCustomerData(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setLoading(true)
@@ -448,16 +449,14 @@ export default function BookingPage() {
 
         {/* ── IDLE / sem sessão: formulário de identificação ────────────────── */}
         {(!session || session.state === "IDLE") && (
-          <CustomerForm
-            name={custName}
-            phone={custPhone}
-            onName={setCustName}
-            onPhone={setCustPhone}
-            loading={loading}
-            error={error}
-            onSubmit={handleStart}
-            companyName={company.company_name}
-          />
+          <div className="text-center">
+            <button
+              onClick={() => dispatch("START")}
+              className="book-btn-primary px-6 py-3 text-sm"
+            >
+              Começar agendamento
+            </button>
+          </div>
         )}
 
         {/* ── AWAITING_SERVICE ──────────────────────────────────────────────── */}
@@ -466,7 +465,10 @@ export default function BookingPage() {
             options={session.options as ServiceOpt[]}
             loading={loading}
             onSelect={(opt) =>
-              dispatch("SELECT_SERVICE", { service_id: opt.id, row_key: opt.row_key })
+              dispatch("SELECT_SERVICE", {
+                service_id: opt.id,
+                row_key: opt.row_key,
+              })
             }
           />
         )}
@@ -481,9 +483,10 @@ export default function BookingPage() {
             onSelect={(opt) =>
               dispatch(
                 "SELECT_PROFESSIONAL",
-                opt.id
-                  ? { professional_id: opt.id, row_key: opt.row_key }
-                  : { row_key: "prof_any" },
+                {
+                  professional_id: opt.id ?? null,
+                  row_key: opt.row_key,
+                }
               )
             }
           />
@@ -518,6 +521,26 @@ export default function BookingPage() {
                 row_key: opt.row_key,
               })
             }
+          />
+        )}
+
+        {/* ── AWAITING_CONFIRMATION ─────────────────────────────────────────── */}
+        {session?.state === "AWAITING_CUSTOMER" && (
+          <CustomerForm
+            name={custName}
+            phone={custPhone}
+            onName={setCustName}
+            onPhone={setCustPhone}
+            loading={loading}
+            error={error}
+            onSubmit={(e) => {
+              e.preventDefault()
+              dispatch("SUBMIT_CUSTOMER", {
+                customer_name: custName,
+                customer_phone: custPhone,
+              })
+            }}
+            companyName={company.company_name}
           />
         )}
 
