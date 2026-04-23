@@ -335,7 +335,7 @@ export default function BookingPage() {
       setError(null)
       setLoading(true)
       try {
-        const result = await apiFetch<Session>(`/booking/${slug}/update`, {
+        const result = await apiFetch<Partial<Session>>(`/booking/${slug}/update`, {
           method: "POST",
           body: JSON.stringify({
             session_id: session.session_id,
@@ -343,7 +343,8 @@ export default function BookingPage() {
             payload,
           }),
         })
-        setSession(result)
+        // Merge: preserva session_id e token que o /update não devolve
+        setSession((prev) => prev ? { ...prev, ...result } : null)
         if (result.error === "SLOT_UNAVAILABLE") {
           setError("Este horário acabou de ser ocupado. Escolha outro.")
         }
