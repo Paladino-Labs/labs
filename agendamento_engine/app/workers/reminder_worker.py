@@ -19,12 +19,14 @@ Idempotência:
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.db.models import Appointment, WhatsAppConnection, Customer
+from app.infrastructure.db.models.company_settings import CompanySettings
 from app.modules.whatsapp import evolution_client
 from app.core.config import settings
 
@@ -32,6 +34,35 @@ logger = logging.getLogger(__name__)
 
 _INTERVAL_SECONDS = 10 * 60   # 10 minutos
 _WINDOW_MINUTES   = 10         # janela de ±10 min ao redor do marco
+
+_DEFAULT_TZ = "America/Sao_Paulo"
+
+
+def _company_tz(db: Session, company_id) -> ZoneInfo:
+    """
+    Retorna o ZoneInfo do fuso da empresa.
+    Busca em CompanySettings.timezone; usa America/Sao_Paulo como fallback.
+    """
+    try:
+        row = (
+            db.query(CompanySettings.timezone)
+            .filter(CompanySettings.company_id == company_id)
+            .first()
+        )
+        tz_name = (row.timezone if row and row.timezone else _DEFAULT_TZ)
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, Exception):
+        return ZoneInfo(_DEFAULT_TZ)
+
+
+def _localize(dt: datetime, tz: ZoneInfo) -> datetime:
+    """
+    Converte datetime para o fuso da empresa.
+    Datetimes naive são tratados como UTC antes da conversão.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz)
 
 
 async def run_reminder_worker() -> None:
@@ -132,10 +163,14 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
             )
             return
 
+        # FIX: converter start_at de UTC para o fuso da empresa antes de formatar
+        tz       = _company_tz(db, appt.company_id)
+        start_local = _localize(appt.start_at, tz)
+
         service_name = appt.services[0].service_name if appt.services else "serviço"
         prof_name    = appt.professional.name if appt.professional else "profissional"
-        hora         = appt.start_at.strftime("%H:%M")
-        data         = appt.start_at.strftime("%d/%m")
+        hora         = start_local.strftime("%H:%M")   # horário no fuso da empresa
+        data         = start_local.strftime("%d/%m")   # data no fuso da empresa
 
         if kind == "24h":
             msg = (
