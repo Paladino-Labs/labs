@@ -19,6 +19,10 @@ from app.modules.appointments.polices import (
     CANCELLATION_TOO_LATE, RESCHEDULE_TOO_LATE,
     check_cancellation_policy, check_reschedule_policy,
 )
+from app.modules.notifications import (
+    send_booking_confirmation,
+    send_reschedule_confirmation,
+)
 from app.core.config import settings
 
 
@@ -34,9 +38,6 @@ def _assert_slot_available(
     Defense-in-depth: verifica se o slot [start_at, end_at) está disponível
     antes de tentar persistir. Levanta 422 para restrições de horário e 409
     para conflitos com agendamentos ou bloqueios existentes.
-
-    O EXCLUDE CONSTRAINT no banco permanece como última barreira — esta
-    verificação torna o erro detectável antes do commit, com mensagem clara.
     """
     weekday = start_at.weekday()
 
@@ -55,7 +56,6 @@ def _assert_slot_available(
         )
 
     # 2. Slot dentro da janela de trabalho?
-    # opening_time/closing_time são horários locais da empresa — converter para UTC
     company = db.query(Company).filter(Company.id == company_id).first()
     tz_name = (company.timezone if company else None) or "America/Sao_Paulo"
     try:
@@ -130,10 +130,6 @@ def get_appointment_or_404(db: Session, company_id: UUID, appointment_id: UUID) 
 def list_active_by_client(
     db: Session, company_id: UUID, client_id: UUID
 ) -> list[Appointment]:
-    """
-    Retorna agendamentos futuros ativos de um cliente.
-    Usado pelo bot no estado VER_AGENDAMENTOS.
-    """
     now = datetime.now(timezone.utc)
     return (
         db.query(Appointment)
@@ -151,10 +147,6 @@ def list_active_by_client(
 def list_completed_by_client(
     db: Session, company_id: UUID, client_id: UUID, limit: int = 1
 ) -> list[Appointment]:
-    """
-    Retorna os últimos agendamentos concluídos de um cliente.
-    Usado pelo bot para detectar cliente recorrente e montar onboarding preditivo.
-    """
     return (
         db.query(Appointment)
         .filter(
@@ -232,6 +224,10 @@ def create_appointment(
         raise HTTPException(status_code=409, detail="Agendamento duplicado (idempotency_key já usado)")
 
     db.refresh(appointment)
+
+    # Disparar confirmação via WhatsApp — fire-and-forget, nunca propaga erros
+    send_booking_confirmation(db, appointment)
+
     return appointment
 
 
@@ -282,7 +278,6 @@ def reschedule_appointment(
     total_minutes = sum(int(s.duration_snapshot) for s in appointment.services)
     new_end_at = data.start_at + timedelta(minutes=total_minutes)
 
-    # Defense in depth: verifica disponibilidade excluindo o próprio agendamento
     _assert_slot_available(
         db, company_id, appointment.professional_id,
         data.start_at, new_end_at,
@@ -294,6 +289,10 @@ def reschedule_appointment(
 
     db.commit()
     db.refresh(appointment)
+
+    # Disparar confirmação de reagendamento — fire-and-forget
+    send_reschedule_confirmation(db, appointment)
+
     return appointment
 
 
@@ -301,11 +300,6 @@ def complete_appointment(
     db: Session, company_id: UUID, appointment_id: UUID,
     user_id: UUID | None = None,
 ) -> Appointment:
-    """
-    Marca um agendamento como COMPLETED.
-    Disponível apenas no painel (admin) — sem restrição de política.
-    Válido a partir de SCHEDULED ou IN_PROGRESS.
-    """
     appointment = get_appointment_or_404(db, company_id, appointment_id)
     transition(db, appointment, AppointmentStatus.COMPLETED, changed_by_id=user_id,
                note="Concluído pelo painel")
