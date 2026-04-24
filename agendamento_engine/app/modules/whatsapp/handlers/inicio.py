@@ -12,7 +12,6 @@ from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name
 from app.modules.whatsapp.session import reset_session
 from app.modules.customers import service as customer_svc
-from app.infrastructure.db.models import Company, CompanySettings
 from app.core.config import settings
 
 booking_engine = BookingEngine()
@@ -71,28 +70,12 @@ def handle(
         sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO)
         return
 
-    # 🔹 Sem lista ativa → mostra menu
+    # Sem lista ativa → mostra menu
     session.state = STATE_MENU_PRINCIPAL
     show_menu_principal(
         session, ctx, instance, whatsapp_id,
         company_name, ctx.get("customer_name")
     )
-
-
-def _resolve_booking_url(db: Session, company_id: UUID) -> str | None:
-    """
-    Retorna a URL pública de agendamento online se habilitada, ou None.
-    Resultado armazenado em ctx["booking_url"] para evitar queries repetidas.
-    """
-    cfg = db.query(CompanySettings).filter(
-        CompanySettings.company_id == company_id
-    ).first()
-    if not cfg or not cfg.online_booking_enabled:
-        return None
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or not company.slug:
-        return None
-    return f"{settings.FRONTEND_URL}/book/{company.slug}"
 
 
 def _identify_customer(
@@ -101,14 +84,10 @@ def _identify_customer(
     start_escolhendo_servico,
     handle_ver_agendamentos,
 ) -> None:
-    # whatsapp_id pode ser JID completo ("5511999@s.whatsapp.net" ou "9714@lid")
-    # — extrai só o número para lookup por telefone no banco.
     phone = whatsapp_id.split("@")[0]
     customer = customer_svc.get_by_phone(db, company_id, phone)
 
-    # ─────────────────────────────────────────────
-    # 🟡 Cliente novo
-    # ─────────────────────────────────────────────
+    # ─── Cliente novo ─────────────────────────────────────────────────────────
     if not customer:
         session.state = STATE_AGUARDANDO_NOME
 
@@ -123,19 +102,13 @@ def _identify_customer(
         )
         return
 
-    # ─────────────────────────────────────────────
-    # 🟢 Cliente existente
-    # ─────────────────────────────────────────────
+    # ─── Cliente existente ────────────────────────────────────────────────────
     ctx = dict(session.context or {})
-    ctx["customer_id"] = str(customer.id)
+    ctx["customer_id"]   = str(customer.id)
     ctx["customer_name"] = customer.name
-    ctx["company_name"] = company_name
+    ctx["company_name"]  = company_name
+    # FIX: removido ctx["booking_url"] — link não é enviado pelo bot
 
-    # Resolve booking URL (cached in ctx para não refazer a query a cada mensagem)
-    if "booking_url" not in ctx:
-        ctx["booking_url"] = _resolve_booking_url(db, company_id)
-
-    # ✅ USAR ENGINE (não service direto)
     appointments = booking_engine.get_customer_appointments(
         db, company_id, customer.id
     )
@@ -147,9 +120,7 @@ def _identify_customer(
         )
         return
 
-    # ─────────────────────────────────────────────
-    # 🧠 Oferta preditiva (ENGINE)
-    # ─────────────────────────────────────────────
+    # ─── Oferta preditiva ─────────────────────────────────────────────────────
     offer = booking_engine.get_predictive_offer(
         db,
         company_id,
@@ -161,16 +132,13 @@ def _identify_customer(
         nome       = first_name(customer.name)
         slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
 
-        # ── Monta ctx COMPLETO antes de atribuir a session.context ──────────
-        # SQLAlchemy só rastreia a atribuição session.context = ctx;
-        # mutações in-place APÓS essa linha NÃO são detectadas.
         ctx["predicted_slot"] = {
-            "start_at": offer.next_slot.isoformat(),
-            "service_id": str(offer.service_id),
-            "service_name": offer.service_name,
-            "professional_id": str(offer.professional_id),
+            "start_at":          offer.next_slot.isoformat(),
+            "service_id":        str(offer.service_id),
+            "service_name":      offer.service_name,
+            "professional_id":   str(offer.professional_id),
             "professional_name": offer.professional_name,
-            "expires_at": offer.expires_at.isoformat(),
+            "expires_at":        offer.expires_at.isoformat(),
         }
         ctx["last_list"] = [
             {"row_id": "opt_confirmar_oferta", "payload": "opt_confirmar_oferta",
@@ -181,7 +149,6 @@ def _identify_customer(
              "title": "🔁 Outro serviço"},
         ]
 
-        # ← Atribui ctx DEPOIS de todas as mutações
         session.context = ctx
         session.state   = STATE_OFERTA_RECORRENTE
 
@@ -211,9 +178,7 @@ def _identify_customer(
         sender.send_buttons(instance, whatsapp_id, text, buttons)
         return
 
-    # ─────────────────────────────────────────────
-    # 🔵 Fallback → menu padrão
-    # ─────────────────────────────────────────────
+    # ─── Fallback → menu padrão ───────────────────────────────────────────────
     ctx["last_list"] = []
     session.context = ctx
 
@@ -227,34 +192,27 @@ def show_menu_principal(
     instance: str, to: str, company_name: str, name: Optional[str],
 ) -> None:
     nome = first_name(name) if name else ""
-    booking_url: str | None = ctx.get("booking_url")
 
-    text = (
-        messages.menu_principal_com_link(nome, booking_url)
-        if booking_url
-        else messages.menu_principal(nome)
-    )
-
-    buttons = [
-        {"buttonId": "opt_agendar", "buttonText": {"displayText": "📅 Agendar horário"}},
-        {"buttonId": "opt_ver_agendamentos", "buttonText": {"displayText": "🗓 Ver seus agendamentos"}},
-        {"buttonId": "opt_humano", "buttonText": {"displayText": "💬 Falar com seu barbeiro"}},
-    ]
-
-    if not buttons:
-        sender.send_text(instance, to, text)
-        return
+    # FIX: sempre usa menu sem link — _resolve_booking_url e
+    # menu_principal_com_link removidos; link local nunca é enviado ao cliente
+    text = messages.menu_principal(nome)
 
     ctx["last_list"] = [
-        {"row_id": "opt_agendar",           "payload": "opt_agendar",
+        {"row_id": "opt_agendar",          "payload": "opt_agendar",
          "title": "📅 Agendar horário"},
-        {"row_id": "opt_ver_agendamentos",  "payload": "opt_ver_agendamentos",
+        {"row_id": "opt_ver_agendamentos", "payload": "opt_ver_agendamentos",
          "title": "🗓 Ver seus agendamentos"},
-        {"row_id": "opt_humano",            "payload": "opt_humano",
+        {"row_id": "opt_humano",           "payload": "opt_humano",
          "title": "💬 Falar com seu barbeiro"},
     ]
 
     session.context = ctx
     session.state = STATE_MENU_PRINCIPAL
+
+    buttons = [
+        {"buttonId": "opt_agendar",          "buttonText": {"displayText": "📅 Agendar horário"}},
+        {"buttonId": "opt_ver_agendamentos", "buttonText": {"displayText": "🗓 Ver seus agendamentos"}},
+        {"buttonId": "opt_humano",           "buttonText": {"displayText": "💬 Falar com seu barbeiro"}},
+    ]
 
     sender.send_buttons(instance, to, text, buttons)
