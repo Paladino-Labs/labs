@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
-import { formatDateTime } from "@/lib/utils"
+import { formatDateTime, formatBRL } from "@/lib/utils"
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_STATUS_VARIANT } from "@/lib/constants"
-import type { Appointment } from "@/types"
+import type { Appointment, Professional } from "@/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,24 +17,54 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import AgendaCalendar from "@/components/AgendaCalendar"
+import type { Appointment as CalAppt } from "@/components/AgendaCalendar"
 
+// ── Paleta de cores por profissional ─────────────────────────────────────────
+const PROF_COLORS = [
+  "#7C3AED", "#0D9488", "#EA580C", "#2563EB",
+  "#DB2777", "#65A30D", "#D97706", "#DC2626",
+]
+const profColor = (i: number) => PROF_COLORS[i % PROF_COLORS.length]
+
+const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED"])
+
+const STATUS_COLOR: Record<string, string> = {
+  SCHEDULED:   "bg-blue-50 text-blue-700",
+  IN_PROGRESS: "bg-amber-50 text-amber-700",
+  COMPLETED:   "bg-green-50 text-green-700",
+  CANCELLED:   "bg-red-50 text-red-700",
+  NO_SHOW:     "bg-gray-100 text-gray-600",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const router = useRouter()
-  const [appointments, setAppointments] = useState<Appointment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  // Remarcar
+  const [appointments,  setAppointments]  = useState<Appointment[]>([])
+  const [professionals, setProfessionals] = useState<Professional[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
+
+  // Modal de detalhe (clique num evento do calendário)
+  const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
+
+  // Dialog de reagendamento
   const [rescheduleId, setRescheduleId] = useState<string | null>(null)
-  const [newStartAt, setNewStartAt] = useState("")
+  const [newStartAt,   setNewStartAt]   = useState("")
   const [rescheduling, setRescheduling] = useState(false)
 
-  async function fetchAppointments() {
+  // ── Fetch ───────────────────────────────────────────────────────────────────
+  async function fetchAll() {
     try {
       setLoading(true)
-      const data = await api.get<Appointment[]>("/appointments/")
-      setAppointments(data)
+      const [appts, profs] = await Promise.all([
+        api.get<Appointment[]>("/appointments/"),
+        api.get<Professional[]>("/professionals/"),
+      ])
+      setAppointments(appts)
+      setProfessionals(profs)
     } catch {
       setError("Não foi possível carregar os agendamentos.")
     } finally {
@@ -42,26 +72,65 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => { fetchAppointments() }, [])
+  useEffect(() => { fetchAll() }, [])
+
+  // ── Mapa de cores estável ───────────────────────────────────────────────────
+  const profColorMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    professionals.forEach((p, i) => { map[p.id] = profColor(i) })
+    return map
+  }, [professionals])
+
+  // ── Converter para o tipo do calendário ────────────────────────────────────
+  const calAppointments = useMemo<CalAppt[]>(() =>
+    appointments.map((a) => ({
+      id:                 a.id,
+      client_name:        a.customer?.name ?? "Cliente",
+      service_name:       a.services.map((s) => s.service_name).join(", "),
+      professional_name:  a.professional?.name ?? "—",
+      professional_color: profColorMap[a.professional_id] ?? PROF_COLORS[0],
+      start_at:           a.start_at,
+      end_at:             a.end_at,
+      status:             a.status as CalAppt["status"],
+    })),
+  [appointments, profColorMap])
+
+  const calProfessionals = useMemo(() =>
+    professionals.map((p) => ({
+      id:    p.id,
+      name:  p.name,
+      color: profColorMap[p.id] ?? PROF_COLORS[0],
+    })),
+  [professionals, profColorMap])
+
+  // ── Ações ───────────────────────────────────────────────────────────────────
+  async function handleComplete(id: string) {
+    if (!confirm("Marcar como concluído? O cliente receberá uma mensagem de agradecimento.")) return
+    try {
+      await api.patch(`/appointments/${id}/complete`, {})
+      setDetailAppt(null)
+      fetchAll()
+    } catch (err: unknown) { alert((err as Error).message) }
+  }
 
   async function handleCancel(id: string) {
     if (!confirm("Cancelar este agendamento?")) return
     try {
       await api.patch(`/appointments/${id}/cancel`, { reason: "Cancelado pelo painel" })
-      fetchAppointments()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    }
+      setDetailAppt(null)
+      fetchAll()
+    } catch (err: unknown) { alert((err as Error).message) }
   }
 
-  async function handleComplete(id: string) {
-    if (!confirm("Marcar este atendimento como concluído? O cliente receberá uma mensagem de agradecimento.")) return
-    try {
-      await api.patch(`/appointments/${id}/complete`, {})
-      fetchAppointments()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    }
+  function openReschedule(a: Appointment) {
+    setDetailAppt(null)
+    setRescheduleId(a.id)
+    const d = new Date(a.start_at)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    setNewStartAt(
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    )
   }
 
   async function handleReschedule() {
@@ -73,107 +142,117 @@ export default function DashboardPage() {
       })
       setRescheduleId(null)
       setNewStartAt("")
-      fetchAppointments()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    } finally {
-      setRescheduling(false)
-    }
+      fetchAll()
+    } catch (err: unknown) { alert((err as Error).message) }
+    finally { setRescheduling(false) }
   }
 
-  // Agrupados por profissional
-  const grouped = appointments.reduce<Record<string, Appointment[]>>((acc, a) => {
-    const key = a.professional?.name ?? "Sem profissional"
-    if (!acc[key]) acc[key] = []
-    acc[key].push(a)
-    return acc
-  }, {})
-
+  // ── Guards ──────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-muted-foreground">Carregando agenda…</p>
-  if (error) return <p className="text-destructive">{error}</p>
+  if (error)   return <p className="text-destructive">{error}</p>
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col gap-5 h-full">
+
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Agenda</h1>
         <Button onClick={() => router.push("/appointments/new")}>
           + Novo Agendamento
         </Button>
       </div>
 
-      {Object.keys(grouped).length === 0 && (
-        <p className="text-muted-foreground">Nenhum agendamento encontrado.</p>
-      )}
+      {/* Calendário — ocupa o restante da altura da tela */}
+      <div style={{ height: "calc(100vh - 140px)", minHeight: 560 }}>
+        <AgendaCalendar
+          appointments={calAppointments}
+          professionals={calProfessionals}
+          onAppointmentClick={(calAppt) => {
+            const original = appointments.find((a) => a.id === calAppt.id)
+            if (original) setDetailAppt(original)
+          }}
+          onSlotClick={(date, professionalId) => {
+            const query = new URLSearchParams({ start_at: date.toISOString() })
+            if (professionalId) query.set("professional_id", professionalId)
+            router.push(`/appointments/new?${query.toString()}`)
+          }}
+        />
+      </div>
 
-      {Object.entries(grouped).map(([professional, list]) => (
-        <div key={professional} className="mb-8">
-          <h2 className="text-lg font-semibold mb-3">{professional}</h2>
+      {/* ── Modal de detalhe do agendamento ──────────────────────────────────── */}
+      <Dialog open={!!detailAppt} onOpenChange={(open) => !open && setDetailAppt(null)}>
+        {detailAppt && (
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: profColorMap[detailAppt.professional_id] ?? "#9CA3AF" }}
+                />
+                {detailAppt.customer?.name ?? "Cliente"}
+              </DialogTitle>
+            </DialogHeader>
 
-          <div className="space-y-3">
-            {list.map((a) => (
-              <div
-                key={a.id}
-                className="bg-white rounded-lg border p-4 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium">
-                      {formatDateTime(a.start_at)}
-                    </span>
-                    <Badge variant={APPOINTMENT_STATUS_VARIANT[a.status] ?? "outline"}>
-                      {APPOINTMENT_STATUS_LABELS[a.status] ?? a.status}
-                    </Badge>
-                  </div>
+            <div className="space-y-3 py-1">
+              {/* Status */}
+              <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLOR[detailAppt.status] ?? "bg-gray-100 text-gray-600"}`}>
+                {APPOINTMENT_STATUS_LABELS[detailAppt.status] ?? detailAppt.status}
+              </span>
 
-                  <p className="text-sm text-muted-foreground">
-                    {a.customer?.name ?? "—"} · {a.customer?.phone ?? ""}
-                  </p>
-
-                  <p className="text-sm text-muted-foreground">
-                    {a.services.map((s) => s.service_name).join(", ")}
-                  </p>
+              {/* Detalhes */}
+              <div className="space-y-1.5 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span>🕐</span>
+                  <span>{formatDateTime(detailAppt.start_at)}</span>
                 </div>
-
-                {!["CANCELLED", "NO_SHOW", "COMPLETED"].includes(a.status) && (
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="default"
-                      onClick={() => handleComplete(a.id)}
-                    >
-                      ✅ Concluir
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setRescheduleId(a.id)
-                        const d = new Date(a.start_at)
-                        const pad = (n: number) => String(n).padStart(2, "0")
-                        setNewStartAt(
-                          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-                          `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-                        )
-                      }}
-                    >
-                      Remarcar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleCancel(a.id)}
-                    >
-                      Cancelar
-                    </Button>
+                <div className="flex items-center gap-2">
+                  <span>✂️</span>
+                  <span>{detailAppt.services.map((s) => s.service_name).join(", ")}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>👤</span>
+                  <span>{detailAppt.professional?.name ?? "—"}</span>
+                </div>
+                {detailAppt.customer?.phone && (
+                  <div className="flex items-center gap-2">
+                    <span>📱</span>
+                    <span>{detailAppt.customer.phone}</span>
+                  </div>
+                )}
+                {detailAppt.total_amount && (
+                  <div className="flex items-center gap-2">
+                    <span>💰</span>
+                    <span className="font-semibold text-foreground">
+                      {formatBRL(Number(detailAppt.total_amount))}
+                    </span>
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        </div>
-      ))}
+            </div>
 
-      {/* Dialog de reagendamento */}
+            {/* Ações — só para agendamentos não terminais */}
+            {!TERMINAL.has(detailAppt.status) && (
+              <DialogFooter className="flex gap-2 sm:justify-start">
+                <Button size="sm" variant="default"
+                  onClick={() => handleComplete(detailAppt.id)}>
+                  ✅ Concluir
+                </Button>
+                <Button size="sm" variant="outline"
+                  onClick={() => openReschedule(detailAppt)}>
+                  🔄 Remarcar
+                </Button>
+                <Button size="sm" variant="destructive"
+                  onClick={() => handleCancel(detailAppt.id)}>
+                  Cancelar
+                </Button>
+              </DialogFooter>
+            )}
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* ── Dialog de reagendamento ───────────────────────────────────────────── */}
       <Dialog open={!!rescheduleId} onOpenChange={(open) => !open && setRescheduleId(null)}>
         <DialogContent>
           <DialogHeader>
@@ -189,15 +268,14 @@ export default function DashboardPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRescheduleId(null)}>
-              Cancelar
-            </Button>
+            <Button variant="outline" onClick={() => setRescheduleId(null)}>Cancelar</Button>
             <Button onClick={handleReschedule} disabled={rescheduling}>
               {rescheduling ? "Salvando…" : "Confirmar"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
