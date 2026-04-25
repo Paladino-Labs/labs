@@ -12,7 +12,7 @@ router = APIRouter(prefix="/company", tags=["company-profile"])
 @router.get("/profile", response_model=CompanyProfileOut)
 def get_profile(
     db: Session = Depends(get_db),
-    company_id = Depends(get_current_company),
+    company_id = Depends(get_current_user),
 ):
     """Retorna o perfil público da empresa autenticada."""
     profile = profile_svc.get_or_create(db, company_id)
@@ -23,7 +23,7 @@ def get_profile(
 def update_profile(
     data: CompanyProfileUpdate,
     db: Session = Depends(get_db),
-    company_id = Depends(get_current_company),
+    company_id = Depends(get_current_user),
 ):
     """Atualiza o perfil público da empresa (campos parciais)."""
     return profile_svc.update_profile(db, company_id, data)
