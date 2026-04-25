@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
  
 from app.infrastructure.db.session import get_db
-from app.core.auth import get_current_company   # mesmo helper usado nos outros routers
+from app.core.deps import get_current_user   # mesmo helper usado nos outros routers
 from app.modules.company_profile import service as profile_svc
 from app.modules.company_profile.schemas import CompanyProfileOut, CompanyProfileUpdate
  
