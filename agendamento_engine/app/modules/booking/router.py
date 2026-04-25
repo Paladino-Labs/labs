@@ -35,6 +35,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models.company import Company
 from app.infrastructure.db.models.company_settings import CompanySettings
+from app.infrastructure.db.models.company_profile import CompanyProfile
 from app.infrastructure.db.models.booking_session import BookingSession
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.exceptions import SlotUnavailableError, BookingNotFoundError
@@ -49,6 +50,7 @@ from app.modules.booking.schemas import (
 from app.modules.booking.http_schemas import (
     # Legados
     CompanyInfoResponse,
+    CompanyProfileResponse,
     ServiceOptionResponse,
     ProfessionalOptionResponse,
     DateOptionResponse,
@@ -145,6 +147,39 @@ def get_company_info(slug: str, db: Session = Depends(get_db)):
         booking_url=f"{settings.BOOKING_BASE_URL}/{company.slug}",
     )
 
+@router.get("/{slug}/profile", response_model=CompanyProfileResponse)
+def get_company_profile(slug: str, db: Session = Depends(get_db)):
+    """
+    Retorna o perfil público da empresa para exibição na landing page.
+    Não exige online_booking_enabled — a landing page deve sempre carregar.
+    """
+
+    company = _get_company_or_404(slug, db)
+
+    profile = db.query(CompanyProfile).filter(
+        CompanyProfile.company_id == company.id
+    ).first()
+
+    cfg = _get_settings(company.id, db)
+
+    return CompanyProfileResponse(
+        company_name=company.name,
+        tagline=profile.tagline if profile else None,
+        description=profile.description if profile else None,
+        logo_url=profile.logo_url if profile else None,
+        cover_url=profile.cover_url if profile else None,
+        gallery_urls=profile.gallery_urls if (profile and profile.gallery_urls) else [],
+        address=profile.address if profile else None,
+        city=profile.city if profile else None,
+        whatsapp=profile.whatsapp if profile else None,
+        maps_url=profile.maps_url if profile else None,
+        instagram_url=profile.instagram_url if profile else None,
+        facebook_url=profile.facebook_url if profile else None,
+        tiktok_url=profile.tiktok_url if profile else None,
+        google_review_url=profile.google_review_url if profile else None,
+        business_hours=profile.business_hours if profile else None,
+        online_booking_enabled=bool(cfg and cfg.online_booking_enabled),
+    )
 
 # ─── 4.1 — Serviços ──────────────────────────────────────────────────────────
 

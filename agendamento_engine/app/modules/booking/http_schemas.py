@@ -21,10 +21,10 @@ Convenção de datas na resposta:
 """
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, List
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ─── Saída: /info ─────────────────────────────────────────────────────────────
@@ -36,6 +36,23 @@ class CompanyInfoResponse(BaseModel):
     services_count: int
     booking_url: str        # URL pública compartilhável — ex: "https://app.meupaladino.com.br/paladino-labs"
 
+class CompanyProfileResponse(BaseModel):
+    company_name: str
+    tagline: Optional[str] = None
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    cover_url: Optional[str] = None
+    gallery_urls: List[str] = Field(default_factory=list)
+    address: Optional[str] = None
+    city: Optional[str] = None
+    whatsapp: Optional[str] = None
+    maps_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    tiktok_url: Optional[str] = None
+    google_review_url: Optional[str] = None
+    business_hours: Optional[str] = None
+    online_booking_enabled: bool
 
 # ─── Saída: /services ─────────────────────────────────────────────────────────
 

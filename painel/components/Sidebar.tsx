@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const NAV_LINKS = [
-  { href: "/dashboard",        label: "Agenda",           icon: "📅" },
-  { href: "/appointments",     label: "Agendamentos",     icon: "🗓" },
-  { href: "/customers",        label: "Clientes",         icon: "👥" },
-  { href: "/services",         label: "Serviços",         icon: "✂️" },
-  { href: "/professionals",    label: "Profissionais",    icon: "👤" },
-  { href: "/products",         label: "Produtos",         icon: "📦" },
-  { href: "/integrations",     label: "Integrações",      icon: "🔗" },
+  { href: "/dashboard",        label: "Agenda",             icon: "📅" },
+  { href: "/appointments",     label: "Agendamentos",       icon: "🗓" },
+  { href: "/customers",        label: "Clientes",           icon: "👥" },
+  { href: "/services",         label: "Serviços",           icon: "✂️" },
+  { href: "/professionals",    label: "Profissionais",      icon: "👤" },
+  { href: "/products",         label: "Produtos",           icon: "📦" },
+  { href: "/settings/profile", label: "Perfil da empresa",  icon: "🏪" },
+  { href: "/integrations",     label: "Integrações",        icon: "🔗" },
 ]
 
 // ── Conteúdo do menu (reutilizado no desktop e no drawer mobile) ──────────────

@@ -641,7 +641,35 @@ class BookingEngine:
         Identifica ou cria o cliente pelo telefone.
         Armazena customer_id na sessão e snapshot de nome/telefone no context.
         Transição: AWAITING_CUSTOMER → AWAITING_CONFIRMATION.
+
+        Atalho WhatsApp: se o payload contiver "customer_id", o cliente já foi
+        identificado pelo canal (ex: WhatsApp com LID) e não é necessário coletar
+        nome/telefone — o engine simplesmente carrega o cliente pelo ID.
         """
+        # ── Atalho: WhatsApp já tem o cliente identificado ────────────────────
+        direct_id = payload.get("customer_id")
+        if direct_id:
+            try:
+                customer = customer_svc.get_customer_or_404(
+                    db, session.company_id, UUID(str(direct_id))
+                )
+            except Exception as exc:
+                raise InvalidActionError(
+                    f"Cliente não encontrado: {direct_id}"
+                ) from exc
+
+            ctx = dict(session.context or {})
+            ctx.update({
+                "customer_name":  customer.name,
+                "customer_phone": getattr(customer, "phone", "") or "",
+                "customer_email": getattr(customer, "email", None),
+            })
+            session.customer_id = customer.id
+            session.context = ctx
+            session.state = "AWAITING_CONFIRMATION"
+            return SessionUpdateResult(next_state="AWAITING_CONFIRMATION", options=[])
+
+        # ── Fluxo web: coleta nome e telefone do usuário ──────────────────────
         name  = str(payload.get("name", "")).strip()
         phone = str(payload.get("phone", "")).strip()
 

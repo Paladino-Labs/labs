@@ -302,6 +302,35 @@ def _handle_booking_state(
         sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
         return
 
+    # ── Auto-bypass AWAITING_CUSTOMER (WhatsApp: cliente já identificado) ────
+    # O engine retorna AWAITING_CUSTOMER para pedir nome/telefone ao canal web.
+    # No WhatsApp o cliente é identificado desde o estado INICIO, portanto
+    # avançamos automaticamente para AWAITING_CONFIRMATION (ou voltamos a
+    # AWAITING_TIME se o usuário escolheu "Alterar horário").
+    if result.next_state == "AWAITING_CUSTOMER":
+        bot_ctx     = session.context or {}
+        customer_id = bot_ctx.get("customer_id")
+
+        if not customer_id:
+            logger.error(
+                "Auto-bypass AWAITING_CUSTOMER: customer_id ausente. whatsapp_id=%s", whatsapp_id
+            )
+            sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
+            return
+
+        bypass_action  = BookingAction.BACK if action == BookingAction.BACK else BookingAction.SET_CUSTOMER
+        bypass_payload = {} if action == BookingAction.BACK else {"customer_id": customer_id}
+
+        try:
+            result = booking_engine.update(db, booking_session, bypass_action, bypass_payload)
+        except Exception:
+            logger.exception(
+                "Auto-bypass SET_CUSTOMER falhou. whatsapp_id=%s action=%s",
+                whatsapp_id, bypass_action,
+            )
+            sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
+            return
+
     # ── Sincronizar estado da BotSession com o novo estado da BookingSession ──
     new_state = result.next_state
 

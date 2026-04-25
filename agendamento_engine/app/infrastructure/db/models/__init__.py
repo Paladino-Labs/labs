@@ -7,6 +7,7 @@ from .product import Product
 from .appointment import Appointment, AppointmentService, AppointmentStatusLog
 from .availability_slot import WorkingHour, ScheduleBlock
 from .company_settings import CompanySettings
+from .company_profile import CompanyProfile
 from .bot_session import BotSession
 from .whatsapp_connection import WhatsAppConnection
 from .web_booking_session import WebBookingSession
@@ -26,6 +27,7 @@ __all__ = [
     "WorkingHour",
     "ScheduleBlock",
     "CompanySettings",
+    "CompanyProfile",
     "BotSession",
     "WhatsAppConnection",
     "WebBookingSession",

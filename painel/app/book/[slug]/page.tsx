@@ -1,1126 +1,375 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { formatBRL } from "@/lib/utils"
+import BookingFlow from "./BookingFlow"
 
-// ─── Tipos de opção (espelham os schemas HTTP do backend) ─────────────────────
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface ServiceOpt {
-  id: string
-  name: string
-  price: string
-  duration_minutes: number
-  row_key: string
-}
-
-interface ProfOpt {
-  id: string | null   // null = "Qualquer disponível"
-  name: string
-  row_key: string
-}
-
-interface DateOpt {
-  date: string            // "YYYY-MM-DD"
-  label: string           // "Hoje (20/04)"
-  has_availability: boolean
-  row_key: string
-}
-
-interface SlotOpt {
-  start_at: string        // ISO com timezone da empresa
-  end_at: string          // ISO com timezone da empresa
-  start_display: string   // "14:30" no tz da empresa
-  professional_id: string
-  professional_name: string
-  row_key: string
-}
-
-// ─── Estado da sessão FSM ─────────────────────────────────────────────────────
-
-type SrvState =
-  | "IDLE"
-  | "AWAITING_SERVICE"
-  | "AWAITING_PROFESSIONAL"
-  | "AWAITING_DATE"
-  | "AWAITING_TIME"
-  | "AWAITING_CUSTOMER"
-  | "AWAITING_CONFIRMATION"
-  | "CONFIRMED"
-  | "CANCELLED"
-
-interface ContextSummary {
-  customer_name?: string | null
-  service_name?: string | null
-  service_price?: string | null
-  service_duration_minutes?: number | null
-  professional_name?: string | null
-  selected_date?: string | null
-  slot_start_at?: string | null
-  slot_end_at?: string | null
-  slot_start_display?: string | null
-}
-
-interface ConfirmData {
-  appointment_id: string
-  service_name: string
-  professional_name: string
-  start_at: string
-  start_display: string
-  end_at: string
-  total_amount: string
-}
-
-interface Session {
-  session_id: string
-  token: string
-  state: SrvState
-  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt)[]
-  context_summary: ContextSummary
-  confirmation: ConfirmData | null
-  expires_at: string
-  company_timezone: string
-  error?: string | null
-}
-
-interface CompanyInfo {
+interface CompanyProfile {
   company_name: string
-  active: boolean
+  tagline: string | null
+  description: string | null
+  logo_url: string | null
+  cover_url: string | null
+  gallery_urls: string[]
+  address: string | null
+  city: string | null
+  whatsapp: string | null
+  maps_url: string | null
+  instagram_url: string | null
+  facebook_url: string | null
+  tiktok_url: string | null
+  google_review_url: string | null
+  business_hours: string | null
   online_booking_enabled: boolean
-  booking_url: string
 }
 
-// ─── Helpers de API ───────────────────────────────────────────────────────────
+// ─── API ──────────────────────────────────────────────────────────────────────
 
 const API = process.env.NEXT_PUBLIC_API_URL!
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  })
+async function apiFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, { headers: { "Content-Type": "application/json" } })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    const err = Object.assign(new Error(body.detail ?? "Erro desconhecido"), { status: res.status })
-    throw err
+    throw Object.assign(new Error(body.detail ?? "Erro desconhecido"), { status: res.status })
   }
   return res.json()
 }
 
-// ─── Componentes visuais ──────────────────────────────────────────────────────
+// ─── Ícones SVG inline ────────────────────────────────────────────────────────
 
-function StepHeader({
-  title,
-  subtitle,
-  onBack,
-}: {
-  title: string
-  subtitle?: string
-  onBack?: () => void
-}) {
+function IconInstagram() {
   return (
-    <div className="mb-6">
-      {onBack && (
-        <button
-          onClick={onBack}
-          className="text-sm mb-3 flex items-center gap-1 transition-colors"
-          style={{ color: "var(--book-primary)" }}
-        >
-          ← Voltar
-        </button>
-      )}
-      <h2 className="text-xl font-bold" style={{ color: "var(--book-text)" }}>
-        {title}
-      </h2>
-      {subtitle && (
-        <p className="text-sm mt-1" style={{ color: "var(--book-text-secondary)" }}>
-          {subtitle}
-        </p>
-      )}
-    </div>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+    </svg>
   )
 }
 
-function BookCard({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-  disabled?: boolean
-}) {
+function IconFacebook() {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="w-full text-left rounded-xl p-4 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{
-        background: "var(--book-card)",
-        border: "1px solid var(--book-border)",
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled)
-          (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)"
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)"
-      }}
-    >
-      {children}
-    </button>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
   )
 }
 
-function Spinner() {
+function IconTikTok() {
   return (
-    <p className="text-sm py-6 text-center" style={{ color: "var(--book-text-muted)" }}>
-      Carregando…
-    </p>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
+    </svg>
   )
 }
 
-function ErrorBanner({ msg }: { msg: string }) {
+function IconGoogle() {
   return (
-    <div
-      className="rounded-lg p-3 text-sm mb-4"
-      style={{
-        background: "color-mix(in srgb, #ef4444 10%, var(--book-card))",
-        border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)",
-        color: "#fca5a5",
-      }}
-    >
-      {msg}
-    </div>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/>
+    </svg>
   )
 }
 
-function InputField({
-  label,
-  type,
-  value,
-  onChange,
-  placeholder,
-  minLength,
-  required,
-}: {
-  label: string
-  type: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  minLength?: number
-  required?: boolean
-}) {
+function IconWhatsApp() {
   return (
-    <div>
-      <label
-        className="block text-sm font-medium mb-1.5"
-        style={{ color: "var(--book-text-secondary)" }}
-      >
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-        minLength={minLength}
-        placeholder={placeholder}
-        className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
-        style={{
-          background: "var(--book-card)",
-          border: "1px solid var(--book-border)",
-          color: "var(--book-text)",
-        }}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = "var(--book-primary)"
-          e.currentTarget.style.boxShadow =
-            "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = "var(--book-border)"
-          e.currentTarget.style.boxShadow = "none"
-        }}
-      />
-    </div>
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+    </svg>
   )
 }
 
-// ─── Componente Principal ─────────────────────────────────────────────────────
+function IconMapPin() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 flex-shrink-0">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+    </svg>
+  )
+}
+
+function IconClock() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4 flex-shrink-0">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+  )
+}
+
+function IconStar() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-amber-400">
+      <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+    </svg>
+  )
+}
+
+function IconScissors() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-8 h-8">
+      <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+      <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+      <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+      <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+    </svg>
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function BookingPage() {
-  const { slug } = useParams<{ slug: string }>()
-  const searchParams = useSearchParams()
-  const router = useRouter()
+  const { slug }       = useParams<{ slug: string }>()
+  const searchParams   = useSearchParams()
+  const router         = useRouter()
 
-  // Info da empresa
-  const [company, setCompany] = useState<CompanyInfo | null>(null)
-  const [companyError, setCompanyError] = useState<string | null>(null)
+  const [profile,     setProfile]     = useState<CompanyProfile | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+  const [showBooking, setShowBooking] = useState(false)
+  const [bookingToken, setBookingToken] = useState<string | null>(
+    searchParams.get("t")
+  )
 
-  // Sessão FSM
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const bookingRef = useRef<HTMLDivElement>(null)
 
-  // Formulário de identificação — usado em AWAITING_CUSTOMER
-  const [custName, setCustName] = useState("")
-  const [custPhone, setCustPhone] = useState("")
-
-  // ── Carregar info da empresa ──────────────────────────────────────────────
+  // Se vier com ?book=1, pula direto para o fluxo
   useEffect(() => {
-    apiFetch<CompanyInfo>(`/booking/${slug}/info`)
-      .then(setCompany)
-      .catch((e: Error) => setCompanyError(e.message))
+    if (searchParams.get("book") === "1") setShowBooking(true)
+  }, [searchParams])
+
+  useEffect(() => {
+    apiFetch<CompanyProfile>(`/booking/${slug}/profile`)
+      .then(setProfile)
+      .catch((e: Error) => setError(e.message))
   }, [slug])
 
-  // ── Iniciar ou retomar sessão após carregar empresa ───────────────────────
-  // FIX: O backend começa em AWAITING_SERVICE, então criamos a sessão
-  // automaticamente ao carregar a página — sem botão "Começar".
-  // Se há token na URL tentamos retomar; caso falhe (expirado/inválido),
-  // criamos uma nova sessão imediatamente.
-  useEffect(() => {
-    if (!company) return
-
-    const token = searchParams.get("t")
-
-    if (token) {
-      // Tentar retomar sessão existente
-      apiFetch<Session>(`/booking/${slug}/session/${token}`)
-        .then(setSession)
-        .catch((e: { status?: number; message: string }) => {
-          // Sessão expirada ou inválida — limpar token e iniciar nova sessão
-          const url = new URL(window.location.href)
-          url.searchParams.delete("t")
-          router.replace(url.pathname + url.search, { scroll: false })
-
-          if (e.status !== 410) {
-            // Erro inesperado — ainda assim tenta iniciar nova sessão
-            console.warn("Falha ao retomar sessão:", e.message)
-          }
-          startNewSession()
-        })
-    } else {
-      // Sem token — iniciar nova sessão diretamente
-      startNewSession()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company])
-
-  // ── Criar nova sessão no backend ──────────────────────────────────────────
-  async function startNewSession() {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await apiFetch<Session>(`/booking/${slug}/start`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      })
-      setSession(result)
-      // Persistir token na URL para possível retomada
-      const url = new URL(window.location.href)
-      url.searchParams.set("t", result.token)
-      router.replace(url.pathname + url.search, { scroll: false })
-    } catch (e: unknown) {
-      setError((e as Error).message)
-    } finally {
-      setLoading(false)
-    }
+  function handleStartBooking() {
+    setShowBooking(true)
+    setTimeout(() => {
+      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 80)
   }
 
-  // ── Dispatch: aplica qualquer ação FSM ────────────────────────────────────
-  const dispatch = useCallback(
-    async (action: string, payload: Record<string, unknown> = {}) => {
-      if (!session) return
-      setError(null)
-      setLoading(true)
-      try {
-        const result = await apiFetch<Partial<Session>>(`/booking/${slug}/update`, {
-          method: "POST",
-          body: JSON.stringify({
-            session_id: session.session_id,
-            action,
-            payload,
-          }),
-        })
-        // Merge: preserva session_id e token que o /update não devolve
-        setSession((prev) => prev ? { ...prev, ...result } : null)
-        if (result.error === "SLOT_UNAVAILABLE") {
-          setError("Este horário acabou de ser ocupado. Escolha outro.")
-        }
-      } catch (e: unknown) {
-        setError((e as Error).message)
-      } finally {
-        setLoading(false)
-      }
-    },
-    [session, slug],
-  )
-
-  // ── RESET: volta para AWAITING_SERVICE preservando sessão ────────────────
-  function handleReset() {
-    dispatch("RESET")
+  // Persiste o token do fluxo na URL sem reload
+  function handleTokenChange(token: string) {
+    setBookingToken(token)
+    const url = new URL(window.location.href)
+    url.searchParams.set("t", token)
+    router.replace(url.pathname + url.search, { scroll: false })
   }
 
-  // ── BACK ──────────────────────────────────────────────────────────────────
-  function handleBack() {
-    dispatch("BACK")
-  }
-
-  // ─── Guards de carregamento / erro ────────────────────────────────────────
-
-  if (companyError) {
+  // ── Guards ────────────────────────────────────────────────────────────────
+  if (!profile && !error) {
     return (
-      <div
-        className="book-page min-h-screen flex items-center justify-center"
-        style={{ background: "var(--book-gradient-dark)" }}
-      >
+      <div className="book-page min-h-screen flex items-center justify-center"
+        style={{ background: "var(--book-gradient-dark)" }}>
+        <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>Carregando…</p>
+      </div>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="book-page min-h-screen flex items-center justify-center"
+        style={{ background: "var(--book-gradient-dark)" }}>
         <div className="text-center max-w-sm px-6">
           <div className="text-4xl mb-4">😕</div>
-          <h1 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>
-            Página não encontrada
-          </h1>
-          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-            {companyError}
-          </p>
+          <h1 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>Página não encontrada</h1>
+          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>{error}</p>
         </div>
       </div>
     )
   }
 
-  if (!company || (!session && loading)) {
-    return (
-      <div
-        className="book-page min-h-screen flex items-center justify-center"
-        style={{ background: "var(--book-gradient-dark)" }}
-      >
-        <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-          Carregando…
-        </p>
-      </div>
-    )
-  }
+  const hasSocials = profile.instagram_url || profile.facebook_url || profile.tiktok_url
+  const hasContact = profile.whatsapp || profile.address || profile.business_hours
 
-  // ─── Barra de progresso ───────────────────────────────────────────────────
-  // FIX: inclui AWAITING_CUSTOMER como passo visível antes da confirmação
-  const PROGRESS_STEPS: SrvState[] = [
-    "AWAITING_SERVICE",
-    "AWAITING_PROFESSIONAL",
-    "AWAITING_DATE",
-    "AWAITING_TIME",
-    "AWAITING_CUSTOMER",
-    "AWAITING_CONFIRMATION",
-  ]
-  const currentIdx = session ? PROGRESS_STEPS.indexOf(session.state) : -1
-  const showProgress =
-    session &&
-    !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
-
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div
-      className="book-page min-h-screen"
-      style={{ background: "var(--book-gradient-dark)" }}
-    >
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: "var(--book-surface)",
-          borderBottom: "1px solid var(--book-border)",
-        }}
-      >
-        <div className="max-w-lg mx-auto px-6 py-4">
-          <h1 className="text-lg font-bold" style={{ color: "var(--book-text)" }}>
-            {company.company_name}
-          </h1>
-          <p className="text-sm" style={{ color: "var(--book-text-muted)" }}>
-            Agendamento online
-          </p>
-        </div>
-      </div>
+    <div className="book-page" style={{ background: "var(--book-gradient-dark)", minHeight: "100vh" }}>
 
-      {/* ── Barra de progresso ──────────────────────────────────────────────── */}
-      {showProgress && (
-        <div className="max-w-lg mx-auto px-6 pt-4">
-          <div className="flex gap-1">
-            {PROGRESS_STEPS.map((s, i) => (
-              <div
-                key={s}
-                className="h-0.5 flex-1 rounded-full transition-colors duration-300"
-                style={{
-                  background:
-                    currentIdx >= i
-                      ? "var(--book-gradient-gold)"
-                      : "var(--book-border)",
-                }}
-              />
-            ))}
+      {/* ══ HERO ══════════════════════════════════════════════════════════════ */}
+      <section className="relative overflow-hidden" style={{ minHeight: 420 }}>
+
+        {profile.cover_url ? (
+          <div className="absolute inset-0">
+            <img src={profile.cover_url} alt="Capa" className="w-full h-full object-cover" />
+            <div className="absolute inset-0"
+              style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.75) 100%)" }} />
           </div>
-        </div>
-      )}
-
-      <div className="max-w-lg mx-auto px-6 py-8">
-
-        {/* ── Erro de inicialização (sessão não criada ainda) ──────────────── */}
-        {!session && error && (
-          <div className="text-center py-8">
-            <ErrorBanner msg={error} />
-            <button
-              onClick={startNewSession}
-              className="book-btn-primary px-6 py-3 text-sm mt-4"
-            >
-              Tentar novamente
-            </button>
+        ) : (
+          <div className="absolute inset-0"
+            style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)" }}>
+            <div className="absolute inset-0 opacity-10"
+              style={{ backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 30px, rgba(255,255,255,0.05) 30px, rgba(255,255,255,0.05) 60px)" }} />
           </div>
         )}
 
-        {/* ── AWAITING_SERVICE ────────────────────────────────────────────── */}
-        {session?.state === "AWAITING_SERVICE" && (
-          <ServiceStep
-            options={session.options as ServiceOpt[]}
-            loading={loading}
-            onSelect={(opt) =>
-              dispatch("SELECT_SERVICE", {
-                service_id: opt.id,
-              })
-            }
-          />
-        )}
+        <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-16"
+          style={{ minHeight: 420 }}>
 
-        {/* ── AWAITING_PROFESSIONAL ───────────────────────────────────────── */}
-        {session?.state === "AWAITING_PROFESSIONAL" && (
-          <ProfessionalStep
-            options={session.options as ProfOpt[]}
-            summary={session.context_summary}
-            loading={loading}
-            onBack={handleBack}
-            onSelect={(opt) =>
-              dispatch("SELECT_PROFESSIONAL", {
-                professional_id: opt.id ?? "any",
-              })
-            }
-          />
-        )}
-
-        {/* ── AWAITING_DATE ───────────────────────────────────────────────── */}
-        {session?.state === "AWAITING_DATE" && (
-          <DateStep
-            options={session.options as DateOpt[]}
-            summary={session.context_summary}
-            loading={loading}
-            onBack={handleBack}
-            onSelect={(opt) =>
-              dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })
-            }
-          />
-        )}
-
-        {/* ── AWAITING_TIME ───────────────────────────────────────────────── */}
-        {session?.state === "AWAITING_TIME" && (
-          <TimeStep
-            options={session.options as SlotOpt[]}
-            summary={session.context_summary}
-            loading={loading}
-            error={error}
-            onBack={handleBack}
-            onSelect={(opt) =>
-              dispatch("SELECT_TIME", {
-                start_at: opt.start_at,
-                end_at: opt.end_at,
-                professional_id: opt.professional_id,
-                row_key: opt.row_key,
-              })
-            }
-          />
-        )}
-
-        {/* ── AWAITING_CUSTOMER ───────────────────────────────────────────── */}
-        {/* FIX: estado correto é AWAITING_CUSTOMER; ação correta é SET_CUSTOMER */}
-        {session?.state === "AWAITING_CUSTOMER" && (
-          <CustomerForm
-            name={custName}
-            phone={custPhone}
-            onName={setCustName}
-            onPhone={setCustPhone}
-            loading={loading}
-            error={error}
-            onBack={handleBack}
-            onSubmit={(e) => {
-              e.preventDefault()
-              // FIX: ação era "SUBMIT_CUSTOMER" (inexistente); corrigido para "SET_CUSTOMER"
-              dispatch("SET_CUSTOMER", {
-                name: custName,
-                phone: custPhone,
-              })
-            }}
-            companyName={company.company_name}
-          />
-        )}
-
-        {/* ── AWAITING_CONFIRMATION ───────────────────────────────────────── */}
-        {session?.state === "AWAITING_CONFIRMATION" && (
-          <ConfirmStep
-            summary={session.context_summary}
-            loading={loading}
-            error={error}
-            onBack={handleBack}
-            onConfirm={() => dispatch("CONFIRM")}
-          />
-        )}
-
-        {/* ── CONFIRMED ───────────────────────────────────────────────────── */}
-        {session?.state === "CONFIRMED" && session.confirmation && (
-          <ConfirmedView
-            confirmation={session.confirmation}
-            token={session.token}
-            onReset={handleReset}
-          />
-        )}
-
-        {/* ── CANCELLED ───────────────────────────────────────────────────── */}
-        {session?.state === "CANCELLED" && (
-          <CancelledView onReset={handleReset} />
-        )}
-
-      </div>
-    </div>
-  )
-}
-
-// ─── Etapa 1: Serviços ────────────────────────────────────────────────────────
-
-function ServiceStep({
-  options,
-  loading,
-  onSelect,
-}: {
-  options: ServiceOpt[]
-  loading: boolean
-  onSelect: (opt: ServiceOpt) => void
-}) {
-  return (
-    <div>
-      <StepHeader title="Qual serviço você quer agendar?" />
-      {loading ? (
-        <Spinner />
-      ) : (
-        <div className="space-y-3">
-          {options.map((svc) => (
-            <BookCard key={svc.row_key} onClick={() => onSelect(svc)} disabled={loading}>
-              <div className="flex gap-4 items-center">
-                <div
-                  className="h-12 w-12 rounded-lg flex items-center justify-center text-xl shrink-0"
-                  style={{
-                    background: "var(--book-black-600)",
-                    border: "1px solid var(--book-border)",
-                  }}
-                >
-                  ✂️
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold" style={{ color: "var(--book-text)" }}>
-                    {svc.name}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--book-text-muted)" }}>
-                    {svc.duration_minutes} min
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div
-                    className="text-sm font-semibold"
-                    style={{ color: "var(--book-primary)" }}
-                  >
-                    {formatBRL(svc.price)}
-                  </div>
-                </div>
-              </div>
-            </BookCard>
-          ))}
-          {options.length === 0 && (
-            <p
-              className="text-sm text-center py-8"
-              style={{ color: "var(--book-text-muted)" }}
-            >
-              Nenhum serviço disponível no momento.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Etapa 2: Profissional ────────────────────────────────────────────────────
-
-function ProfessionalStep({
-  options,
-  summary,
-  loading,
-  onBack,
-  onSelect,
-}: {
-  options: ProfOpt[]
-  summary: ContextSummary
-  loading: boolean
-  onBack: () => void
-  onSelect: (opt: ProfOpt) => void
-}) {
-  return (
-    <div>
-      <StepHeader
-        title="Com quem você prefere?"
-        subtitle={summary.service_name ?? undefined}
-        onBack={onBack}
-      />
-      {loading ? (
-        <Spinner />
-      ) : (
-        <div className="space-y-3">
-          {options.map((prof, i) => (
-            <BookCard
-              key={prof.row_key ?? `p-${i}`}
-              onClick={() => onSelect(prof)}
-              disabled={loading}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                  style={{
-                    background: "var(--book-black-600)",
-                    border: "1px solid var(--book-border)",
-                    color: "var(--book-primary)",
-                  }}
-                >
-                  {prof.name[0]}
-                </div>
-                <span className="font-medium" style={{ color: "var(--book-text)" }}>
-                  {prof.name}
-                </span>
-              </div>
-            </BookCard>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Etapa 3: Data ────────────────────────────────────────────────────────────
-
-function DateStep({
-  options,
-  summary,
-  loading,
-  onBack,
-  onSelect,
-}: {
-  options: DateOpt[]
-  summary: ContextSummary
-  loading: boolean
-  onBack: () => void
-  onSelect: (opt: DateOpt) => void
-}) {
-  const subtitle = [summary.service_name, summary.professional_name]
-    .filter(Boolean)
-    .join(" · ")
-
-  const available = options.filter((d) => d.has_availability)
-  const unavailableCount = options.length - available.length
-
-  return (
-    <div>
-      <StepHeader
-        title="Qual dia funciona para você?"
-        subtitle={subtitle || undefined}
-        onBack={onBack}
-      />
-      {loading ? (
-        <Spinner />
-      ) : (
-        <div className="space-y-2">
-          {available.length === 0 ? (
-            <p
-              className="text-sm py-8 text-center"
-              style={{ color: "var(--book-text-muted)" }}
-            >
-              Nenhum dia disponível nos próximos 30 dias.
-            </p>
+          {profile.logo_url ? (
+            <img src={profile.logo_url} alt={profile.company_name}
+              className="w-24 h-24 rounded-full object-cover mb-5 shadow-xl"
+              style={{ border: "3px solid rgba(255,255,255,0.2)" }} />
           ) : (
-            <>
-              {available.map((d) => (
-                <button
-                  key={d.row_key}
-                  onClick={() => onSelect(d)}
-                  disabled={loading}
-                  className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
-                  style={{
-                    background: "var(--book-card)",
-                    border: "1px solid var(--book-border)",
-                  }}
-                  onMouseEnter={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.borderColor =
-                      "var(--book-primary)"
-                  }}
-                  onMouseLeave={(e) => {
-                    ;(e.currentTarget as HTMLElement).style.borderColor =
-                      "var(--book-border)"
-                  }}
-                >
-                  <span className="font-medium" style={{ color: "var(--book-text)" }}>
-                    {d.label}
-                  </span>
-                </button>
-              ))}
-              {unavailableCount > 0 && (
-                <p className="text-xs pt-2" style={{ color: "var(--book-text-muted)" }}>
-                  {unavailableCount} dia{unavailableCount > 1 ? "s" : ""} sem
-                  disponibilidade no período.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Etapa 4: Horário ─────────────────────────────────────────────────────────
-
-function TimeStep({
-  options,
-  summary,
-  loading,
-  error,
-  onBack,
-  onSelect,
-}: {
-  options: SlotOpt[]
-  summary: ContextSummary
-  loading: boolean
-  error: string | null
-  onBack: () => void
-  onSelect: (opt: SlotOpt) => void
-}) {
-  const dateLabel = summary.selected_date
-    ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
-        weekday: "long",
-        day: "2-digit",
-        month: "long",
-      })
-    : undefined
-
-  return (
-    <div>
-      <StepHeader
-        title="Escolha um horário"
-        subtitle={dateLabel}
-        onBack={onBack}
-      />
-      {error && <ErrorBanner msg={error} />}
-      {loading ? (
-        <Spinner />
-      ) : options.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="mb-4" style={{ color: "var(--book-text-secondary)" }}>
-            Nenhum horário disponível neste dia.
-          </p>
-          <button
-            onClick={onBack}
-            className="text-sm underline"
-            style={{ color: "var(--book-primary)" }}
-          >
-            Escolher outra data
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {options.map((slot) => (
-            <button
-              key={slot.row_key}
-              onClick={() => onSelect(slot)}
-              disabled={loading}
-              className="rounded-xl py-3 text-sm font-medium transition-all duration-150 disabled:opacity-40"
-              style={{
-                background: "var(--book-card)",
-                border: "1px solid var(--book-border)",
-                color: "var(--book-text)",
-              }}
-              onMouseEnter={(e) => {
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor =
-                  "var(--book-primary)"
-                ;(e.currentTarget as HTMLButtonElement).style.color =
-                  "var(--book-primary)"
-              }}
-              onMouseLeave={(e) => {
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor =
-                  "var(--book-border)"
-                ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
-              }}
-            >
-              {slot.start_display}
-              <div
-                className="text-xs truncate px-1 mt-0.5"
-                style={{ color: "var(--book-text-muted)" }}
-              >
-                {slot.professional_name}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Etapa 5: Dados do cliente ────────────────────────────────────────────────
-
-function CustomerForm({
-  name,
-  phone,
-  onName,
-  onPhone,
-  loading,
-  error,
-  onBack,
-  onSubmit,
-  companyName,
-}: {
-  name: string
-  phone: string
-  onName: (v: string) => void
-  onPhone: (v: string) => void
-  loading: boolean
-  error: string | null
-  onBack: () => void   // FIX: adicionado onBack — permite voltar para AWAITING_TIME
-  onSubmit: (e: React.FormEvent) => void
-  companyName: string
-}) {
-  return (
-    <div>
-      <StepHeader
-        title="Quase lá! Seus dados"
-        subtitle={`Para confirmar seu horário em ${companyName}`}
-        onBack={onBack}
-      />
-      <form onSubmit={onSubmit} className="space-y-4">
-        <InputField
-          label="Nome completo *"
-          type="text"
-          value={name}
-          onChange={onName}
-          placeholder="Seu nome"
-          minLength={2}
-          required
-        />
-        <InputField
-          label="WhatsApp / Telefone *"
-          type="tel"
-          value={phone}
-          onChange={onPhone}
-          placeholder="(11) 99999-9999"
-          minLength={10}
-          required
-        />
-        {error && <ErrorBanner msg={error} />}
-        <button
-          type="submit"
-          disabled={loading}
-          className="book-btn-primary w-full py-3 text-sm mt-2"
-        >
-          {loading ? "Aguarde…" : "Continuar →"}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-// ─── Etapa 6: Confirmar ───────────────────────────────────────────────────────
-
-function ConfirmStep({
-  summary,
-  loading,
-  error,
-  onBack,
-  onConfirm,
-}: {
-  summary: ContextSummary
-  loading: boolean
-  error: string | null
-  onBack: () => void
-  onConfirm: () => void
-}) {
-  return (
-    <div>
-      <StepHeader title="Confirmar agendamento" onBack={onBack} />
-
-      <div
-        className="rounded-xl p-4 mb-6"
-        style={{
-          background: "var(--book-card)",
-          border: "1px solid var(--book-border)",
-          borderLeft: "3px solid var(--book-primary)",
-        }}
-      >
-        <div className="font-semibold mb-3" style={{ color: "var(--book-text)" }}>
-          {summary.service_name ?? "Serviço"}
-        </div>
-        <div className="text-sm space-y-1.5" style={{ color: "var(--book-text-secondary)" }}>
-          {summary.customer_name && (
-            <div>👤 {summary.customer_name}</div>
-          )}
-          {summary.professional_name && (
-            <div>💈 {summary.professional_name}</div>
-          )}
-          {summary.selected_date && (
-            <div>
-              📅{" "}
-              {new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
-                weekday: "long",
-                day: "2-digit",
-                month: "long",
-              })}
-              {summary.slot_start_display && ` às ${summary.slot_start_display}`}
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-5 shadow-xl"
+              style={{ background: "var(--book-primary)", border: "3px solid rgba(255,255,255,0.2)", color: "#fff" }}>
+              <IconScissors />
             </div>
           )}
-          {summary.service_duration_minutes && (
-            <div>⏱ {summary.service_duration_minutes} min</div>
+
+          <h1 className="text-3xl font-bold text-white mb-2 drop-shadow">{profile.company_name}</h1>
+
+          {profile.tagline && (
+            <p className="text-base text-white/80 mb-2 max-w-sm">{profile.tagline}</p>
+          )}
+
+          {profile.city && (
+            <div className="flex items-center gap-1 text-white/60 text-sm mb-6">
+              <IconMapPin /><span>{profile.city}</span>
+            </div>
+          )}
+
+          {profile.online_booking_enabled && (
+            <button onClick={handleStartBooking}
+              className="book-btn-primary px-8 py-3.5 text-base font-semibold rounded-xl shadow-lg
+                transition-transform duration-150 active:scale-95 hover:scale-105">
+              Agendar agora
+            </button>
+          )}
+
+          {hasSocials && (
+            <div className="flex items-center gap-4 mt-6">
+              {profile.instagram_url && (
+                <a href={profile.instagram_url} target="_blank" rel="noopener noreferrer"
+                  className="text-white/70 hover:text-white transition-colors"><IconInstagram /></a>
+              )}
+              {profile.facebook_url && (
+                <a href={profile.facebook_url} target="_blank" rel="noopener noreferrer"
+                  className="text-white/70 hover:text-white transition-colors"><IconFacebook /></a>
+              )}
+              {profile.tiktok_url && (
+                <a href={profile.tiktok_url} target="_blank" rel="noopener noreferrer"
+                  className="text-white/70 hover:text-white transition-colors"><IconTikTok /></a>
+              )}
+            </div>
           )}
         </div>
-        {summary.service_price && (
-          <div
-            className="text-sm font-semibold mt-3 pt-3"
-            style={{
-              color: "var(--book-primary)",
-              borderTop: "1px solid var(--book-border)",
-            }}
-          >
-            {formatBRL(summary.service_price)}
+      </section>
+
+      {/* ══ SOBRE + CONTATO ═══════════════════════════════════════════════════ */}
+      {(profile.description || hasContact || profile.google_review_url) && (
+        <section className="max-w-lg mx-auto px-6 py-8 space-y-4">
+
+          {profile.description && (
+            <div className="rounded-2xl p-5"
+              style={{ background: "var(--book-surface)", border: "1px solid var(--book-border)" }}>
+              <p className="text-sm leading-relaxed" style={{ color: "var(--book-text-secondary)" }}>
+                {profile.description}
+              </p>
+            </div>
+          )}
+
+          {hasContact && (
+            <div className="rounded-2xl p-5 space-y-3"
+              style={{ background: "var(--book-surface)", border: "1px solid var(--book-border)" }}>
+              {profile.business_hours && (
+                <div className="flex items-start gap-3">
+                  <span style={{ color: "var(--book-primary)" }}><IconClock /></span>
+                  <p className="text-sm" style={{ color: "var(--book-text-secondary)" }}>{profile.business_hours}</p>
+                </div>
+              )}
+              {profile.address && (
+                <div className="flex items-start gap-3">
+                  <span style={{ color: "var(--book-primary)" }}><IconMapPin /></span>
+                  <div>
+                    <p className="text-sm" style={{ color: "var(--book-text-secondary)" }}>{profile.address}</p>
+                    {profile.maps_url && (
+                      <a href={profile.maps_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs font-medium mt-0.5 inline-block" style={{ color: "var(--book-primary)" }}>
+                        Ver no mapa →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+              {profile.whatsapp && (
+                <a href={`https://wa.me/${profile.whatsapp.replace(/\D/g, "")}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-xl px-4 py-2.5 transition-opacity hover:opacity-80"
+                  style={{ background: "#25D366", color: "#fff" }}>
+                  <IconWhatsApp />
+                  <span className="text-sm font-medium">Chamar no WhatsApp</span>
+                </a>
+              )}
+            </div>
+          )}
+
+          {profile.google_review_url && (
+            <a href={profile.google_review_url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-3 rounded-2xl px-5 py-3.5 w-full transition-opacity hover:opacity-80"
+              style={{ background: "var(--book-surface)", border: "1px solid var(--book-border)", color: "var(--book-text)" }}>
+              <IconGoogle />
+              <span className="text-sm font-medium">Avaliar no Google</span>
+              <div className="flex gap-0.5 ml-1">{[...Array(5)].map((_, i) => <IconStar key={i} />)}</div>
+            </a>
+          )}
+        </section>
+      )}
+
+      {/* ══ GALERIA ═══════════════════════════════════════════════════════════ */}
+      {profile.gallery_urls.length > 0 && (
+        <section className="max-w-lg mx-auto px-6 pb-8">
+          <h2 className="text-base font-semibold mb-4" style={{ color: "var(--book-text)" }}>Galeria</h2>
+          <div className="grid grid-cols-3 gap-2">
+            {profile.gallery_urls.slice(0, 6).map((url, i) => (
+              <div key={i} className="aspect-square rounded-xl overflow-hidden"
+                style={{ border: "1px solid var(--book-border)" }}>
+                <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover" />
+              </div>
+            ))}
           </div>
+        </section>
+      )}
+
+      {/* ══ BOTÃO FIXO MOBILE (só enquanto fluxo não está visível) ═══════════ */}
+      {profile.online_booking_enabled && !showBooking && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 p-4 lg:hidden"
+          style={{ background: "linear-gradient(to top, var(--book-gradient-dark) 60%, transparent)" }}>
+          <button onClick={handleStartBooking}
+            className="book-btn-primary w-full py-4 text-base font-semibold rounded-xl shadow-xl">
+            Agendar agora
+          </button>
+        </div>
+      )}
+
+      {/* ══ FLUXO DE AGENDAMENTO (aparece com transição suave) ═══════════════ */}
+      <div ref={bookingRef}
+        className="transition-all duration-500"
+        style={{ overflow: showBooking ? "visible" : "hidden", maxHeight: showBooking ? "9999px" : 0, opacity: showBooking ? 1 : 0 }}>
+        {showBooking && (
+          <section>
+            {/* Divisor */}
+            <div className="flex items-center gap-3 max-w-lg mx-auto px-6 py-6">
+              <div className="flex-1 h-px" style={{ background: "var(--book-border)" }} />
+              <span className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: "var(--book-text-muted)" }}>Agendamento</span>
+              <div className="flex-1 h-px" style={{ background: "var(--book-border)" }} />
+            </div>
+
+            {/* Fluxo — sem header próprio, pois a landing já apresenta a empresa */}
+            <BookingFlow
+              slug={slug}
+              companyName={profile.company_name}
+              initialToken={bookingToken}
+              onTokenChange={handleTokenChange}
+            />
+          </section>
         )}
       </div>
 
-      {error && <ErrorBanner msg={error} />}
-
-      <button
-        onClick={onConfirm}
-        disabled={loading}
-        className="book-btn-primary w-full py-3 text-sm"
-      >
-        {loading ? "Confirmando…" : "Confirmar agendamento"}
-      </button>
-    </div>
-  )
-}
-
-// ─── Etapa 7: Confirmado ──────────────────────────────────────────────────────
-
-function ConfirmedView({
-  confirmation,
-  token,
-  onReset,
-}: {
-  confirmation: ConfirmData
-  token: string
-  onReset: () => void
-}) {
-  function fmtDate(iso: string) {
-    return new Date(iso).toLocaleString("pt-BR", {
-      dateStyle: "full",
-      timeStyle: "short",
-    })
-  }
-
-  return (
-    <div className="text-center py-6">
-      <div
-        className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-5"
-        style={{
-          background: "color-mix(in srgb, var(--book-primary) 15%, var(--book-card))",
-          border: "1px solid var(--book-primary)",
-        }}
-      >
-        ✓
-      </div>
-
-      <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--book-text)" }}>
-        Agendado!
-      </h2>
-      <p className="mb-8" style={{ color: "var(--book-text-secondary)" }}>
-        Seu horário está confirmado.
-      </p>
-
-      <div
-        className="rounded-2xl p-6 text-left space-y-3 mb-6"
-        style={{
-          background: "var(--book-card)",
-          border: "1px solid var(--book-border)",
-        }}
-      >
-        {[
-          { label: "Serviço", value: confirmation.service_name },
-          { label: "Profissional", value: confirmation.professional_name },
-          { label: "Data e hora", value: fmtDate(confirmation.start_at) },
-        ].map(({ label, value }) => (
-          <div key={label} className="flex justify-between text-sm">
-            <span style={{ color: "var(--book-text-muted)" }}>{label}</span>
-            <span
-              className="font-medium text-right"
-              style={{ color: "var(--book-text)" }}
-            >
-              {value}
-            </span>
-          </div>
-        ))}
-        <div
-          className="flex justify-between text-sm pt-3"
-          style={{
-            borderTop: "1px solid color-mix(in srgb, var(--book-primary) 20%, transparent)",
-          }}
-        >
-          <span style={{ color: "var(--book-text-muted)" }}>Total</span>
-          <span className="font-bold" style={{ color: "var(--book-primary)" }}>
-            {formatBRL(confirmation.total_amount)}
-          </span>
-        </div>
-      </div>
-
-      <p className="text-xs mb-6" style={{ color: "var(--book-text-muted)" }}>
-        Código:{" "}
-        <span className="font-mono" style={{ color: "var(--book-text-secondary)" }}>
-          {token.slice(0, 8).toUpperCase()}
-        </span>
-      </p>
-
-      <button
-        onClick={onReset}
-        className="text-sm underline"
-        style={{ color: "var(--book-primary)" }}
-      >
-        Fazer outro agendamento
-      </button>
-    </div>
-  )
-}
-
-// ─── Etapa: Cancelado ─────────────────────────────────────────────────────────
-
-function CancelledView({ onReset }: { onReset: () => void }) {
-  return (
-    <div className="text-center py-6">
-      <div className="text-4xl mb-4">✕</div>
-      <h2 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>
-        Agendamento cancelado
-      </h2>
-      <p className="mb-8 text-sm" style={{ color: "var(--book-text-secondary)" }}>
-        Seu agendamento foi cancelado com sucesso.
-      </p>
-      <button
-        onClick={onReset}
-        className="book-btn-primary px-6 py-3 text-sm"
-      >
-        Fazer novo agendamento
-      </button>
+      {/* Espaço para o botão fixo mobile */}
+      {!showBooking && <div className="h-24 lg:hidden" />}
     </div>
   )
 }
