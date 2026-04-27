@@ -8,7 +8,7 @@ Novo comportamento: UNIQUE(company_id, phone) — um número pode existir em
 empresas distintas, mas não pode se repetir dentro da mesma empresa.
 
 Revision ID: f1e2d3c4b5a6
-Revises: a2b3c4d5e6f7
+Revises: e3c9a1d84f17
 Create Date: 2026-04-27
 
 """
@@ -16,7 +16,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "f1e2d3c4b5a6"
-down_revision: Union[str, Sequence[str], None] = "a2b3c4d5e6f7"
+down_revision: Union[str, Sequence[str], None] = "e3c9a1d84f17"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
