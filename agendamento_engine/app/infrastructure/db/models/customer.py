@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, Boolean, Text
+from sqlalchemy import Column, String, ForeignKey, Boolean, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -10,6 +10,11 @@ class Customer(Base, TimestampMixin):
     """
     Cliente da barbearia (quem agenda).
     Tabela renomeada de 'clients' para 'customers' na migration f3a9e1d72b04.
+
+    Constraint de unicidade: (company_id, phone) — o mesmo telefone pode existir
+    em empresas diferentes, mas não pode se repetir dentro da mesma empresa.
+    Migration: f1e2d3c4b5a6 removeu a constraint legada UNIQUE(phone) e criou
+    a correta UNIQUE(company_id, phone).
     """
     __tablename__ = "customers"
 
@@ -23,3 +28,7 @@ class Customer(Base, TimestampMixin):
 
     company = relationship("Company", back_populates="customers")
     appointments = relationship("Appointment", back_populates="customer", lazy="dynamic")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "phone", name="uq_customers_company_phone"),
+    )

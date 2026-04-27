@@ -1,12 +1,16 @@
 import re
+import logging
 from typing import Optional
 from uuid import UUID
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import Customer
 from app.infrastructure.db.models.appointment import Appointment
 from app.modules.customers.schemas import CustomerCreate, CustomerUpdate, CustomerAppointmentItem
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_phone(phone: str) -> str:
@@ -177,6 +181,10 @@ def get_or_create_by_phone(
     Retorna o cliente existente ou cria um novo.
     A busca usa deduplicação inteligente — variações do mesmo número
     retornam o cadastro existente em vez de criar duplicata.
+
+    Protegido contra race condition: se dois requests simultâneos passarem
+    pela verificação inicial e ambos tentarem INSERT, o segundo captura o
+    IntegrityError, faz rollback e retorna o registro criado pelo primeiro.
     """
     customer = _find_by_phone_smart(db, company_id, phone)
     if customer:
@@ -184,11 +192,25 @@ def get_or_create_by_phone(
 
     # Não encontrou nenhuma variação — criar novo cadastro com número normalizado
     normalized = normalize_phone(phone)
-    customer = Customer(company_id=company_id, name=name, phone=normalized)
-    db.add(customer)
-    db.commit()
-    db.refresh(customer)
-    return customer
+    try:
+        customer = Customer(company_id=company_id, name=name, phone=normalized)
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+        return customer
+    except IntegrityError:
+        # Race condition: outro request criou o mesmo cliente entre nosso SELECT e INSERT.
+        # Rollback necessário para limpar o estado da transação antes do novo SELECT.
+        db.rollback()
+        logger.warning(
+            "get_or_create_by_phone: IntegrityError (race condition) — "
+            "retrying SELECT. company_id=%s phone=%s", company_id, normalized
+        )
+        customer = _find_by_phone_smart(db, company_id, phone)
+        if customer:
+            return customer
+        # Se ainda não achar após rollback, relança — algo inesperado ocorreu
+        raise
 
 
 def update_customer(db: Session, company_id: UUID, customer_id: UUID, data: CustomerUpdate) -> Customer:
