@@ -1,17 +1,38 @@
 import asyncio
-import logging
 import os
 from contextlib import asynccontextmanager
 
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if not _raw_origins:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS não está definido. "
+        "Configure no .env antes de iniciar a aplicação. "
+        "Exemplo: ALLOWED_ORIGINS=http://localhost:3000,https://app.seudominio.com.br"
+    )
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
-logging.basicConfig(
-    level=logging.getLevelName(os.getenv("LOG_LEVEL", "INFO").upper()),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from app.core.logging import setup_logging  # noqa: E402
+
+setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+
+import logging  # noqa: E402
+
+_sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+if _sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        integrations=[StarletteIntegration(), FastApiIntegration()],
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+    )
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from app.middleware.request_context import RequestContextMiddleware
 
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
@@ -63,9 +84,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restringir em produção
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

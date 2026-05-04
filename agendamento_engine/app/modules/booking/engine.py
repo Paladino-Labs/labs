@@ -56,6 +56,7 @@ from app.modules.booking.schemas import (
     ProfessionalOption,
     DateOption,
     SlotOption,
+    ShiftOption,
     BookingIntent,
     BookingResult,
     AppointmentSummary,
@@ -117,9 +118,10 @@ _CHANNEL_TTL: dict[str, timedelta] = {
 _BACK_STATE: dict[str, str] = {
     "AWAITING_PROFESSIONAL":   "AWAITING_SERVICE",
     "AWAITING_DATE":           "AWAITING_PROFESSIONAL",
-    "AWAITING_TIME":           "AWAITING_DATE",
-    "AWAITING_CUSTOMER":       "AWAITING_TIME",        # novo — volta para seleção de horário
-    "AWAITING_CONFIRMATION":   "AWAITING_CUSTOMER",    # alterado — volta para dados do cliente
+    "AWAITING_SHIFT":          "AWAITING_DATE",         # novo — volta para seleção de data
+    "AWAITING_TIME":           "AWAITING_SHIFT",        # alterado — volta para seleção de turno
+    "AWAITING_CUSTOMER":       "AWAITING_TIME",
+    "AWAITING_CONFIRMATION":   "AWAITING_CUSTOMER",
     "AWAITING_CANCEL_CONFIRM": "AWAITING_CONFIRMATION",
 }
 
@@ -182,6 +184,76 @@ class BookingEngine:
         return options
 
     # ─── Datas disponíveis ────────────────────────────────────────────────────
+
+    def list_available_dates_paged(
+        self,
+        db: Session,
+        company_id: UUID,
+        professional_id: Optional[UUID],
+        service_id: UUID,
+        offset_days: int = 0,
+        window: int = 7,
+        reference_tz: str = "America/Sao_Paulo",
+    ) -> tuple[list[DateOption], bool, bool]:
+        """
+        Retorna uma janela de <window> dias com indicação de disponibilidade.
+
+        Parâmetros:
+          offset_days — dias a partir de hoje para iniciar a janela (mínimo 0).
+          window      — tamanho da janela em dias.
+          reference_tz — fuso da empresa para gerar labels corretos.
+
+        Retorna: (dates, has_next, has_previous)
+          dates        — DateOption[] para os dias [offset, offset+window-1]
+          has_next     — True se há disponibilidade em algum dia da próxima janela
+          has_previous — True se offset_days > 0
+        """
+        offset_days = max(0, offset_days)
+
+        try:
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo(reference_tz)).date()
+        except Exception:
+            today = datetime.now(timezone.utc).date()
+
+        if professional_id:
+            profs_to_check = [professional_id]
+        else:
+            profs = professional_svc.list_by_service(db, company_id, service_id)
+            profs_to_check = [p.id for p in profs]
+
+        def _has(d: date) -> bool:
+            for pid in profs_to_check:
+                try:
+                    slots = availability_svc.get_available_slots(
+                        db, company_id, pid, service_id, d
+                    )
+                    if slots:
+                        return True
+                except HTTPException:
+                    continue
+            return False
+
+        # Janela atual
+        dates: list[DateOption] = []
+        for i in range(window):
+            d = today + timedelta(days=offset_days + i)
+            dates.append(DateOption(
+                date=d,
+                label=_label_date(d, reference_tz),
+                has_availability=_has(d),
+                row_key=f"dia_{i + 1}",
+            ))
+
+        # Verificar próxima janela — curto-circuita no primeiro dia disponível
+        has_next = False
+        for i in range(window, window * 2):
+            d = today + timedelta(days=offset_days + i)
+            if _has(d):
+                has_next = True
+                break
+
+        return dates, has_next, bool(offset_days > 0)
 
     def list_available_dates(
         self,
@@ -285,6 +357,58 @@ class BookingEngine:
             )
             for i, s in enumerate(raw)
         ]
+
+    @staticmethod
+    def _filter_slots_by_shift(slots: list, shift: str, tz) -> list:
+        """
+        Filtra slots pelo turno usando hora local da empresa.
+        Reutilizado em get_shift_availability e _handle_select_shift.
+        """
+        if shift == "manha":
+            return [s for s in slots if s.start_at.astimezone(tz).hour < 12]
+        if shift == "tarde":
+            return [s for s in slots if 12 <= s.start_at.astimezone(tz).hour < 18]
+        if shift == "noite":
+            return [s for s in slots if s.start_at.astimezone(tz).hour >= 18]
+        return slots
+
+    def get_shift_availability(
+        self,
+        db: Session,
+        company_id: UUID,
+        professional_id: Optional[UUID],
+        service_id: UUID,
+        target_date: date,
+        company_timezone: str = "America/Sao_Paulo",
+    ) -> list[ShiftOption]:
+        """
+        Retorna os três turnos do dia com a contagem de slots disponíveis em cada um.
+        Usado ao entrar no estado AWAITING_SHIFT (selecione o período do dia).
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        all_slots = self.list_available_slots(
+            db, company_id, professional_id, service_id, target_date,
+            limit=0, company_timezone=company_timezone,
+        )
+
+        try:
+            tz = ZoneInfo(company_timezone)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("America/Sao_Paulo")
+
+        options: list[ShiftOption] = []
+        for shift, label, row_key, min_h, max_h in self._SHIFT_DEFS:
+            filtered = [s for s in all_slots if min_h <= s.start_at.astimezone(tz).hour < max_h]
+            options.append(ShiftOption(
+                shift=shift,
+                label=label,
+                slot_count=len(filtered),
+                has_availability=bool(filtered),
+                row_key=row_key,
+            ))
+
+        return options
 
     def list_next_available_slots(
         self,
@@ -508,6 +632,8 @@ class BookingEngine:
         ("AWAITING_SERVICE",        BookingAction.SELECT_SERVICE):      "_handle_select_service",
         ("AWAITING_PROFESSIONAL",   BookingAction.SELECT_PROFESSIONAL): "_handle_select_professional",
         ("AWAITING_DATE",           BookingAction.SELECT_DATE):         "_handle_select_date",
+        ("AWAITING_DATE",           BookingAction.NAVIGATE_DATES):      "_handle_navigate_dates",
+        ("AWAITING_SHIFT",          BookingAction.SELECT_SHIFT):        "_handle_select_shift",
         ("AWAITING_TIME",           BookingAction.SELECT_TIME):         "_handle_select_time",
         ("AWAITING_CUSTOMER",       BookingAction.SET_CUSTOMER):        "_handle_set_customer",  # [FIX 1] movido para cá
         ("AWAITING_CONFIRMATION",   BookingAction.CONFIRM):             "_handle_confirm",
@@ -515,6 +641,13 @@ class BookingEngine:
         ("CONFIRMED",               BookingAction.CANCEL_START):        "_handle_cancel_start",
         ("AWAITING_CANCEL_CONFIRM", BookingAction.CONFIRM_CANCEL):      "_handle_confirm_cancel",
     }
+
+    # Definição dos turnos — ordem, labels e faixas de hora local
+    _SHIFT_DEFS: list[tuple[str, str, str, int, int]] = [
+        ("manha", "🌅 Manhã (até 12h)",    "turno_manha",  0, 12),
+        ("tarde", "🌤 Tarde (12h – 18h)", "turno_tarde", 12, 18),
+        ("noite", "🌙 Noite (após 18h)",  "turno_noite", 18, 24),
+    ]
 
     def start_session(
         self,
@@ -612,19 +745,48 @@ class BookingEngine:
             return self.list_professionals(db, company_id, service_id)
 
         if state == "AWAITING_DATE":
-            service_id = UUID(ctx["service_id"])
-            prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
-            return self.list_available_dates(db, company_id, prof_id, service_id,
-                                              reference_tz=tz)
+            service_id  = UUID(ctx["service_id"])
+            prof_id     = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+            offset_days = int(ctx.get("date_offset_days", 0))
+            dates, has_next, has_previous = self.list_available_dates_paged(
+                db, company_id, prof_id, service_id,
+                offset_days=offset_days, window=settings.DATE_WINDOW_SIZE,
+                reference_tz=tz,
+            )
+            # Atualiza context em memória para que o router possa ler os flags
+            ctx = dict(ctx)
+            ctx["dates_has_next"]    = has_next
+            ctx["dates_has_previous"] = has_previous
+            session.context = ctx
+            return dates
 
-        if state == "AWAITING_TIME":
-            service_id = UUID(ctx["service_id"])
-            prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
-            target_date = date.fromisoformat(ctx["selected_date"])
-            return self.list_available_slots(
+        if state == "AWAITING_SHIFT":
+            service_id   = UUID(ctx["service_id"])
+            prof_id      = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+            target_date  = date.fromisoformat(ctx["selected_date"])
+            return self.get_shift_availability(
                 db, company_id, prof_id, service_id, target_date,
                 company_timezone=tz,
             )
+
+        if state == "AWAITING_TIME":
+            from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+            service_id  = UUID(ctx["service_id"])
+            prof_id     = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+            target_date = date.fromisoformat(ctx["selected_date"])
+            all_slots   = self.list_available_slots(
+                db, company_id, prof_id, service_id, target_date,
+                company_timezone=tz,
+            )
+            # Aplicar filtro de turno se selecionado (sessão retomada mantém o turno escolhido)
+            selected_shift = ctx.get("selected_shift")
+            if selected_shift:
+                try:
+                    company_tz = ZoneInfo(tz)
+                except ZoneInfoNotFoundError:
+                    company_tz = ZoneInfo("America/Sao_Paulo")
+                all_slots = self._filter_slots_by_shift(all_slots, selected_shift, company_tz)
+            return all_slots
 
         # [FIX 1] AWAITING_CUSTOMER: sem lista — frontend exibe formulário de dados
         # AWAITING_CONFIRMATION, AWAITING_CANCEL_CONFIRM, CONFIRMED, CANCELLED:
@@ -754,10 +916,11 @@ class BookingEngine:
             prof = professional_svc.get_professional_or_404(db, session.company_id, prof_id)
             prof_name = prof.name
 
-        # [FIX 2] Listar opções ANTES de montar o ctx final
-        options = self.list_available_dates(
+        # [FIX 2] Listar opções ANTES de montar o ctx final (paginado, janela inicial)
+        options, has_next, _ = self.list_available_dates_paged(
             db, session.company_id, prof_id,
             UUID(ctx["service_id"]),
+            offset_days=0, window=settings.DATE_WINDOW_SIZE,
             reference_tz=session.company_timezone,
         )
 
@@ -765,6 +928,9 @@ class BookingEngine:
         ctx.update({
             "professional_id":   str(prof_id) if prof_id else None,
             "professional_name": prof_name,
+            "date_offset_days":  0,
+            "dates_has_next":    has_next,
+            "dates_has_previous": False,
             "last_listed_dates": [
                 {"date": str(o.date), "label": o.label,
                  "has_availability": o.has_availability, "row_key": o.row_key}
@@ -774,16 +940,18 @@ class BookingEngine:
         session.context = ctx  # atribuição única
         session.state = "AWAITING_DATE"
 
-        return SessionUpdateResult(next_state="AWAITING_DATE", options=options)
+        return SessionUpdateResult(
+            next_state="AWAITING_DATE", options=options,
+            dates_has_next=has_next, dates_has_previous=False,
+        )
 
     def _handle_select_date(
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
-        Armazena a data e lista os horários disponíveis.
+        Armazena a data e lista os turnos disponíveis do dia.
         [FIX 2] Contexto montado completamente antes de uma única atribuição.
-        [FIX 3] Slots retornados já no timezone da empresa.
-        Transição: AWAITING_DATE → AWAITING_TIME.
+        Transição: AWAITING_DATE → AWAITING_SHIFT.
         """
         ctx = dict(session.context or {})
 
@@ -800,17 +968,88 @@ class BookingEngine:
 
         prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
 
-        # [FIX 2] Listar opções ANTES de montar o ctx final
-        # [FIX 3] Passar company_timezone para conversão correta dos slots
-        options = self.list_available_slots(
+        # [FIX 2] Calcular disponibilidade por turno ANTES de montar o ctx final
+        shift_options = self.get_shift_availability(
             db, session.company_id, prof_id, UUID(ctx["service_id"]), selected_date,
-            limit=settings.BOT_MAX_SLOTS_DISPLAYED,
             company_timezone=session.company_timezone,
         )
 
         # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        # Limpar metadados de navegação de datas e turno anterior — não são mais necessários
+        ctx.pop("date_offset_days", None)
+        ctx.pop("dates_has_next", None)
+        ctx.pop("dates_has_previous", None)
+        ctx.pop("selected_shift", None)
+        ctx.pop("last_listed_slots", None)
         ctx.update({
             "selected_date": selected_date.isoformat(),
+            "last_listed_shifts": [
+                {
+                    "shift":            o.shift,
+                    "label":            o.label,
+                    "slot_count":       o.slot_count,
+                    "has_availability": o.has_availability,
+                    "row_key":          o.row_key,
+                }
+                for o in shift_options
+            ],
+        })
+        session.context = ctx  # atribuição única
+        session.state = "AWAITING_SHIFT"
+
+        return SessionUpdateResult(next_state="AWAITING_SHIFT", options=shift_options)
+
+    def _handle_select_shift(
+        self, db: Session, session: "BookingSession", payload: dict
+    ) -> SessionUpdateResult:
+        """
+        Armazena o turno selecionado e lista os slots filtrados.
+        Rejeita turnos sem disponibilidade (has_availability=False).
+        Transição: AWAITING_SHIFT → AWAITING_TIME.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        shift = str(payload.get("shift", "")).lower()
+        if shift not in ("manha", "tarde", "noite"):
+            raise InvalidActionError("Turno inválido. Use: manha, tarde ou noite")
+
+        ctx = dict(session.context or {})
+
+        # Verificar disponibilidade do turno (usa cache do ctx se disponível)
+        listed_shifts = ctx.get("last_listed_shifts", [])
+        cached = next((s for s in listed_shifts if s.get("shift") == shift), None)
+        if cached and not cached.get("has_availability", True):
+            raise InvalidActionError(
+                f"O turno '{shift}' não tem horários disponíveis. "
+                "Escolha outro turno ou outra data."
+            )
+
+        selected_date = date.fromisoformat(ctx["selected_date"])
+        prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+
+        # [FIX 2] Listar slots ANTES de montar o ctx final
+        all_slots = self.list_available_slots(
+            db, session.company_id, prof_id, UUID(ctx["service_id"]), selected_date,
+            limit=0, company_timezone=session.company_timezone,
+        )
+
+        try:
+            tz = ZoneInfo(session.company_timezone)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("America/Sao_Paulo")
+
+        filtered = self._filter_slots_by_shift(all_slots, shift, tz)
+        display_slots = filtered[:settings.BOT_MAX_SLOTS_DISPLAYED]
+
+        if not display_slots:
+            raise InvalidActionError(
+                f"Não há horários disponíveis neste turno. "
+                "Escolha outro turno ou outra data."
+            )
+
+        # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx.update({
+            "selected_shift": shift,
             "last_listed_slots": [
                 {
                     "start_at":          o.start_at.isoformat(),
@@ -819,13 +1058,13 @@ class BookingEngine:
                     "professional_name": o.professional_name,
                     "row_key":           o.row_key,
                 }
-                for o in options
+                for o in display_slots
             ],
         })
         session.context = ctx  # atribuição única
         session.state = "AWAITING_TIME"
 
-        return SessionUpdateResult(next_state="AWAITING_TIME", options=options)
+        return SessionUpdateResult(next_state="AWAITING_TIME", options=display_slots)
 
     def _handle_select_time(
         self, db: Session, session: "BookingSession", payload: dict
@@ -1089,14 +1328,18 @@ class BookingEngine:
 
         prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
 
-        # [FIX 2] Listar datas ANTES de montar o ctx final
-        options = self.list_available_dates(
+        # [FIX 2] Listar datas ANTES de montar o ctx final (paginado, janela inicial)
+        options, has_next, _ = self.list_available_dates_paged(
             db, session.company_id, prof_id,
             UUID(ctx["service_id"]),
+            offset_days=0, window=settings.DATE_WINDOW_SIZE,
             reference_tz=session.company_timezone,
         )
 
         # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        ctx["date_offset_days"]  = 0
+        ctx["dates_has_next"]    = has_next
+        ctx["dates_has_previous"] = False
         ctx["last_listed_dates"] = [
             {"date": str(o.date), "label": o.label,
              "has_availability": o.has_availability, "row_key": o.row_key}
@@ -1105,7 +1348,46 @@ class BookingEngine:
         session.context = ctx  # atribuição única
         session.state = "AWAITING_DATE"
 
-        return SessionUpdateResult(next_state="AWAITING_DATE", options=options)
+        return SessionUpdateResult(
+            next_state="AWAITING_DATE", options=options,
+            dates_has_next=has_next, dates_has_previous=False,
+        )
+
+    def _handle_navigate_dates(
+        self, db: Session, session: "BookingSession", payload: dict
+    ) -> SessionUpdateResult:
+        """
+        Avança ou recua a janela de datas exibidas — não muda o estado FSM.
+        payload: {offset_days: int}  (0 = hoje, 7 = próxima semana, ...)
+        Transição: AWAITING_DATE → AWAITING_DATE (self-transition).
+        """
+        offset_days = max(0, int(payload.get("offset_days", 0)))
+        ctx = dict(session.context or {})
+
+        svc_id  = UUID(ctx["service_id"])
+        prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+
+        dates, has_next, has_previous = self.list_available_dates_paged(
+            db, session.company_id, prof_id, svc_id,
+            offset_days=offset_days, window=settings.DATE_WINDOW_SIZE,
+            reference_tz=session.company_timezone,
+        )
+
+        ctx["date_offset_days"]  = offset_days
+        ctx["dates_has_next"]    = has_next
+        ctx["dates_has_previous"] = has_previous
+        ctx["last_listed_dates"] = [
+            {"date": str(o.date), "label": o.label,
+             "has_availability": o.has_availability, "row_key": o.row_key}
+            for o in dates
+        ]
+        session.context = ctx
+        # estado permanece AWAITING_DATE
+
+        return SessionUpdateResult(
+            next_state="AWAITING_DATE", options=dates,
+            dates_has_next=has_next, dates_has_previous=has_previous,
+        )
 
     def _handle_reset(
         self, db: Session, session: "BookingSession", payload: dict

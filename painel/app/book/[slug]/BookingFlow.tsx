@@ -36,11 +36,20 @@ interface SlotOpt {
   row_key: string
 }
 
+interface ShiftOpt {
+  shift: string           // "manha" | "tarde" | "noite"
+  label: string           // "🌅 Manhã (até 12h)"
+  slot_count: number
+  has_availability: boolean
+  row_key: string         // "turno_manha" | "turno_tarde" | "turno_noite"
+}
+
 type SrvState =
   | "IDLE"
   | "AWAITING_SERVICE"
   | "AWAITING_PROFESSIONAL"
   | "AWAITING_DATE"
+  | "AWAITING_SHIFT"
   | "AWAITING_TIME"
   | "AWAITING_CUSTOMER"
   | "AWAITING_CONFIRMATION"
@@ -73,12 +82,14 @@ export interface Session {
   session_id: string
   token: string
   state: SrvState
-  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt)[]
+  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt | ShiftOpt)[]
   context_summary: ContextSummary
   confirmation: ConfirmData | null
   expires_at: string
   company_timezone: string
   error?: string | null
+  dates_has_next?: boolean
+  dates_has_previous?: boolean
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -257,7 +268,7 @@ export default function BookingFlow({
   // ── Barra de progresso ────────────────────────────────────────────────────
   const PROGRESS_STEPS: SrvState[] = [
     "AWAITING_SERVICE", "AWAITING_PROFESSIONAL", "AWAITING_DATE",
-    "AWAITING_TIME", "AWAITING_CUSTOMER", "AWAITING_CONFIRMATION",
+    "AWAITING_SHIFT", "AWAITING_TIME", "AWAITING_CUSTOMER", "AWAITING_CONFIRMATION",
   ]
   const currentIdx  = session ? PROGRESS_STEPS.indexOf(session.state) : -1
   const showProgress = session && !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
@@ -304,9 +315,26 @@ export default function BookingFlow({
         )}
 
         {session?.state === "AWAITING_DATE" && (
-          <DateStep options={session.options as DateOpt[]} summary={session.context_summary}
-            loading={loading} onBack={handleBack}
-            onSelect={(opt) => dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })} />
+          <DateStep
+            options={session.options as DateOpt[]}
+            summary={session.context_summary}
+            hasNext={session.dates_has_next ?? false}
+            hasPrevious={session.dates_has_previous ?? false}
+            loading={loading}
+            onBack={handleBack}
+            onSelect={(opt) => dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })}
+            onNavigate={(offsetDays) => dispatch("NAVIGATE_DATES", { offset_days: offsetDays })}
+          />
+        )}
+
+        {session?.state === "AWAITING_SHIFT" && (
+          <ShiftStep
+            options={session.options as ShiftOpt[]}
+            summary={session.context_summary}
+            loading={loading}
+            onBack={handleBack}
+            onSelect={(opt) => dispatch("SELECT_SHIFT", { shift: opt.shift, row_key: opt.row_key })}
+          />
         )}
 
         {session?.state === "AWAITING_TIME" && (
@@ -418,40 +446,146 @@ function ProfessionalStep({ options, summary, loading, onBack, onSelect }: {
   )
 }
 
-function DateStep({ options, summary, loading, onBack, onSelect }: {
-  options: DateOpt[]; summary: ContextSummary; loading: boolean
-  onBack: () => void; onSelect: (opt: DateOpt) => void
+function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onSelect, onNavigate }: {
+  options: DateOpt[]
+  summary: ContextSummary
+  hasNext: boolean
+  hasPrevious: boolean
+  loading: boolean
+  onBack: () => void
+  onSelect: (opt: DateOpt) => void
+  onNavigate: (offsetDays: number) => void
 }) {
-  const subtitle = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
-  const available = options.filter((d) => d.has_availability)
-  const unavailableCount = options.length - available.length
+  const [offsetDays, setOffsetDays] = useState(0)
+
+  const subtitle   = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
+  const available  = options.filter((d) => d.has_availability)
+  const hiddenCount = options.length - available.length
+
+  function handleNext() {
+    const next = offsetDays + 7
+    setOffsetDays(next)
+    onNavigate(next)
+  }
+
+  function handlePrev() {
+    const prev = Math.max(0, offsetDays - 7)
+    setOffsetDays(prev)
+    onNavigate(prev)
+  }
 
   return (
     <div>
       <StepHeader title="Qual dia funciona para você?" subtitle={subtitle || undefined} onBack={onBack} />
+
       {loading ? <Spinner /> : (
-        <div className="space-y-2">
-          {available.length === 0 ? (
-            <p className="text-sm py-8 text-center" style={{ color: "var(--book-text-muted)" }}>
-              Nenhum dia disponível nos próximos 30 dias.
+        <>
+          {/* Botão "dias anteriores" */}
+          {hasPrevious && (
+            <button onClick={handlePrev} disabled={loading}
+              className="w-full text-sm mb-3 flex items-center gap-1 disabled:opacity-40"
+              style={{ color: "var(--book-primary)" }}>
+              ← 7 dias anteriores
+            </button>
+          )}
+
+          <div className="space-y-2">
+            {available.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: "var(--book-text-muted)" }}>
+                Nenhum dia disponível nesta semana.
+              </p>
+            ) : (
+              <>
+                {available.map((d) => (
+                  <button key={d.row_key} onClick={() => onSelect(d)} disabled={loading}
+                    className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
+                    style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}>
+                    <span className="font-medium" style={{ color: "var(--book-text)" }}>{d.label}</span>
+                  </button>
+                ))}
+                {hiddenCount > 0 && (
+                  <p className="text-xs pt-1" style={{ color: "var(--book-text-muted)" }}>
+                    {hiddenCount} dia{hiddenCount > 1 ? "s" : ""} sem disponibilidade neste período.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Botão "próximos 7 dias" */}
+          {hasNext && (
+            <button onClick={handleNext} disabled={loading}
+              className="w-full text-sm mt-3 flex items-center justify-end gap-1 disabled:opacity-40"
+              style={{ color: "var(--book-primary)" }}>
+              Ver próximos 7 dias →
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function ShiftStep({ options, summary, loading, onBack, onSelect }: {
+  options: ShiftOpt[]
+  summary: ContextSummary
+  loading: boolean
+  onBack: () => void
+  onSelect: (opt: ShiftOpt) => void
+}) {
+  const dateLabel = summary.selected_date
+    ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
+        weekday: "long", day: "2-digit", month: "long",
+      })
+    : undefined
+
+  return (
+    <div>
+      <StepHeader title="Qual período prefere?" subtitle={dateLabel} onBack={onBack} />
+      {loading ? <Spinner /> : (
+        <div className="space-y-3">
+          {options.map((shift) => {
+            const unavailable = !shift.has_availability
+            return (
+              <button
+                key={shift.row_key}
+                onClick={() => !unavailable && onSelect(shift)}
+                disabled={loading || unavailable}
+                className="w-full text-left rounded-xl p-4 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
+                onMouseEnter={(e) => {
+                  if (!unavailable) (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)"
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)"
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium" style={{ color: unavailable ? "var(--book-text-muted)" : "var(--book-text)" }}>
+                    {shift.label}
+                  </span>
+                  {unavailable ? (
+                    <span className="text-xs" style={{ color: "var(--book-text-muted)" }}>
+                      indisponível
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium" style={{ color: "var(--book-primary)" }}>
+                      {shift.slot_count} horário{shift.slot_count !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+          {options.every((s) => !s.has_availability) && (
+            <p className="text-sm text-center pt-4" style={{ color: "var(--book-text-muted)" }}>
+              Nenhum horário disponível neste dia.{" "}
+              <button onClick={onBack} className="underline" style={{ color: "var(--book-primary)" }}>
+                Escolher outra data
+              </button>
             </p>
-          ) : (
-            <>
-              {available.map((d) => (
-                <button key={d.row_key} onClick={() => onSelect(d)} disabled={loading}
-                  className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
-                  style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}>
-                  <span className="font-medium" style={{ color: "var(--book-text)" }}>{d.label}</span>
-                </button>
-              ))}
-              {unavailableCount > 0 && (
-                <p className="text-xs pt-2" style={{ color: "var(--book-text-muted)" }}>
-                  {unavailableCount} dia{unavailableCount > 1 ? "s" : ""} sem disponibilidade no período.
-                </p>
-              )}
-            </>
           )}
         </div>
       )}
@@ -471,6 +605,7 @@ function TimeStep({ options, summary, companyTimezone, loading, error, onBack, o
 
   return (
     <div>
+      {/* onBack aqui vai para AWAITING_SHIFT (alterar turno) */}
       <StepHeader title="Escolha um horário" subtitle={dateLabel} onBack={onBack} />
       {error && <ErrorBanner msg={error} />}
       {loading ? <Spinner /> : options.length === 0 ? (

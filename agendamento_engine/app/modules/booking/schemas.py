@@ -45,6 +45,16 @@ class SlotOption:
 
 
 @dataclass
+class ShiftOption:
+    """Período do dia com contagem de horários disponíveis."""
+    shift: str              # "manha" | "tarde" | "noite"
+    label: str              # "🌅 Manhã (até 12h)"
+    slot_count: int         # quantidade de horários disponíveis no turno
+    has_availability: bool
+    row_key: str            # "turno_manha" | "turno_tarde" | "turno_noite"
+
+
+@dataclass
 class BookingIntent:
     company_id: UUID
     customer_id: UUID
@@ -116,8 +126,11 @@ class SessionUpdateResult:
                         o caller deve retornar o resultado existente sem criar duplicata.
     """
     next_state:         str
-    options:            list  # list[ServiceOption | ProfessionalOption | DateOption | SlotOption]
+    options:            list  # list[ServiceOption | ProfessionalOption | DateOption | SlotOption | ShiftOption]
     confirmation_data:  Optional["BookingResult"] = None
     cancel_data:        Optional["CancelResult"]  = None
     error:              Optional[str]             = None
     idempotent_replay:  bool                      = False
+    # Paginação de datas — preenchido quando next_state == "AWAITING_DATE"
+    dates_has_next:     bool                      = False
+    dates_has_previous: bool                      = False

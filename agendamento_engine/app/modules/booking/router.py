@@ -46,6 +46,7 @@ from app.modules.booking.schemas import (
     ProfessionalOption,
     DateOption,
     SlotOption,
+    ShiftOption,
 )
 from app.modules.booking.http_schemas import (
     # Legados
@@ -65,6 +66,7 @@ from app.modules.booking.http_schemas import (
     ProfessionalOptionHTTP,
     DateOptionHTTP,
     SlotOptionHTTP,
+    ShiftOptionHTTP,
     ConfirmationHTTP,
     CancelConfirmationHTTP,
     ContextSummaryHTTP,
@@ -73,6 +75,7 @@ from app.modules.booking.http_schemas import (
     UpdateSessionRequest,
     UpdateSessionResponse,
     SessionStateResponse,
+    DatesPageResponse,
 )
 from app.modules.customers import service as customer_svc
 from app.modules.appointments.polices import PolicyViolationError
@@ -219,31 +222,46 @@ def list_professionals(
 
 # ─── 4.1 — Datas disponíveis ─────────────────────────────────────────────────
 
-@router.get("/{slug}/dates", response_model=list[DateOptionResponse])
+@router.get("/{slug}/dates", response_model=DatesPageResponse)
 def list_available_dates(
     slug: str,
     service_id: UUID = Query(...),
     professional_id: Optional[UUID] = Query(None),
-    days: int = Query(30, ge=1, le=60),
+    offset_days: int = Query(0, ge=0, le=365),
+    window: int = Query(7, ge=1, le=30),
     db: Session = Depends(get_db),
 ):
     """
-    Retorna os próximos <days> dias com indicação de disponibilidade.
+    Retorna uma janela de <window> dias com indicação de disponibilidade.
+
+    offset_days — dias a partir de hoje para iniciar a janela (default 0).
+    window      — tamanho da janela em dias (default 7, máx 30).
+    has_next    — True se há disponibilidade em algum dia da próxima janela.
+    has_previous — True se offset_days > 0.
     professional_id omitido = qualquer profissional do serviço.
     """
     company, _ = _require_online_booking(slug, db)
-    options = booking_engine.list_available_dates(
-        db, company.id, professional_id, service_id, days=days
+    tz = company.timezone or settings.DEFAULT_COMPANY_TIMEZONE
+    dates, has_next, has_previous = booking_engine.list_available_dates_paged(
+        db, company.id, professional_id, service_id,
+        offset_days=offset_days, window=window,
+        reference_tz=tz,
     )
-    return [
-        DateOptionResponse(
-            date=o.date,
-            label=o.label,
-            has_availability=o.has_availability,
-            row_key=o.row_key,
-        )
-        for o in options
-    ]
+    return DatesPageResponse(
+        dates=[
+            DateOptionResponse(
+                date=o.date,
+                label=o.label,
+                has_availability=o.has_availability,
+                row_key=o.row_key,
+            )
+            for o in dates
+        ],
+        has_next=has_next,
+        has_previous=has_previous,
+        offset_days=offset_days,
+        window=window,
+    )
 
 
 # ─── 4.1 — Slots disponíveis ─────────────────────────────────────────────────
@@ -254,16 +272,30 @@ def list_available_slots(
     service_id: UUID = Query(...),
     target_date: date = Query(...),
     professional_id: Optional[UUID] = Query(None),
+    shift: Optional[str] = Query(None, description="Filtro de turno: manha | tarde | noite"),
     db: Session = Depends(get_db),
 ):
     """
     Retorna slots disponíveis para a data.
     professional_id omitido = agrega todos os profissionais do serviço.
+    shift (opcional) filtra por período do dia: manha (<12h), tarde (12–18h), noite (≥18h).
     """
     company, _ = _require_online_booking(slug, db)
+    tz = company.timezone or settings.DEFAULT_COMPANY_TIMEZONE
     options = booking_engine.list_available_slots(
-        db, company.id, professional_id, service_id, target_date
+        db, company.id, professional_id, service_id, target_date,
+        company_timezone=tz,
     )
+
+    # Aplicar filtro de turno se fornecido
+    if shift and shift in ("manha", "tarde", "noite"):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            company_tz = ZoneInfo(tz)
+        except ZoneInfoNotFoundError:
+            company_tz = ZoneInfo("America/Sao_Paulo")
+        options = booking_engine._filter_slots_by_shift(options, shift, company_tz)
+
     return [
         SlotOptionResponse(
             start_at=o.start_at,
@@ -467,6 +499,14 @@ def _serialize_options(options: list, company_timezone: str) -> list[dict]:
             result.append(DateOptionHTTP(
                 date=opt.date,
                 label=opt.label,
+                has_availability=opt.has_availability,
+                row_key=opt.row_key,
+            ).model_dump(mode="json"))
+        elif isinstance(opt, ShiftOption):
+            result.append(ShiftOptionHTTP(
+                shift=opt.shift,
+                label=opt.label,
+                slot_count=opt.slot_count,
                 has_availability=opt.has_availability,
                 row_key=opt.row_key,
             ).model_dump(mode="json"))
@@ -684,6 +724,8 @@ def update_session(
         error=result.error,
         idempotent=result.idempotent_replay,
         expires_at=session.expires_at,
+        dates_has_next=result.dates_has_next,
+        dates_has_previous=result.dates_has_previous,
     )
 
 
@@ -745,6 +787,8 @@ def resume_session(
                 total_amount=str(ctx.get("total_amount", "0")),
             )
 
+    # Ler flags de paginação de datas do contexto (atualizados por get_options_for_state)
+    ctx_after = session.context or {}
     return SessionStateResponse(
         session_id=session.id,
         token=session.token,
@@ -754,4 +798,6 @@ def resume_session(
         confirmation=confirmation,
         expires_at=session.expires_at,
         company_timezone=tz,
+        dates_has_next=bool(ctx_after.get("dates_has_next", False)),
+        dates_has_previous=bool(ctx_after.get("dates_has_previous", False)),
     )

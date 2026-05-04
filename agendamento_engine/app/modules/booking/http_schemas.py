@@ -87,6 +87,15 @@ class DateOptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DatesPageResponse(BaseModel):
+    """Resposta paginada do endpoint GET /booking/{slug}/dates."""
+    dates: List[DateOptionResponse]
+    has_next: bool
+    has_previous: bool
+    offset_days: int
+    window: int
+
+
 # ─── Saída: /slots ────────────────────────────────────────────────────────────
 
 class SlotOptionResponse(BaseModel):
@@ -193,6 +202,15 @@ class SlotOptionHTTP(BaseModel):
     professional_id: UUID
     professional_name: str
     row_key: str
+
+
+class ShiftOptionHTTP(BaseModel):
+    """Período do dia com quantidade de horários disponíveis."""
+    shift: str              # "manha" | "tarde" | "noite"
+    label: str              # "🌅 Manhã (até 12h)"
+    slot_count: int
+    has_availability: bool
+    row_key: str            # "turno_manha" | "turno_tarde" | "turno_noite"
 
 
 # ─── Confirmação serializada ──────────────────────────────────────────────────
@@ -313,6 +331,9 @@ class UpdateSessionResponse(BaseModel):
     error: Optional[str] = None
     idempotent: bool = False
     expires_at: datetime        # UTC — refreshado a cada ação bem-sucedida
+    # Paginação de datas — preenchido quando state == "AWAITING_DATE"
+    dates_has_next: bool = False
+    dates_has_previous: bool = False
 
 
 # ─── GET /booking/{slug}/session/{token} ─────────────────────────────────────
@@ -332,3 +353,6 @@ class SessionStateResponse(BaseModel):
     confirmation: Optional[ConfirmationHTTP] = None
     expires_at: datetime        # UTC
     company_timezone: str
+    # Paginação de datas — preenchido quando state == "AWAITING_DATE"
+    dates_has_next: bool = False
+    dates_has_previous: bool = False

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "token-savior": {
+      "command": "C:\\Users\\User\\.local\\token-savior-venv\\Scripts\\token-savior.exe",
+      "env": {
+        "WORKSPACE_ROOTS": "C:\\dev\\paladino\\agendamento_engine,C:\\dev\\paladino\\painel",
+        "TOKEN_SAVIOR_CLIENT": "claude-code"
+      }
+    }
+  }
+}
