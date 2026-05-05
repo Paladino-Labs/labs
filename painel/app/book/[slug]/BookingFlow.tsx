@@ -456,6 +456,10 @@ function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onS
   onSelect: (opt: DateOpt) => void
   onNavigate: (offsetDays: number) => void
 }) {
+  // Deve refletir DATE_MAX_ADVANCE_DAYS e DATE_WINDOW_SIZE do backend
+  const MAX_ADVANCE_DAYS = 60
+  const PAGE_SIZE = 7
+
   const [offsetDays, setOffsetDays] = useState(0)
 
   const subtitle   = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
@@ -463,13 +467,14 @@ function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onS
   const hiddenCount = options.length - available.length
 
   function handleNext() {
-    const next = offsetDays + 7
+    const maxOffset = Math.max(0, MAX_ADVANCE_DAYS - PAGE_SIZE)
+    const next = Math.min(offsetDays + PAGE_SIZE, maxOffset)
     setOffsetDays(next)
     onNavigate(next)
   }
 
   function handlePrev() {
-    const prev = Math.max(0, offsetDays - 7)
+    const prev = Math.max(0, offsetDays - PAGE_SIZE)
     setOffsetDays(prev)
     onNavigate(prev)
   }

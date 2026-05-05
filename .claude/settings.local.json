@@ -9,7 +9,9 @@
       "Bash(python3 -c ' *)",
       "mcp__token-savior__search_codebase",
       "mcp__token-savior__get_project_summary",
-      "mcp__token-savior__get_function_source"
+      "mcp__token-savior__get_function_source",
+      "Bash(Get-Content \"C:\\\\dev\\\\paladino\\\\agendamento_engine\\\\requirements.txt\" -Raw)",
+      "Bash(Set-Content \"C:\\\\dev\\\\paladino\\\\agendamento_engine\\\\requirements.txt\" -Encoding utf8NoBOM)"
     ]
   }
 }

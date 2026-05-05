@@ -124,7 +124,8 @@ def handle(
 
     # Navegação de página — não seleciona data
     if payload == _PAYLOAD_NEXT:
-        offset = int(ctx.get("date_offset_days", 0)) + settings.DATE_WINDOW_SIZE
+        max_offset = max(0, settings.DATE_MAX_ADVANCE_DAYS - settings.DATE_WINDOW_SIZE)
+        offset = min(int(ctx.get("date_offset_days", 0)) + settings.DATE_WINDOW_SIZE, max_offset)
         ctx["date_offset_days"] = offset
         session.context = ctx
         send_escolher_data(db, session, company_id, instance, whatsapp_id)

@@ -245,13 +245,18 @@ class BookingEngine:
                 row_key=f"dia_{i + 1}",
             ))
 
-        # Verificar próxima janela — curto-circuita no primeiro dia disponível
+        # Verificar próxima janela — só faz sentido se ainda couber dentro do teto de 60 dias
+        next_offset = offset_days + window
         has_next = False
-        for i in range(window, window * 2):
-            d = today + timedelta(days=offset_days + i)
-            if _has(d):
-                has_next = True
-                break
+        if next_offset < settings.DATE_MAX_ADVANCE_DAYS:
+            for i in range(window, window * 2):
+                d = today + timedelta(days=offset_days + i)
+                # Não verificar datas além do limite máximo
+                if (offset_days + i) >= settings.DATE_MAX_ADVANCE_DAYS:
+                    break
+                if _has(d):
+                    has_next = True
+                    break
 
         return dates, has_next, bool(offset_days > 0)
 
@@ -1361,7 +1366,9 @@ class BookingEngine:
         payload: {offset_days: int}  (0 = hoje, 7 = próxima semana, ...)
         Transição: AWAITING_DATE → AWAITING_DATE (self-transition).
         """
-        offset_days = max(0, int(payload.get("offset_days", 0)))
+        # Limitar offset ao teto configurável: última página começa em max - window
+        max_offset = max(0, settings.DATE_MAX_ADVANCE_DAYS - settings.DATE_WINDOW_SIZE)
+        offset_days = max(0, min(int(payload.get("offset_days", 0)), max_offset))
         ctx = dict(session.context or {})
 
         svc_id  = UUID(ctx["service_id"])
