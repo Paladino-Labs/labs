@@ -266,6 +266,12 @@ def send_list(
         ],
     }
     
+    import json as _json
+    logger.error(
+        "sendList PAYLOAD: %s",
+        _json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+    )
+
     resp = httpx.post(url, json=payload, headers=_headers(), timeout=15)
 
     if not resp.is_success:
