@@ -651,9 +651,9 @@ class BookingEngine:
 
     # Definição dos turnos — ordem, labels e faixas de hora local
     _SHIFT_DEFS: list[tuple[str, str, str, int, int]] = [
-        ("manha", "Manhã", "turno_manha",  0, 12),
-        ("tarde", "Tarde", "turno_tarde", 12, 18),
-        ("noite", "Noite", "turno_noite", 18, 24),
+        ("manha", "Manhã", "manha",  0, 12),
+        ("tarde", "Tarde", "tarde", 12, 18),
+        ("noite", "Noite", "noite", 18, 24),
     ]
 
     def start_session(
@@ -1017,7 +1017,8 @@ class BookingEngine:
         """
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-        shift = str(payload.get("shift", "")).lower()
+        # Aceita tanto {"shift": "manha"} (API REST) quanto {"row_key": "manha"} (bot via input_parser)
+        shift = str(payload.get("shift") or payload.get("row_key", "")).lower()
         if shift not in ("manha", "tarde", "noite"):
             raise InvalidActionError("Turno inválido. Use: manha, tarde ou noite")
 

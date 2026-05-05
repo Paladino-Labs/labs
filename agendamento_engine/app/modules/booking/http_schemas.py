@@ -210,7 +210,7 @@ class ShiftOptionHTTP(BaseModel):
     label: str              # "🌅 Manhã (até 12h)"
     slot_count: int
     has_availability: bool
-    row_key: str            # "turno_manha" | "turno_tarde" | "turno_noite"
+    row_key: str            # "manha" | "tarde" | "noite"  (igual ao campo shift)
 
 
 # ─── Confirmação serializada ──────────────────────────────────────────────────

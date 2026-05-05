@@ -51,7 +51,7 @@ class ShiftOption:
     label: str              # "🌅 Manhã"
     slot_count: int         # quantidade de horários disponíveis no turno
     has_availability: bool
-    row_key: str            # "turno_manha" | "turno_tarde" | "turno_noite"
+    row_key: str            # "manha" | "tarde" | "noite"  (igual ao campo shift)
 
 
 @dataclass
