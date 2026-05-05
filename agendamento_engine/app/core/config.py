@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24h
 
+    # CORS — origens permitidas (separadas por vírgula no .env)
+    # Exemplo: ALLOWED_ORIGINS=https://app.seudominio.com.br,https://api.seudominio.com.br
+    # Em desenvolvimento usa o default abaixo; em produção OBRIGATÓRIO sobrescrever via .env
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+
     # Evolution API — necessário para o módulo WhatsApp
     EVOLUTION_API_URL: str = "http://localhost:8080"
     EVOLUTION_API_KEY: str = "evolution-api-key"

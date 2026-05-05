@@ -2,14 +2,10 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
-if not _raw_origins:
-    raise RuntimeError(
-        "ALLOWED_ORIGINS não está definido. "
-        "Configure no .env antes de iniciar a aplicação. "
-        "Exemplo: ALLOWED_ORIGINS=http://localhost:3000,https://app.seudominio.com.br"
-    )
-ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+from app.core.config import settings  # noqa: E402 — carregado antes do setup_logging
+
+# Parseia a string CSV do .env em lista — Settings já garante um default seguro
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
 
 from app.core.logging import setup_logging  # noqa: E402
 
