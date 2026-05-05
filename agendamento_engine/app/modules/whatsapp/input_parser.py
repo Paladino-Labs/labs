@@ -25,6 +25,7 @@ BOOKING_STATES: frozenset[str] = frozenset({
     "AWAITING_SERVICE",
     "AWAITING_PROFESSIONAL",
     "AWAITING_DATE",
+    "AWAITING_SHIFT",  
     "AWAITING_TIME",
     "AWAITING_CONFIRMATION",
 })
@@ -135,6 +136,14 @@ class WhatsAppInputParser:
 
         if state == "AWAITING_DATE":
             return self._parse_date(user_input, ctx)
+        
+        if state == "AWAITING_SHIFT":
+            return self._parse_by_list(
+                user_input,
+                items=ctx.get("last_listed_shifts", []),
+                title_field="name",
+                action=BookingAction.SELECT_SHIFT,
+            )
 
         if state == "AWAITING_TIME":
             return self._parse_time(user_input, ctx, company_tz)

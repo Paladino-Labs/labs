@@ -106,6 +106,9 @@ class WhatsAppResponseFormatter:
         elif state == "AWAITING_DATE":
             self._send_dates(instance, to, result.options, ctx, tz, first)
 
+        elif state == "AWAITING_SHIFT":
+            self._send_shifts(instance, to, options)
+
         elif state == "AWAITING_TIME":
             self._send_slots(instance, to, result.options, ctx, tz)
 
@@ -189,6 +192,24 @@ class WhatsAppResponseFormatter:
             messages.escolha_data_titulo(svc_name),
             messages.escolha_data_descricao(first_name, prof_name),
             rows,
+        )
+
+    def _send_shifts(self, instance: str, to: str, options: list[dict]) -> None:
+        """Envia lista de turnos disponíveis para o usuário selecionar."""
+        if not options:
+            self.sender.send_text(instance, to, "Nenhum turno disponível para esta data.")
+            return
+
+        rows = [
+            {"rowId": opt["row_key"], "title": opt.get("name", opt["row_key"])}
+            for opt in options
+        ]
+        self.sender.send_list(
+            instance,
+            to,
+            title="Selecione o turno",
+            body="Qual turno prefere?",
+            rows=rows,
         )
 
     def _send_slots(
