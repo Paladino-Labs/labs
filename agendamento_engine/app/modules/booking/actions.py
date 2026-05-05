@@ -31,6 +31,8 @@ class BookingAction(str, Enum):
     BACK                = "BACK"                # payload: {} — volta um passo
     RESET               = "RESET"              # payload: {} — volta ao início (mantém customer)
     NAVIGATE_DATES      = "NAVIGATE_DATES"      # payload: {offset_days: int} — troca janela de datas
+    MORE_SLOTS_LATER    = "MORE_SLOTS_LATER"    # payload: {} — próxima página de slots em AWAITING_TIME
+    MORE_SLOTS_EARLIER  = "MORE_SLOTS_EARLIER"  # payload: {} — página anterior de slots em AWAITING_TIME
 
     # ─── Gestão de agendamentos existentes ───────────────────────────────────
     RESCHEDULE_START    = "RESCHEDULE_START"    # payload: {appointment_id}

@@ -141,7 +141,7 @@ class WhatsAppInputParser:
             return self._parse_by_list(
                 user_input,
                 items=ctx.get("last_listed_shifts", []),
-                title_field="name",
+                title_field="label",   # ShiftOption dicts usam "label", não "name"
                 action=BookingAction.SELECT_SHIFT,
             )
 
@@ -207,7 +207,16 @@ class WhatsAppInputParser:
         """
         Resolve input contra a lista de slots.
         Reconstrói o título visual (mesma lógica do formatter) para matching via enquete.
+        Payloads de navegação ("nav_mais_tarde", "nav_mais_cedo") são interceptados
+        antes do matching de slots e mapeados para as actions de paginação.
         """
+        # ── Navegação de página ── interceptar antes do matching de slots ──────
+        t = (user_input or "").strip().lower()
+        if t in ("nav_mais_tarde", "mais_tarde", "mais tarde"):
+            return (BookingAction.MORE_SLOTS_LATER, {})
+        if t in ("nav_mais_cedo", "mais_cedo", "mais cedo"):
+            return (BookingAction.MORE_SLOTS_EARLIER, {})
+
         slots = ctx.get("last_listed_slots", [])
         if not slots:
             return None

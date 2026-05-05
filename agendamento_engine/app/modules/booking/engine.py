@@ -640,6 +640,8 @@ class BookingEngine:
         ("AWAITING_DATE",           BookingAction.NAVIGATE_DATES):      "_handle_navigate_dates",
         ("AWAITING_SHIFT",          BookingAction.SELECT_SHIFT):        "_handle_select_shift",
         ("AWAITING_TIME",           BookingAction.SELECT_TIME):         "_handle_select_time",
+        ("AWAITING_TIME",           BookingAction.MORE_SLOTS_LATER):    "_handle_more_slots_later",
+        ("AWAITING_TIME",           BookingAction.MORE_SLOTS_EARLIER):  "_handle_more_slots_earlier",
         ("AWAITING_CUSTOMER",       BookingAction.SET_CUSTOMER):        "_handle_set_customer",  # [FIX 1] movido para cá
         ("AWAITING_CONFIRMATION",   BookingAction.CONFIRM):             "_handle_confirm",
         ("CONFIRMED",               BookingAction.RESCHEDULE_START):    "_handle_reschedule_start",
@@ -986,6 +988,7 @@ class BookingEngine:
         ctx.pop("dates_has_previous", None)
         ctx.pop("selected_shift", None)
         ctx.pop("last_listed_slots", None)
+        ctx.pop("slot_offset", None)
         ctx.update({
             "selected_date": selected_date.isoformat(),
             "last_listed_shifts": [
@@ -1052,7 +1055,9 @@ class BookingEngine:
             )
 
         # [FIX 2] Montar ctx completo e fazer uma única atribuição
-        # Todos os slots filtrados são armazenados — paginação feita no cliente (web)
+        # Todos os slots filtrados são armazenados — paginação feita no cliente (web) e
+        # no bot via slot_offset. Resetar offset ao trocar de turno.
+        ctx.pop("slot_offset", None)
         ctx.update({
             "selected_shift": shift,
             "last_listed_slots": [
@@ -1070,6 +1075,55 @@ class BookingEngine:
         session.state = "AWAITING_TIME"
 
         return SessionUpdateResult(next_state="AWAITING_TIME", options=filtered)
+
+    # ── Paginação de slots ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _reconstruct_slots_from_ctx(ctx: dict) -> list:
+        """
+        Reconstrói a lista de SlotOption a partir de last_listed_slots no contexto.
+        Usado pelos handlers de paginação para evitar nova consulta ao banco.
+        """
+        return [
+            SlotOption(
+                start_at=datetime.fromisoformat(s["start_at"]),
+                end_at=datetime.fromisoformat(s["end_at"]),
+                professional_id=UUID(s["professional_id"]),
+                professional_name=s.get("professional_name", ""),
+                row_key=s["row_key"],
+            )
+            for s in ctx.get("last_listed_slots", [])
+        ]
+
+    def _handle_more_slots_later(
+        self, db: Session, session: "BookingSession", payload: dict
+    ) -> SessionUpdateResult:
+        """
+        Avança slot_offset em BOT_MAX_SLOTS_DISPLAYED posições.
+        Permanece em AWAITING_TIME — o formatter exibe a próxima página.
+        Não acessa o banco: reconstrói SlotOption de last_listed_slots.
+        """
+        ctx = dict(session.context or {})
+        n = settings.BOT_MAX_SLOTS_DISPLAYED
+        ctx["slot_offset"] = int(ctx.get("slot_offset", 0)) + n
+        session.context = ctx
+        slots = self._reconstruct_slots_from_ctx(ctx)
+        return SessionUpdateResult(next_state="AWAITING_TIME", options=slots)
+
+    def _handle_more_slots_earlier(
+        self, db: Session, session: "BookingSession", payload: dict
+    ) -> SessionUpdateResult:
+        """
+        Recua slot_offset em BOT_MAX_SLOTS_DISPLAYED posições (mínimo 0).
+        Permanece em AWAITING_TIME — o formatter exibe a página anterior.
+        Não acessa o banco: reconstrói SlotOption de last_listed_slots.
+        """
+        ctx = dict(session.context or {})
+        n = settings.BOT_MAX_SLOTS_DISPLAYED
+        ctx["slot_offset"] = max(0, int(ctx.get("slot_offset", 0)) - n)
+        session.context = ctx
+        slots = self._reconstruct_slots_from_ctx(ctx)
+        return SessionUpdateResult(next_state="AWAITING_TIME", options=slots)
 
     def _handle_select_time(
         self, db: Session, session: "BookingSession", payload: dict

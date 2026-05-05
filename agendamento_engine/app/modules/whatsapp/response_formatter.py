@@ -107,7 +107,7 @@ class WhatsAppResponseFormatter:
             self._send_dates(instance, to, result.options, ctx, tz, first)
 
         elif state == "AWAITING_SHIFT":
-            self._send_shifts(instance, to, options)
+            self._send_shifts(instance, to, result.options)
 
         elif state == "AWAITING_TIME":
             self._send_slots(instance, to, result.options, ctx, tz)
@@ -194,22 +194,28 @@ class WhatsAppResponseFormatter:
             rows,
         )
 
-    def _send_shifts(self, instance: str, to: str, options: list[dict]) -> None:
-        """Envia lista de turnos disponíveis para o usuário selecionar."""
+    def _send_shifts(self, instance: str, to: str, options: list) -> None:
+        """
+        Envia lista de turnos disponíveis para o usuário selecionar.
+        Turnos sem horários são exibidos com sufixo '— indisponível'.
+        """
         if not options:
-            self.sender.send_text(instance, to, "Nenhum turno disponível para esta data.")
+            sender.send_text(instance, to, "Nenhum turno disponível para esta data.")
             return
 
-        rows = [
-            {"rowId": opt["row_key"], "title": opt.get("name", opt["row_key"])}
-            for opt in options
-        ]
-        self.sender.send_list(
-            instance,
-            to,
-            title="Selecione o turno",
-            body="Qual turno prefere?",
-            rows=rows,
+        rows = []
+        for o in options:
+            if o.has_availability:
+                title = f"{o.label} ({o.slot_count} horário{'s' if o.slot_count != 1 else ''})"
+            else:
+                title = f"{o.label} — indisponível"
+            rows.append({"rowId": o.row_key, "title": title, "description": ""})
+
+        sender.send_list(
+            instance, to,
+            "Qual período prefere?",
+            "Escolha o turno do dia:",
+            rows,
         )
 
     def _send_slots(
@@ -220,6 +226,11 @@ class WhatsAppResponseFormatter:
         ctx: dict,
         tz: ZoneInfo,
     ) -> None:
+        """
+        Exibe até BOT_MAX_SLOTS_DISPLAYED slots por página.
+        A página atual é determinada por slot_offset no contexto.
+        Adiciona "← Mais cedo" / "Mais tarde →" quando há páginas adjacentes.
+        """
         # "qualquer prof" → mostrar nome do profissional em cada slot
         any_prof = not ctx.get("professional_id")
 
@@ -227,14 +238,32 @@ class WhatsAppResponseFormatter:
             sender.send_text(instance, to, messages.SEM_HORARIOS)
             return
 
-        rows = [
-            {
+        page_size = settings.BOT_MAX_SLOTS_DISPLAYED
+        offset    = int(ctx.get("slot_offset", 0))
+
+        page_slots = options[offset : offset + page_size]
+        if not page_slots:
+            # offset obsoleto (slots mudaram) — voltar ao início
+            offset     = 0
+            page_slots = options[:page_size]
+
+        has_previous = offset > 0
+        has_more     = len(options) > offset + page_size
+
+        rows = []
+        if has_previous:
+            rows.append({"rowId": "nav_mais_cedo", "title": "← Mais cedo", "description": ""})
+
+        for o in page_slots:
+            rows.append({
                 "rowId":       o.row_key,
                 "title":       _slot_label(o.start_at, o.professional_name, tz, any_prof),
                 "description": "",
-            }
-            for o in options
-        ]
+            })
+
+        if has_more:
+            rows.append({"rowId": "nav_mais_tarde", "title": "Mais tarde →", "description": ""})
+
         prof_name = ctx.get("professional_name", "")
         svc_name  = ctx.get("service_name", "")
         sender.send_list(
