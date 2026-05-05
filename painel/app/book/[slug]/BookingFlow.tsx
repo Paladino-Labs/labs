@@ -462,9 +462,8 @@ function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onS
 
   const [offsetDays, setOffsetDays] = useState(0)
 
-  const subtitle   = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
-  const available  = options.filter((d) => d.has_availability)
-  const hiddenCount = options.length - available.length
+  const subtitle  = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
+  const available = options.filter((d) => d.has_availability)
 
   function handleNext() {
     const maxOffset = Math.max(0, MAX_ADVANCE_DAYS - PAGE_SIZE)
@@ -490,7 +489,7 @@ function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onS
             <button onClick={handlePrev} disabled={loading}
               className="w-full text-sm mb-3 flex items-center gap-1 disabled:opacity-40"
               style={{ color: "var(--book-primary)" }}>
-              ← 7 dias anteriores
+              ← Dias anteriores
             </button>
           )}
 
@@ -500,31 +499,24 @@ function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onS
                 Nenhum dia disponível nesta semana.
               </p>
             ) : (
-              <>
-                {available.map((d) => (
-                  <button key={d.row_key} onClick={() => onSelect(d)} disabled={loading}
-                    className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
-                    style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}>
-                    <span className="font-medium" style={{ color: "var(--book-text)" }}>{d.label}</span>
-                  </button>
-                ))}
-                {hiddenCount > 0 && (
-                  <p className="text-xs pt-1" style={{ color: "var(--book-text-muted)" }}>
-                    {hiddenCount} dia{hiddenCount > 1 ? "s" : ""} sem disponibilidade neste período.
-                  </p>
-                )}
-              </>
+              available.map((d) => (
+                <button key={d.row_key} onClick={() => onSelect(d)} disabled={loading}
+                  className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
+                  style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}>
+                  <span className="font-medium" style={{ color: "var(--book-text)" }}>{d.label}</span>
+                </button>
+              ))
             )}
           </div>
 
-          {/* Botão "próximos 7 dias" */}
+          {/* Botão "próximos dias" */}
           {hasNext && (
             <button onClick={handleNext} disabled={loading}
               className="w-full text-sm mt-3 flex items-center justify-end gap-1 disabled:opacity-40"
               style={{ color: "var(--book-primary)" }}>
-              Ver próximos 7 dias →
+              Próximos dias →
             </button>
           )}
         </>
@@ -602,11 +594,21 @@ function TimeStep({ options, summary, companyTimezone, loading, error, onBack, o
   options: SlotOpt[]; summary: ContextSummary; companyTimezone: string; loading: boolean
   error: string | null; onBack: () => void; onSelect: (opt: SlotOpt) => void
 }) {
+  const PAGE_SIZE = 6
+  const [slotPage, setSlotPage] = useState(0)
+
+  // Volta para a primeira página sempre que os slots mudarem (novo turno selecionado)
+  useEffect(() => { setSlotPage(0) }, [options])
+
   const dateLabel = summary.selected_date
     ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
         weekday: "long", day: "2-digit", month: "long", timeZone: companyTimezone,
       })
     : undefined
+
+  const pageSlots   = options.slice(slotPage * PAGE_SIZE, (slotPage + 1) * PAGE_SIZE)
+  const hasPrevPage = slotPage > 0
+  const hasNextPage = (slotPage + 1) * PAGE_SIZE < options.length
 
   return (
     <div>
@@ -621,26 +623,45 @@ function TimeStep({ options, summary, companyTimezone, loading, error, onBack, o
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {options.map((slot) => (
-            <button key={slot.row_key} onClick={() => onSelect(slot)} disabled={loading}
-              className="rounded-xl py-3 text-sm font-medium transition-all duration-150 disabled:opacity-40"
-              style={{ background: "var(--book-card)", border: "1px solid var(--book-border)", color: "var(--book-text)" }}
-              onMouseEnter={(e) => {
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-primary)"
-                ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-primary)"
-              }}
-              onMouseLeave={(e) => {
-                ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-border)"
-                ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
-              }}>
-              {slot.start_display}
-              <div className="text-xs truncate px-1 mt-0.5" style={{ color: "var(--book-text-muted)" }}>
-                {slot.professional_name}
-              </div>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {pageSlots.map((slot) => (
+              <button key={slot.row_key} onClick={() => onSelect(slot)} disabled={loading}
+                className="rounded-xl py-3 text-sm font-medium transition-all duration-150 disabled:opacity-40"
+                style={{ background: "var(--book-card)", border: "1px solid var(--book-border)", color: "var(--book-text)" }}
+                onMouseEnter={(e) => {
+                  ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-primary)"
+                  ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-primary)"
+                }}
+                onMouseLeave={(e) => {
+                  ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-border)"
+                  ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
+                }}>
+                {slot.start_display}
+                <div className="text-xs truncate px-1 mt-0.5" style={{ color: "var(--book-text-muted)" }}>
+                  {slot.professional_name}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {(hasPrevPage || hasNextPage) && (
+            <div className="flex justify-between mt-3">
+              {hasPrevPage ? (
+                <button onClick={() => setSlotPage((p) => p - 1)}
+                  className="text-sm" style={{ color: "var(--book-primary)" }}>
+                  ← Mais cedo
+                </button>
+              ) : <span />}
+              {hasNextPage && (
+                <button onClick={() => setSlotPage((p) => p + 1)}
+                  className="text-sm" style={{ color: "var(--book-primary)" }}>
+                  Mais tarde →
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

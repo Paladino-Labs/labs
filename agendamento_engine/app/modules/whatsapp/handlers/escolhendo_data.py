@@ -82,12 +82,12 @@ def send_escolher_data(
 
     # Botões de navegação no final da lista
     if has_previous:
-        rows.append({"rowId": _PAYLOAD_PREV, "title": "⬅️ 7 dias anteriores", "description": ""})
-        last_list.append({"row_id": _PAYLOAD_PREV, "payload": _PAYLOAD_PREV, "title": "⬅️ 7 dias anteriores"})
+        rows.append({"rowId": _PAYLOAD_PREV, "title": "Dias anteriores", "description": ""})
+        last_list.append({"row_id": _PAYLOAD_PREV, "payload": _PAYLOAD_PREV, "title": "Dias anteriores"})
 
     if has_next:
-        rows.append({"rowId": _PAYLOAD_NEXT, "title": "➡️ Próximos 7 dias", "description": ""})
-        last_list.append({"row_id": _PAYLOAD_NEXT, "payload": _PAYLOAD_NEXT, "title": "➡️ Próximos 7 dias"})
+        rows.append({"rowId": _PAYLOAD_NEXT, "title": "Próximos dias", "description": ""})
+        last_list.append({"row_id": _PAYLOAD_NEXT, "payload": _PAYLOAD_NEXT, "title": "Próximos dias"})
 
     # Persistir offset e lista no contexto
     ctx["date_offset_days"] = offset_days

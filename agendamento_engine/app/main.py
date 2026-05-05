@@ -4,8 +4,17 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings  # noqa: E402 — carregado antes do setup_logging
 
-# Parseia a string CSV do .env em lista — Settings já garante um default seguro
-ALLOWED_ORIGINS: list[str] = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+# Parseia ALLOWED_ORIGINS (CSV) ou deriva de FRONTEND_URL quando não configurado.
+# Sempre inclui localhost para facilitar desenvolvimento sem alterar o .env.
+if settings.ALLOWED_ORIGINS.strip():
+    ALLOWED_ORIGINS: list[str] = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+else:
+    # Fallback automático: FRONTEND_URL + localhost dev
+    _dev_origins = ["http://localhost:3000", "http://localhost:3001"]
+    _prod_origin = settings.FRONTEND_URL.strip()
+    ALLOWED_ORIGINS = list(dict.fromkeys(
+        ([_prod_origin] if _prod_origin else []) + _dev_origins
+    ))
 
 from app.core.logging import setup_logging  # noqa: E402
 

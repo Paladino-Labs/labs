@@ -48,7 +48,7 @@ class SlotOption:
 class ShiftOption:
     """Período do dia com contagem de horários disponíveis."""
     shift: str              # "manha" | "tarde" | "noite"
-    label: str              # "🌅 Manhã (até 12h)"
+    label: str              # "🌅 Manhã"
     slot_count: int         # quantidade de horários disponíveis no turno
     has_availability: bool
     row_key: str            # "turno_manha" | "turno_tarde" | "turno_noite"

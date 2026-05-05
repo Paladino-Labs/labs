@@ -111,7 +111,8 @@ def start(
         ctx["slot_offset"] = 0
         display_slots = all_slots[:n]
 
-    has_more = len(all_slots) > (offset + n)
+    has_more     = len(all_slots) > (offset + n)
+    has_previous = offset > 0
 
     # ── Monta rows / last_list ────────────────────────────────────────────────
     rows, last_list = [], []
@@ -137,14 +138,15 @@ def start(
                           "professional_name": s.professional_name,
                           "title": title_str})
 
+    if has_previous:
+        rows.append({"rowId": "opt_menos_horarios", "title": "Mais cedo", "description": ""})
+        last_list.append({"row_id": "opt_menos_horarios", "payload": "menos_horarios",
+                          "title": "Mais cedo"})
+
     if has_more:
-        rows.append({
-            "rowId": "opt_mais_horarios",
-            "title": "📋 Ver mais horários",
-            "description": "",
-        })
+        rows.append({"rowId": "opt_mais_horarios", "title": "Mais tarde", "description": ""})
         last_list.append({"row_id": "opt_mais_horarios", "payload": "mais_horarios",
-                          "title": "📋 Ver mais horários"})
+                          "title": "Mais tarde"})
 
     rows.append({"rowId": "opt_outra_data", "title": "📅 Escolher outra data", "description": ""})
     last_list.append({"row_id": "opt_outra_data", "payload": "outra_data",
@@ -183,6 +185,15 @@ def handle(
         ctx.pop("selected_turno", None)
         session.context = ctx
         send_escolher_data(db, session, company_id, instance, whatsapp_id)
+        return
+
+    if payload == "menos_horarios":
+        n = settings.BOT_MAX_SLOTS_DISPLAYED
+        ctx["slot_offset"] = max(0, int(ctx.get("slot_offset", 0)) - n)
+        session.context = ctx
+        start(db, session, company_id, instance, whatsapp_id,
+              send_escolher_data=send_escolher_data,
+              send_confirmacao_resumo=send_confirmacao_resumo)
         return
 
     if payload == "mais_horarios":

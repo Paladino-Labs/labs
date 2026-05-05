@@ -16,9 +16,9 @@ STATE_ESCOLHENDO_TURNO = "ESCOLHENDO_TURNO"
 
 # Ordem e definição dos turnos
 _TURNOS = [
-    {"payload": "manha", "label": "🌅 Manhã (até 12h)",    "row_id": "turno_manha"},
-    {"payload": "tarde", "label": "🌤 Tarde (12h – 18h)", "row_id": "turno_tarde"},
-    {"payload": "noite", "label": "🌙 Noite (após 18h)",  "row_id": "turno_noite"},
+    {"payload": "manha", "label": "Manhã", "row_id": "turno_manha"},
+    {"payload": "tarde", "label": "Tarde", "row_id": "turno_tarde"},
+    {"payload": "noite", "label": "Noite", "row_id": "turno_noite"},
 ]
 
 

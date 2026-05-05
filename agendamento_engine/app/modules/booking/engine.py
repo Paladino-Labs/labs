@@ -109,7 +109,7 @@ def _label_date(d: date, reference_tz: str = "America/Sao_Paulo") -> str:
 
 # TTL por canal — centralizado aqui para ser reutilizado em start_session e update()
 _CHANNEL_TTL: dict[str, timedelta] = {
-    "web":      timedelta(minutes=15),
+    "web":      timedelta(minutes=30),
     "whatsapp": timedelta(minutes=30),
     "admin":    timedelta(hours=2),
 }
@@ -649,9 +649,9 @@ class BookingEngine:
 
     # Definição dos turnos — ordem, labels e faixas de hora local
     _SHIFT_DEFS: list[tuple[str, str, str, int, int]] = [
-        ("manha", "🌅 Manhã (até 12h)",    "turno_manha",  0, 12),
-        ("tarde", "🌤 Tarde (12h – 18h)", "turno_tarde", 12, 18),
-        ("noite", "🌙 Noite (após 18h)",  "turno_noite", 18, 24),
+        ("manha", "Manhã", "turno_manha",  0, 12),
+        ("tarde", "Tarde", "turno_tarde", 12, 18),
+        ("noite", "Noite", "turno_noite", 18, 24),
     ]
 
     def start_session(
@@ -1044,15 +1044,15 @@ class BookingEngine:
             tz = ZoneInfo("America/Sao_Paulo")
 
         filtered = self._filter_slots_by_shift(all_slots, shift, tz)
-        display_slots = filtered[:settings.BOT_MAX_SLOTS_DISPLAYED]
 
-        if not display_slots:
+        if not filtered:
             raise InvalidActionError(
                 f"Não há horários disponíveis neste turno. "
                 "Escolha outro turno ou outra data."
             )
 
         # [FIX 2] Montar ctx completo e fazer uma única atribuição
+        # Todos os slots filtrados são armazenados — paginação feita no cliente (web)
         ctx.update({
             "selected_shift": shift,
             "last_listed_slots": [
@@ -1063,13 +1063,13 @@ class BookingEngine:
                     "professional_name": o.professional_name,
                     "row_key":           o.row_key,
                 }
-                for o in display_slots
+                for o in filtered
             ],
         })
         session.context = ctx  # atribuição única
         session.state = "AWAITING_TIME"
 
-        return SessionUpdateResult(next_state="AWAITING_TIME", options=display_slots)
+        return SessionUpdateResult(next_state="AWAITING_TIME", options=filtered)
 
     def _handle_select_time(
         self, db: Session, session: "BookingSession", payload: dict
