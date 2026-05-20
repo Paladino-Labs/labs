@@ -99,11 +99,40 @@ def connect(db: Session, company_id: UUID) -> ConnectionResponse:
       2. Chama Evolution API para criar instância (idempotente)
       3. Busca QR Code
       4. Persiste e retorna estado CONNECTING + qr_code
+
+    Se o DB diz CONNECTED mas a Evolution API não confirma (sessão zumbi),
+    força logout e reinicia o fluxo de QR sem lançar 409.
     """
     conn = _get_or_create_record(db, company_id)
 
     if conn.status == "CONNECTED":
-        raise HTTPException(status_code=409, detail="WhatsApp já está conectado")
+        # Verifica se a Evolution API confirma a conexão antes de bloquear
+        try:
+            state = evolution_client.get_connection_state(conn.instance_name)
+            if state == "open":
+                raise HTTPException(status_code=409, detail="WhatsApp já está conectado")
+            # Estado inconsistente: DB=CONNECTED mas Evolution API diz outra coisa.
+            # Continua para forçar reconexão.
+            logger.warning(
+                "Estado inconsistente: DB=CONNECTED mas Evolution API state=%s. "
+                "Forçando reconexão para instance=%s.", state, conn.instance_name,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Não conseguiu verificar — prossegue tentando reconectar
+            logger.warning(
+                "Não foi possível verificar estado na Evolution API (instance=%s): %s. "
+                "Tentando reconectar.", conn.instance_name, e,
+            )
+
+    # Força logout para garantir estado limpo (especialmente em sessões zumbi)
+    try:
+        evolution_client.logout_instance(conn.instance_name)
+        logger.info("logout_instance ok antes de gerar QR. instance=%s", conn.instance_name)
+    except Exception as e:
+        # Pode falhar se a instância não existir ainda ou já estiver desconectada
+        logger.debug("logout_instance antes de criar QR falhou (normal se nova): %s", e)
 
     # Tenta criar instância (Evolution API ignora se já existir)
     try:
@@ -162,7 +191,27 @@ def refresh_qr(db: Session, company_id: UUID) -> QRCodeResponse:
         WhatsAppConnection.company_id == company_id
     ).first()
 
-    if not conn or conn.status not in ("CONNECTING", "DISCONNECTED"):
+    # Permite regenerar QR em qualquer estado exceto CONNECTED real (verificado abaixo)
+    if conn and conn.status == "CONNECTED":
+        # Verifica se está realmente conectado antes de bloquear
+        try:
+            state = evolution_client.get_connection_state(conn.instance_name)
+            if state == "open":
+                raise HTTPException(
+                    status_code=409,
+                    detail="WhatsApp está conectado. Desconecte antes de gerar novo QR.",
+                )
+            logger.warning(
+                "refresh_qr: DB=CONNECTED mas Evolution API state=%s. Permitindo regenerar QR.",
+                state,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            # Não conseguiu verificar — permite regenerar
+            pass
+
+    if not conn:
         raise HTTPException(
             status_code=409,
             detail="Não é possível gerar QR no estado atual. Inicie uma nova conexão.",
