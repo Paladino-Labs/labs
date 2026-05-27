@@ -1,64 +1,48 @@
-@../CLAUDE.md
+# painel — contexto operacional
 
-# Frontend — painel/
-
-> Contexto específico do Next.js. O contexto completo do monorepo está em `@../CLAUDE.md`.
+**Sprint atual:** Sprint 1 em andamento (Fase 1 — Fundação técnica)
+**Foco do frontend nesta fase:** apenas ajustes mínimos de segurança.
+Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 
 ---
 
-## Next.js — LEIA ANTES DE ASSUMIR CONVENÇÕES
+## Stack
 
-Esta versão tem breaking changes. Antes de escrever qualquer código Next.js,
-leia o guia relevante em `node_modules/next/dist/docs/`. Respeite avisos de deprecação.
+- Next.js 16.2.2 · React 19.2.4 · TailwindCSS v4 (`tailwindcss: ^4`)
+- `shadcn: ^4.2.0` como dependência direta (componentes em `components/ui/`)
+- `@base-ui/react: ^1.3.0`, `class-variance-authority`, `clsx`,
+  `lucide-react`, `tailwind-merge`, `tw-animate-css`
+- App Router (estrutura `app/`)
+- API-first: zero lógica de negócio no frontend
+- Sem SSR de dados sensíveis — chamadas à API sempre autenticadas via JWT
 
-## Estrutura de rotas
+## Convenções de frontend
 
-```
-app/
-  (dashboard)/          ← grupo de rotas autenticadas (layout com sidebar)
-    layout.tsx          ← verifica auth, renderiza Sidebar
-    appointments/       ← lista de agendamentos + criação
-    customers/          ← cadastro de clientes
-    dashboard/          ← KPIs e próximos agendamentos
-    integrations/       ← conexão WhatsApp (QR Code, status)
-    products/           ← produtos/serviços extras
-    professionals/      ← cadastro de profissionais
-    services/           ← cardápio de serviços
-    settings/           ← configurações da empresa
-  book/[slug]/          ← fluxo público (sem auth) — agendamento online
-    BookingFlow.tsx     ← FSM: IDLE→SERVICE→PROFESSIONAL→DATE→TIME→CUSTOMER→CONFIRM→CONFIRMED
-  layout.tsx            ← root layout
-  page.tsx              ← landing / redirect
-```
+- Identidade visual por tenant via design tokens (logo, cores, fonte, favicon)
+- Estrutura da UI é única; aparência muda por tokens — não criar layouts paralelos por tenant
+- Sidebar: sem filtro por role na Fase 1 → RBAC visível no frontend é Fase 3 (fora do escopo desta fase)
+- Imports de `lib/api.ts` sempre — nunca `fetch` raw
+- Formatação monetária: `formatBRL()` de `lib/utils.ts`
+- Formatação de data: `formatDateTime()` de `lib/utils.ts` com `timeZone` explícito
 
-## Utilitários obrigatórios
+## Rotas e áreas existentes (entrada Fase 1)
 
-| O que | Onde importar | Observação |
-|-------|--------------|------------|
-| HTTP requests | `lib/api.ts` | **nunca** `fetch` raw |
-| Formatação moeda | `formatBRL` de `lib/utils.ts` | |
-| Formatação data | `formatDateTime` de `lib/utils.ts` | sempre passar `timeZone` |
-| Status agendamento | `lib/constants.ts` | `APPOINTMENT_STATUS_LABELS`, `APPOINTMENT_STATUS_VARIANT` |
-| Badge ativo/inativo | `components/ActiveBadge.tsx` | |
-| Auth hook | `hooks/useAuth.ts` | re-export intencional — não remover |
+8 áreas em `app/(dashboard)/`:
+appointments · customers · dashboard · integrations ·
+products · professionals · services · settings (apenas `settings/profile/`)
 
-## BookingFlow.tsx — regras críticas
+Link Público em `app/book/[slug]/`:
+- `page.tsx` — landing + vitrine
+- `BookingFlow.tsx` — FSM do checkout
 
-- Timezone: sempre `timeZone: companyTimezone` em **todo** `toLocaleString` e `toLocaleDateString`
-- O prop `companyTimezone` vem de `session.company_timezone` (snapshot imutável da sessão)
-- Componentes `TimeStep`, `ConfirmStep`, `ConfirmedView` recebem `companyTimezone` como prop
+Login em `app/page.tsx`.
 
-## Componentes shadcn
+## O que NÃO fazer
 
-Primitivos em `components/ui/`. Não modificar diretamente — extender via wrapper se necessário.
-
-## Padrão de fetch em páginas
-
-```typescript
-// Preferir useFetch hook (quando disponível) em vez de useEffect + fetch manual
-// Promise.all para múltiplos endpoints simultâneos (ex: appointments/new)
-const [services, professionals] = await Promise.all([
-  api.get<Service[]>("/services"),
-  api.get<Professional[]>("/professionals"),
-])
-```
+- Não criar lógica de negócio no frontend (validação de disponibilidade, cálculo financeiro, etc.)
+- Não usar o protótipo `barberflow-system` como spec de comportamento (referência visual apenas)
+- Não criar layouts distintos por tenant — tokens visuais, não layouts paralelos
+- `POST /users` com senha no body está deprecado a partir do Sprint 2
+  → usar `POST /users/invite` + `POST /auth/activate`
+- Não criar UI nova para módulos da Fase 1 (foco é backend)
+- Não referenciar `painel/painel/` — diretório removido (era resíduo de remoção de submódulo)

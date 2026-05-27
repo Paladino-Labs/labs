@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\dev\\paladino\\agendamento_engine",
+        "C:\\dev\\paladino\\painel"
+      ]
+    }
+  }
+}

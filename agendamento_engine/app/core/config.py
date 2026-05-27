@@ -58,6 +58,16 @@ class Settings(BaseSettings):
     # O slug da empresa é concatenado: {BOOKING_BASE_URL}/{slug}
     BOOKING_BASE_URL: str = "http://localhost:3000/book"
 
+    # Habilita HSTS apenas quando o ambiente tem TLS estável.
+    # Nunca ativar em staging ou local sem HTTPS — o header trava o browser por 1 ano.
+    # Ativar em produção Railway: PUBLIC_HTTPS=true
+    PUBLIC_HTTPS: bool = False
+
+    # Supabase Storage — credenciais de plataforma (não de tenant)
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_STORAGE_BUCKET: str = "uploads"
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

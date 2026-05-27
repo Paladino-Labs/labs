@@ -36,8 +36,11 @@ if _sentry_dsn:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.rate_limit import limiter
 from app.middleware.request_context import RequestContextMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
@@ -89,6 +92,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -113,10 +120,6 @@ app.include_router(booking_router)
 app.include_router(products_router)
 app.include_router(uploads_router)
 app.include_router(public_router)
-
-# Static files (uploaded images)
-os.makedirs("static/uploads", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/health")
