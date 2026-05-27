@@ -1,4 +1,4 @@
-**Sprint atual:** Sprint 4 em andamento (Fase 1 — Fundação técnica)
+**Sprint atual:** Sprint 5 em andamento (Fase 1 — Fundação técnica)
 
 ## Stack e infraestrutura
 
@@ -10,6 +10,12 @@
 - Tabelas: `tenant_configs`, `module_activations`, `tenant_brandings`, `categories`
 - Onboarding: `create_company` cria TenantConfig + 10 ModuleActivations +
   TenantBranding + 16 categories default na mesma transação
+- Workers: Celery + Redis em coexistência com asyncio
+  → flip definitivo (remover asyncio.create_task) após 24h sem erros em produção
+- EventBus ativo em `app/infrastructure/event_bus.py` (best-effort, fluxos tolerantes)
+- Idempotência: `processed_idempotency_keys` (PK composta key+consumer; company_id como auditoria)
+- Beat: worker usa `-A app.infrastructure.celery_app:celery_app`
+       beat usa `-A app.workers.celery_beat_entrypoint:celery_app` (evita import circular)
 
 ## Convenções críticas
 
@@ -27,6 +33,14 @@
 - Category `is_default=true`: desativável, não deletável, name/entity_type/sort_order imutáveis
 - `GET /tenant/branding`: público — usa `company_id` como query param (sem auth)
 - Invitations em `/users/invitations` (não `/invitations` independente)
+- bot_sessions e booking_sessions são domínios separados:
+    session_cleanup_worker → bot_sessions apenas
+    handler booking_session.expired → booking_sessions apenas
+- Fluxos críticos não passam pelo EventBus — Celery task direta:
+    appointment.confirmed, appointment.cancelled, appointment.reminder_due, appointment.no_show
+- idempotency_key dois domínios distintos:
+    Appointment.idempotency_key → evita duplo-INSERT de agendamento (cliente envia)
+    processed_idempotency_keys.key → evita dupla execução de consumer (infra)
 
 ## Onde está o quê
 
@@ -39,6 +53,15 @@
 - `modules/tenant/` — /tenant/config, /tenant/modules, /tenant/branding
 - `modules/categories/` — /categories
 - `infrastructure/db/models/{tenant_config,module_activation,tenant_branding,category}.py`
+- `infrastructure/celery_app.py` — configuração Celery
+- `infrastructure/event_bus.py` — EventBus (tolerantes)
+- `core/idempotency.py` — is_processed, mark_processed
+- `workers/beat_schedule.py` — reminder/10min, session-cleanup/5min,
+    idempotency-cleanup/03:00, booking-session-scan/5min
+- `workers/celery_beat_entrypoint.py` — entrypoint exclusivo do beat
+- `workers/booking_session_worker.py` + `booking_session_handlers.py`
+- `workers/appointment_reminder_handler.py` — stub, Sprint 5 substitui
+- `workers/idempotency_cleanup.py`
 
 ## O que NÃO fazer
 
@@ -49,6 +72,11 @@
 - `require_admin` não existe mais — não referenciar
 - Não criar `TenantFeeRoutingPolicy` — pertence ao Financial Core (Fase 2, Sprint 6)
 - Não implementar `accounting_mode=ACCRUAL` — bloqueado por trigger no Estágio 0
+- Não adicionar workers via asyncio.create_task no lifespan — usar Celery Beat
+- Não publicar eventos sem idempotency_key
+- Não usar nome agenda.soft_reservation.expired — modelo Reservation é Sprint 10 (Fase 3)
+- asyncio.create_task ainda ATIVO no lifespan (coexistência) — remover somente
+  após 24h sem erros em produção; atualizar CLAUDE.md após o flip
 
 ## Decisões registradas
 
