@@ -1,4 +1,5 @@
-**Sprint atual:** Sprint 5 em andamento (Fase 1 — Fundação técnica)
+**Sprint atual:** Fase 1 concluída · aguardando Fase 2
+**Pendente:** flip asyncio→Celery (Sprint 4) + validação produção Sprint 5
 
 ## Stack e infraestrutura
 
@@ -16,6 +17,13 @@
 - Idempotência: `processed_idempotency_keys` (PK composta key+consumer; company_id como auditoria)
 - Beat: worker usa `-A app.infrastructure.celery_app:celery_app`
        beat usa `-A app.workers.celery_beat_entrypoint:celery_app` (evita import circular)
+- CommunicationService ativo em `modules/communication/service.py`
+- Tabelas: integration_credentials, communication_settings,
+  communication_templates, communication_logs
+- Fernet encryption via `core/encryption.py`
+  (CREDENTIAL_ENCRYPTION_KEY obrigatório em produção; ausente → KeyError no startup)
+- Feature flag: `TenantConfig.permission_overrides["use_communication_service"]`
+  ativa o dispatch (default False — coexistência com evolution_client durante rollout)
 
 ## Convenções críticas
 
@@ -41,6 +49,10 @@
 - idempotency_key dois domínios distintos:
     Appointment.idempotency_key → evita duplo-INSERT de agendamento (cliente envia)
     processed_idempotency_keys.key → evita dupla execução de consumer (infra)
+- Credenciais armazenadas criptografadas via Fernet — nunca plaintext no banco
+- `secret_encrypted` nunca retornado em respostas de API — apenas `masked_preview` + `config`
+- Quiet hours: transacionais (appointment.confirmed, appointment.cancelled) → bypass → SENT;
+  automáticos (appointment.reminder_due, appointment.no_show) → respeita → SCHEDULED
 
 ## Onde está o quê
 
@@ -62,6 +74,12 @@
 - `workers/booking_session_worker.py` + `booking_session_handlers.py`
 - `workers/appointment_reminder_handler.py` — stub, Sprint 5 substitui
 - `workers/idempotency_cleanup.py`
+- `core/encryption.py` — encrypt_secret, decrypt_secret, make_masked_preview
+- `modules/communication/` — CommunicationService, routers /communication/*
+- `modules/integrations/` — IntegrationCredential service, routers /integrations/credentials/*
+- `workers/communication_worker.py` — Celery tasks para fluxos críticos de appointment
+- `infrastructure/db/models/{integration_credential,communication_setting,
+  communication_template,communication_log}.py`
 
 ## O que NÃO fazer
 
@@ -77,7 +95,14 @@
 - Não usar nome agenda.soft_reservation.expired — modelo Reservation é Sprint 10 (Fase 3)
 - asyncio.create_task ainda ATIVO no lifespan (coexistência) — remover somente
   após 24h sem erros em produção; atualizar CLAUDE.md após o flip
+- Não chamar `evolution_client.send_text()` diretamente em código novo
+  → usar CommunicationService.dispatch após remoção das chamadas diretas
+- Não criar `integration_credentials` com `provider=WHATSAPP_EVOLUTION` no Estágio 0
+- `CREDENTIAL_ENCRYPTION_KEY` nunca commitar no repositório — vault Railway apenas
 
 ## Decisões registradas
 
 - `ACCRUAL` bloqueado no Estágio 0 via trigger `block_accrual_mode` em `tenant_configs`
+- Evolution API permanece global no Estágio 0 (Opção A — confirmada no Sprint 5):
+  WHATSAPP_EVOLUTION no enum provider é schema-only; migração whatsapp_connection
+  não aplicável no Estágio 0
