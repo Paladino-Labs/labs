@@ -1,5 +1,5 @@
-**Sprint atual:** Fase 1 concluída · aguardando Fase 2
-**Pendente:** flip asyncio→Celery (Sprint 4) + validação produção Sprint 5
+**Sprint atual:** Sprint de RLS em andamento (pré-Fase 2)
+**Pendente operacional:** flip asyncio→Celery + remoção evolution_client (aguardam validação produção)
 
 ## Stack e infraestrutura
 
@@ -53,6 +53,9 @@
 - `secret_encrypted` nunca retornado em respostas de API — apenas `masked_preview` + `config`
 - Quiet hours: transacionais (appointment.confirmed, appointment.cancelled) → bypass → SENT;
   automáticos (appointment.reminder_due, appointment.no_show) → respeita → SCHEDULED
+- Senha de usuário: mínimo 8 chars + 1 maiúscula + 1 número (validado no backend)
+- Token de reset: 6 dígitos numéricos, TTL 15min, invalidado imediatamente após uso
+- forgot_password requer template "auth.password_reset_requested" cadastrado no tenant
 
 ## Onde está o quê
 
@@ -80,6 +83,9 @@
 - `workers/communication_worker.py` — Celery tasks para fluxos críticos de appointment
 - `infrastructure/db/models/{integration_credential,communication_setting,
   communication_template,communication_log}.py`
+- `infrastructure/db/models/password_reset_token.py`
+- `modules/auth/router.py` — adicionados: POST /auth/forgot-password,
+  POST /auth/reset-password, POST /auth/change-password
 
 ## O que NÃO fazer
 
