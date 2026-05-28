@@ -1,5 +1,5 @@
-**Sprint atual:** Sprint de RLS em andamento (pré-Fase 2)
-**Pendente operacional:** flip asyncio→Celery + remoção evolution_client (aguardam validação produção)
+**Sprint atual:** Sprint de Polish Visual em andamento (pré-Fase 2)
+**Pendente RLS:** working_hours e schedule_blocks sem política RLS (PR antes do 2º tenant)
 
 ## Stack e infraestrutura
 
@@ -24,6 +24,9 @@
   (CREDENTIAL_ENCRYPTION_KEY obrigatório em produção; ausente → KeyError no startup)
 - Feature flag: `TenantConfig.permission_overrides["use_communication_service"]`
   ativa o dispatch (default False — coexistência com evolution_client durante rollout)
+- RLS ativo em 26 tabelas (políticas por tenant_isolation; superuser bypassa automaticamente)
+- `core/db_rls.py` — set_rls_context() chamado em get_db() e workers Celery
+- Workers: company_id=None para scans multi-tenant (bypass); específico para tasks por tenant
 
 ## Convenções críticas
 
@@ -105,6 +108,9 @@
   → usar CommunicationService.dispatch após remoção das chamadas diretas
 - Não criar `integration_credentials` com `provider=WHATSAPP_EVOLUTION` no Estágio 0
 - `CREDENTIAL_ENCRYPTION_KEY` nunca commitar no repositório — vault Railway apenas
+- Não fazer queries fora de get_db() (HTTP) ou celery_db_session() (workers) — RLS context não será setado
+- Não modificar migrations existentes para SET LOCAL row_security = off
+  — superuser no Supabase bypassa automaticamente
 
 ## Decisões registradas
 
