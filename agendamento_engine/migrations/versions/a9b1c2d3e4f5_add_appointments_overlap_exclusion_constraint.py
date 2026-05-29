@@ -39,7 +39,7 @@ def upgrade() -> None:
           EXCLUDE USING gist (
             company_id      WITH =,
             professional_id WITH =,
-            tsrange(start_at, end_at, '[)') WITH &&
+            tstzrange(start_at, end_at, '[)') WITH &&
           )
           WHERE (status NOT IN ('CANCELLED', 'FAILED', 'EXPIRED'))
         """
