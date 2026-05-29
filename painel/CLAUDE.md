@@ -43,6 +43,22 @@ Link Público em `app/book/[slug]/`:
 
 Login em `app/page.tsx`.
 
+## Design system
+
+- Componentes usam tokens semânticos do design system (bg-card, border-border,
+  text-muted-foreground, bg-primary) — nunca valores hardcoded (bg-white, text-gray-*)
+- Display type: [font-family:var(--font-display)] apenas em elementos não-heading (span, div)
+  h1/h2/h3 herdam Cormorant Garamond automaticamente via @layer base
+- globals.css define os tokens; componentes herdam automaticamente
+- .book-page segue paleta do sistema por padrão; customizável via TenantBranding
+- Sidebar: Lucide icons (16px/strokeWidth 1.5), font-display nos labels,
+  italic + ◆ para item ativo, footer com avatar + nome + role + logout
+- Dashboard: overview KPI strip + Próximos da casa + Top serviços
+- Títulos: font-display text-3xl tracking-wide em todas as páginas
+- Pendente: paladino-wordmark.png → adicionar em painel/public/
+- Pendente: ThemeProvider (dark/light toggle decorativo sem ele)
+- Pendente: grupo Unidade no sidebar (depende de company no JWT)
+
 ## O que NÃO fazer
 
 - Não criar lógica de negócio no frontend (validação de disponibilidade, cálculo financeiro, etc.)
