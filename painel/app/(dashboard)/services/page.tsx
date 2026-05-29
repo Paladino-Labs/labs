@@ -268,7 +268,7 @@ export default function ServicesPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Serviços</h1>
+        <h1 className="text-3xl tracking-wide">Serviços</h1>
         <CreateServiceDialog onCreated={fetchServices} />
       </div>
 

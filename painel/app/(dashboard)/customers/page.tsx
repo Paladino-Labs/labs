@@ -141,7 +141,7 @@ export default function CustomersPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Clientes</h1>
+        <h1 className="text-3xl tracking-wide">Clientes</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger render={<Button />}>+ Novo Cliente</DialogTrigger>
           <DialogContent>
@@ -194,10 +194,17 @@ export default function CustomersPage() {
               {customers.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">
-                    <div>{c.name}</div>
-                    {c.notes && (
-                      <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate">{c.notes}</div>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-full bg-primary/15 text-xs font-medium text-primary flex items-center justify-center flex-shrink-0 select-none">
+                        {c.name.split(" ").slice(0, 2).map((p) => p[0]?.toUpperCase()).join("")}
+                      </div>
+                      <div>
+                        <div>{c.name}</div>
+                        {c.notes && (
+                          <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate line-clamp-1">{c.notes}</div>
+                        )}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>{c.phone}</TableCell>
                   <TableCell>{c.email ?? "—"}</TableCell>
