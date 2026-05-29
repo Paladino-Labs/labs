@@ -1,6 +1,6 @@
 # painel — contexto operacional
 
-**Sprint atual:** Sprint 1 em andamento (Fase 1 — Fundação técnica)
+**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
 **Foco do frontend nesta fase:** apenas ajustes mínimos de segurança.
 Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 
@@ -24,6 +24,12 @@ Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 - Imports de `lib/api.ts` sempre — nunca `fetch` raw
 - Formatação monetária: `formatBRL()` de `lib/utils.ts`
 - Formatação de data: `formatDateTime()` de `lib/utils.ts` com `timeZone` explícito
+- Componentes usam tokens semânticos do design system (bg-card, border-border,
+  text-muted-foreground, bg-primary) — nunca valores hardcoded (bg-white, text-gray-*)
+- Display type: [font-family:var(--font-display)] apenas em elementos não-heading (span, div)
+  h1/h2/h3 herdam Cormorant Garamond automaticamente via @layer base
+- globals.css define os tokens; componentes herdam automaticamente
+- .book-page segue paleta do sistema por padrão; customizável via TenantBranding
 
 ## Rotas e áreas existentes (entrada Fase 1)
 
