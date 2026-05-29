@@ -1,5 +1,4 @@
-**Sprint atual:** Sprint de Polish Visual em andamento (pré-Fase 2)
-**Pendente RLS:** working_hours e schedule_blocks sem política RLS (PR antes do 2º tenant)
+**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
 
 ## Stack e infraestrutura
 
