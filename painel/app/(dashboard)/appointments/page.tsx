@@ -200,7 +200,7 @@ export default function AppointmentsPage() {
                 "px-3 py-1.5 font-medium transition-colors border-r last:border-r-0 " +
                 (dateFilter === key
                   ? "bg-primary text-primary-foreground"
-                  : "bg-white text-muted-foreground hover:bg-muted")
+                  : "bg-background text-muted-foreground hover:bg-muted")
               }
             >
               {label}
@@ -257,7 +257,7 @@ export default function AppointmentsPage() {
           Nenhum agendamento encontrado para os filtros selecionados.
         </p>
       ) : (
-        <div className="rounded-xl border bg-white overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>

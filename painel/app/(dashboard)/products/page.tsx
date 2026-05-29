@@ -261,7 +261,7 @@ export default function ProductsPage() {
       {loading ? (
         <p className="text-muted-foreground">Carregando…</p>
       ) : (
-        <div className="rounded-md border bg-white">
+        <div className="rounded-md border border-border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

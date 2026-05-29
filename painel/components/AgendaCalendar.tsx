@@ -166,7 +166,7 @@ function TimeGutter() {
         {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
           <div
             key={i}
-            className="absolute right-2 text-xs text-gray-400 dark:text-gray-500 leading-none"
+            className="absolute right-2 text-xs text-muted-foreground leading-none"
             style={{ top: i * HOUR_HEIGHT - 7, width: 40, textAlign: "right" }}
           >
             {i < TOTAL_HOURS + 1 ? formatHour(START_HOUR + i) : ""}
@@ -214,14 +214,14 @@ function HourGrid() {
       {Array.from({ length: TOTAL_HOURS }, (_, i) => (
         <div
           key={i}
-          className="absolute left-0 right-0 border-t border-gray-100 dark:border-gray-800"
+          className="absolute left-0 right-0 border-t border-border"
           style={{ top: i * HOUR_HEIGHT }}
         />
       ))}
       {Array.from({ length: TOTAL_HOURS }, (_, i) => (
         <div
           key={`half-${i}`}
-          className="absolute left-0 right-0 border-t border-dashed border-gray-100 dark:border-gray-800 opacity-60"
+          className="absolute left-0 right-0 border-t border-dashed border-border opacity-60"
           style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
         />
       ))}
@@ -257,23 +257,23 @@ function WeekView({
           const isToday = isSameDay(day, today)
 
           return (
-            <div key={day.toISOString()} className="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800">
+            <div key={day.toISOString()} className="flex-1 min-w-0 border-l border-border">
               {/* Cabeçalho do dia */}
               <div
                 className={`
                   h-12 flex flex-col items-center justify-center gap-0.5 sticky top-0 z-20
-                  bg-white dark:bg-gray-950 border-b border-gray-100 dark:border-gray-800
+                  bg-card border-b border-border
                 `}
               >
-                <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   {DAYS_PT[day.getDay()]}
                 </span>
                 <span
                   className={`
                     text-sm font-semibold leading-none w-7 h-7 flex items-center justify-center rounded-full
                     ${isToday
-                      ? "bg-violet-600 text-white"
-                      : "text-gray-700 dark:text-gray-300"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground"
                     }
                   `}
                 >
@@ -350,17 +350,17 @@ function DayView({
           )
 
           return (
-            <div key={prof.id} className="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800">
+            <div key={prof.id} className="flex-1 min-w-0 border-l border-border">
               {/* Cabeçalho do profissional */}
               <div
                 className="h-12 flex items-center justify-center gap-2 sticky top-0 z-20
-                  bg-white dark:bg-gray-950 border-b border-gray-100 dark:border-gray-800 px-2"
+                  bg-card border-b border-border px-2"
               >
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: prof.color }}
                 />
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
+                <span className="text-xs font-semibold text-foreground truncate [font-family:var(--font-display)]">
                   {prof.name}
                 </span>
               </div>
@@ -432,16 +432,16 @@ function MiniCalendar({
       <div className="flex items-center justify-between mb-2 px-1">
         <button
           onClick={() => setViewing(new Date(viewing.getFullYear(), viewing.getMonth() - 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
         >
           ‹
         </button>
-        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 capitalize">
+        <span className="text-xs font-semibold text-foreground capitalize">
           {MONTHS_PT[viewing.getMonth()]} {viewing.getFullYear()}
         </span>
         <button
           onClick={() => setViewing(new Date(viewing.getFullYear(), viewing.getMonth() + 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
         >
           ›
         </button>
@@ -450,7 +450,7 @@ function MiniCalendar({
       {/* Dias da semana */}
       <div className="grid grid-cols-7 mb-1">
         {DAYS_PT.map((d) => (
-          <div key={d} className="text-center text-xs text-gray-400 font-medium py-0.5">
+          <div key={d} className="text-center text-xs text-muted-foreground font-medium py-0.5">
             {d[0]}
           </div>
         ))}
@@ -475,16 +475,16 @@ function MiniCalendar({
                 relative w-7 h-7 mx-auto flex items-center justify-center rounded-full text-xs
                 transition-colors duration-100
                 ${isSelected
-                  ? "bg-violet-600 text-white font-semibold"
+                  ? "bg-primary text-primary-foreground font-semibold"
                   : isToday
-                    ? "border border-violet-400 text-violet-600 dark:text-violet-400 font-semibold"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    ? "border border-primary text-primary font-semibold"
+                    : "text-foreground hover:bg-muted"
                 }
               `}
             >
               {i + 1}
               {dot && !isSelected && (
-                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-violet-400" />
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
               )}
             </button>
           )
@@ -528,7 +528,7 @@ function ApptModal({
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-sm p-6 relative"
+        className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cor do profissional */}
@@ -539,16 +539,16 @@ function ApptModal({
 
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none"
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-lg leading-none"
         >
           ×
         </button>
 
         <div className="pl-3">
-          <p className="font-semibold text-gray-900 dark:text-gray-100 text-base leading-snug">
+          <p className="font-semibold text-foreground text-base leading-snug">
             {appt.client_name}
           </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-sm text-muted-foreground mt-0.5">
             {appt.service_name}
           </p>
 
@@ -556,12 +556,12 @@ function ApptModal({
             {statusLabel[appt.status]}
           </span>
 
-          <div className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <span className="text-base">🕐</span>
               <span>
                 {formatTime(start)} – {formatTime(end)}
-                <span className="ml-1 text-gray-400">({durationMin} min)</span>
+                <span className="ml-1 text-muted-foreground">({durationMin} min)</span>
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -643,15 +643,15 @@ export default function AgendaCalendar({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+    <div className="flex flex-col h-full bg-card rounded-2xl border border-border overflow-hidden">
 
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
         {/* Hoje */}
         <button
           onClick={goToday}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 dark:border-gray-700
-            text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-border
+            text-foreground hover:bg-muted transition-colors"
         >
           Hoje
         </button>
@@ -662,8 +662,8 @@ export default function AgendaCalendar({
             <button
               key={arrow}
               onClick={i === 0 ? prevPeriod : nextPeriod}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500
-                hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-base leading-none"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-muted-foreground
+                hover:bg-muted transition-colors text-base leading-none"
             >
               {arrow}
             </button>
@@ -671,12 +671,12 @@ export default function AgendaCalendar({
         </div>
 
         {/* Título do período */}
-        <h2 className="flex-1 text-sm font-semibold text-gray-800 dark:text-gray-200 capitalize">
+        <h2 className="flex-1 text-sm font-semibold text-foreground capitalize">
           {headerLabel}
         </h2>
 
         {/* Toggle semana / dia */}
-        <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex rounded-lg border border-border overflow-hidden">
           {(["week", "day"] as ViewMode[]).map((v) => (
             <button
               key={v}
@@ -684,8 +684,8 @@ export default function AgendaCalendar({
               className={`
                 px-3 py-1.5 text-xs font-semibold transition-colors
                 ${view === v
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted"
                 }
               `}
             >
@@ -699,7 +699,7 @@ export default function AgendaCalendar({
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* Mini calendário lateral */}
-        <div className="hidden lg:flex flex-col gap-6 px-4 py-4 border-r border-gray-100 dark:border-gray-800 flex-shrink-0">
+        <div className="hidden lg:flex flex-col gap-6 px-4 py-4 border-r border-border flex-shrink-0">
           <MiniCalendar
             selected={currentDate}
             onChange={(d) => setCurrentDate(d)}
@@ -708,7 +708,7 @@ export default function AgendaCalendar({
 
           {/* Legenda de profissionais */}
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Profissionais
             </p>
             {professionals.map((p) => (
@@ -717,7 +717,7 @@ export default function AgendaCalendar({
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: p.color }}
                 />
-                <span className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                <span className="text-xs text-muted-foreground truncate">
                   {p.name}
                 </span>
               </div>

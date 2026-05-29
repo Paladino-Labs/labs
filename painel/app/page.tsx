@@ -56,10 +56,10 @@ export default function LoginPage() {
   if (token) return null
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+    <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Paladino Labs</CardTitle>
+          <CardTitle className="text-3xl font-bold">Paladino Labs</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
