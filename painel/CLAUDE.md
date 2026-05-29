@@ -55,9 +55,10 @@ Login em `app/page.tsx`.
   italic + ◆ para item ativo, footer com avatar + nome + role + logout
 - Dashboard: overview KPI strip + Próximos da casa + Top serviços
 - Títulos: font-display text-3xl tracking-wide em todas as páginas
-- Pendente: paladino-wordmark.png → adicionar em painel/public/
-- Pendente: ThemeProvider (dark/light toggle decorativo sem ele)
-- Pendente: grupo Unidade no sidebar (depende de company no JWT)
+- ThemeProvider em lib/theme.tsx (localStorage, .light class no <html>)
+- paladino-wordmark.png em painel/public/
+- Sidebar: toggle Sun/Moon funcional
+- Pendente: grupo Unidade no sidebar (depende de company context no JWT)
 
 ## O que NÃO fazer
 
