@@ -117,3 +117,11 @@
 - Evolution API permanece global no Estágio 0 (Opção A — confirmada no Sprint 5):
   WHATSAPP_EVOLUTION no enum provider é schema-only; migração whatsapp_connection
   não aplicável no Estágio 0
+
+## Bugs conhecidos / corrigidos
+
+- [CORRIGIDO] Timezone na geração de slots: working_hours eram tratados
+  como UTC em vez de horário local do tenant.
+  Fix em availability/service.py + appointments/service.py.
+  Usa TenantConfig.timezone como fonte canônica com fallback
+  "America/Sao_Paulo". Requer tzdata==2026.2 (adicionado ao requirements).
