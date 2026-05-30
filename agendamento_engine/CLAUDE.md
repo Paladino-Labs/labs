@@ -128,3 +128,10 @@
   Fix em availability/service.py + appointments/service.py.
   Usa TenantConfig.timezone como fonte canônica com fallback
   "America/Sao_Paulo". Requer tzdata==2026.2 (adicionado ao requirements).
+
+## Segurança
+
+- JWT agora inclui `iat` (issued at) em todos os tokens
+- Troca de senha invalida tokens emitidos antes dela via `last_password_change_at`
+  em User — tokens sem `iat` (pré-deploy) são aceitos por backward compat
+- change_password e reset_password atualizam last_password_change_at
