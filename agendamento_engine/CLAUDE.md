@@ -1,4 +1,15 @@
-**Sprint atual:** Sprint 8 em andamento (Fase 2 — Asaas, PaymentSource, PII)
+**Sprint atual:** Sprint 10 em andamento (Fase 2 — Operations FSM, Agenda granular)
+
+## PaymentsEngine (Sprint 9 concluído)
+- Payment FSM: PENDING → CONFIRMED → REFUNDED
+- confirm() atômico (5 passos na mesma transação; ver brief v2)
+- Idempotência: ProcessedIdempotencyKey + UNIQUE no banco
+- payment.confirmed → CommunicationService via EventBus (best-effort, fora da tx)
+- handle_payment_refunded em FinancialCoreEngine
+- Payment.provider imutável (trigger banco + @validates)
+- DepositPolicy por serviço ou global
+
+**HEAD migration:** y1z2a3b4c5d6 (add_deposit_policies)
 
 ## Transfer + Reconciliação + CashCount (Sprint 7 concluído)
 - Transfer: 2 Movements atômicos; sem Entry
