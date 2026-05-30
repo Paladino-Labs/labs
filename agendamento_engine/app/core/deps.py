@@ -1,5 +1,6 @@
 from uuid import UUID
 from typing import Callable, Optional
+from datetime import datetime, timezone
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -32,6 +33,17 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id, User.active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="Não autenticado")
+
+    # Invalida tokens emitidos antes da última troca de senha.
+    if user.last_password_change_at is not None:
+        iat_raw = payload.get("iat")
+        if iat_raw is not None:
+            token_issued_at = datetime.fromtimestamp(float(iat_raw), tz=timezone.utc)
+            if token_issued_at < user.last_password_change_at:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Sessão expirada — senha alterada.",
+                )
 
     return user
 

@@ -1,5 +1,6 @@
 import uuid
 import enum
+import sqlalchemy as sa
 from sqlalchemy import Column, String, Boolean, ForeignKey, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -66,6 +67,8 @@ class User(Base, TimestampMixin):
         default="ADMIN",
     )
     active = Column(Boolean, default=True, nullable=False)
+    # Preenchido sempre que a senha é alterada; usado para invalidar JWTs antigos.
+    last_password_change_at = Column(sa.TIMESTAMP(timezone=True), nullable=True)
 
     company = relationship("Company", back_populates="users")
 

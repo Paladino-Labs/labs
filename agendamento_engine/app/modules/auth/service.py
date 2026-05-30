@@ -125,6 +125,7 @@ def reset_password(
         raise HTTPException(status_code=400, detail="Usuário não encontrado ou inativo.")
 
     user.password_hash = hash_password(new_password)
+    user.last_password_change_at = now
     db.commit()
 
 
@@ -135,7 +136,11 @@ def change_password(
     new_password: str,
     new_password_confirm: str,
 ) -> None:
-    """Valida senha atual e atualiza para nova senha."""
+    """Valida senha atual e atualiza para nova senha.
+
+    Atualiza last_password_change_at para que tokens emitidos antes desta
+    data sejam invalidados por get_current_user.
+    """
     if new_password != new_password_confirm:
         raise HTTPException(status_code=422, detail="As senhas não coincidem.")
 
@@ -143,4 +148,5 @@ def change_password(
         raise HTTPException(status_code=400, detail="Senha atual incorreta.")
 
     user.password_hash = hash_password(new_password)
+    user.last_password_change_at = datetime.now(timezone.utc)
     db.commit()
