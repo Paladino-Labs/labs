@@ -1,6 +1,6 @@
 # painel — contexto operacional
 
-**Sprint atual:** Sprint de Backend BookingFlow em andamento (pré-G13)
+**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
 ## Design — Sprints A–F + Ajustes concluídos ✅
 - Todos os desvios resolvidos: ícones semânticos, brand icons → texto,
   tab Barbeiros sem risco de erro em produção
@@ -123,6 +123,12 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - Vitrine: business_hours como string livre — highlight "Hoje" não implementado
 - Vitrine: tab Barbeiros requer service_id — verificar estado atual
 - G13 (BookingFlow): aguarda sprint de backend (remoção AWAITING_SHIFT)
+
+## G13 BookingFlow concluído
+- 4 steps visuais (Serviço · Barbeiro · Horário · Confirmar)
+- BookingStepper com mapeamento FSM → UI
+- AWAITING_SHIFT removido do componente
+- publicFetch de lib/api em todas as chamadas públicas
 
 ### O que NÃO fazer (acréscimos ao design)
 
