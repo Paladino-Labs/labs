@@ -1,4 +1,12 @@
-**Sprint atual:** Sprint 7 em andamento (Fase 2 — Transfer, Reconciliação, CashCount)
+**Sprint atual:** Sprint 8 em andamento (Fase 2 — Asaas, PaymentSource, PII)
+
+## Transfer + Reconciliação + CashCount (Sprint 7 concluído)
+- Transfer: 2 Movements atômicos; sem Entry
+- Movement permanece 100% append-only; reconciliação via movement_reconciliations
+- CashCount ADJUSTED: create_manual_adjustment + entry_id vinculado
+- notes obrigatório quando discrepancy != 0
+
+**HEAD migration:** s1t2u3v4w5x6 (add_cash_counts)
 
 ## Financial Core — fundação (Sprint 6 concluído)
 - TenantFeeRoutingPolicy: lookup por (company_id, fee_source); sem FK em tenant_configs
