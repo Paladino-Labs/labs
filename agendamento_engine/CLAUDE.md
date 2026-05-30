@@ -1,4 +1,17 @@
-**Sprint atual:** Sprint 10 em andamento (Fase 2 — Operations FSM, Agenda granular)
+**Fase 2 concluída.** Sprint atual: Sprint 11 em andamento (Fase 3 — Catálogo opt-ins)
+
+## Operations FSM + Agenda granular (Sprint 10 concluído)
+- Reservation SOFT/FIRME: EXCLUDE tstzrange WHERE status='ACTIVE'
+- promote_to_firme: PROMOTED + db.flush() + INSERT FIRME (atômico)
+- expire_soft_reservation: Celery (crítico); handler idempotente registrado
+- Celery Beat: expire_soft_reservations_scan (*/5 min)
+- ScheduleException: SUBSTITUTIVE | ADDITIVE por data
+- DirectOccupancy com overbooking auditado
+- Appointment: DRAFT, FAILED, operation_type
+
+**HEAD migration:** c2d3e4f5g6h7 (add_direct_occupancies)
+**Total migrations Fase 2:** 14 (k1→c2)
+**Total testes:** 140/140 (+ 2 skips PostgreSQL real — validar em staging)
 
 ## PaymentsEngine (Sprint 9 concluído)
 - Payment FSM: PENDING → CONFIRMED → REFUNDED
