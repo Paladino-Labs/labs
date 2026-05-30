@@ -1,6 +1,6 @@
 # painel — contexto operacional
 
-**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
+**Sprint atual:** Sprint de Backend BookingFlow em andamento (pré-G13)
 **Foco do frontend nesta fase:** apenas ajustes mínimos de segurança.
 Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 
@@ -106,6 +106,19 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 | `commission_rate` | `GET /professionals/` | Barbeiros — comissão |
 | `specialties` | `GET /professionals/` | Barbeiros — especialidades |
 | `rating`, `review_count` | `GET /booking/{slug}/profile` | Vitrine — rating no hero |
+
+## Design — Sprints A–F concluídos (2026-05-29)
+- Tokens, componentes compartilhados, publicFetch em lib/api
+- .font-display sistemático, emojis → Lucide, hardcoded colors → tokens
+- Login 2 colunas, dashboard eyebrow+italic, hub de Configurações
+- Barbeiros em cards, Agenda com day picker, Vitrine 2 colunas + aside sticky
+
+## Pendências de design (pós-sprints)
+- settings/profile: ícone 👤 trocado por <Globe> — verificar semântica
+- Vitrine: brand icons (Instagram/Facebook/TikTok) sem substituto semântico
+- Vitrine: business_hours como string livre — highlight "Hoje" não implementado
+- Vitrine: tab Barbeiros requer service_id — verificar estado atual
+- G13 (BookingFlow): aguarda sprint de backend (remoção AWAITING_SHIFT)
 
 ### O que NÃO fazer (acréscimos ao design)
 
