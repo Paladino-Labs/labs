@@ -12,7 +12,7 @@ import {
   Scissors,
   UserCircle,
   Package,
-  Store,
+  Settings,
   Link2,
   LogOut,
   Sun,
@@ -26,9 +26,9 @@ const NAV_LINKS = [
   { href: "/appointments",     label: "Agendamentos",      icon: CalendarDays },
   { href: "/customers",        label: "Clientes",          icon: Users },
   { href: "/services",         label: "Serviços",          icon: Scissors },
-  { href: "/professionals",    label: "Profissionais",     icon: UserCircle },
+  { href: "/professionals",    label: "Barbeiros",          icon: UserCircle },
   { href: "/products",         label: "Produtos",          icon: Package },
-  { href: "/settings/profile", label: "Perfil da empresa", icon: Store },
+  { href: "/settings", label: "Configurações", icon: Settings },
   { href: "/integrations",     label: "Integrações",       icon: Link2 },
 ]
 

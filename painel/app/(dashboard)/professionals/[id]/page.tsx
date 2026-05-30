@@ -265,7 +265,7 @@ export default function ProfessionalEditorPage() {
         >
           ← Voltar
         </Button>
-        <h1 className="text-2xl font-bold">{prof.name}</h1>
+        <h1 className="font-display text-2xl">{prof.name}</h1>
         <ActiveBadge active={prof.active} />
       </div>
 

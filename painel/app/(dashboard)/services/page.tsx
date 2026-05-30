@@ -4,16 +4,18 @@ import { useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
 import type { Service } from "@/types"
-import { ActiveBadge } from "@/components/ActiveBadge"
+import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
+import { Clock } from "lucide-react"
 
 // --- Create Dialog ---
 function CreateServiceDialog({ onCreated }: { onCreated: () => void }) {
@@ -90,12 +92,11 @@ function CreateServiceDialog({ onCreated }: { onCreated: () => void }) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="cs-description">Descrição</Label>
-            <textarea
+            <Textarea
               id="cs-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
               placeholder="Descreva o serviço…"
             />
           </div>
@@ -207,12 +208,11 @@ function EditServiceDialog({ service, onUpdated }: { service: Service; onUpdated
           </div>
           <div className="space-y-1">
             <Label htmlFor="es-description">Descrição</Label>
-            <textarea
+            <Textarea
               id="es-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
               placeholder="Descreva o serviço…"
             />
           </div>
@@ -268,7 +268,7 @@ export default function ServicesPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl tracking-wide">Serviços</h1>
+        <h1 className="font-display text-3xl tracking-wide">Serviços</h1>
         <CreateServiceDialog onCreated={fetchServices} />
       </div>
 
@@ -314,9 +314,15 @@ export default function ServicesPage() {
                       <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate">{s.description}</div>
                     )}
                   </TableCell>
-                  <TableCell>{formatBRL(s.price)}</TableCell>
-                  <TableCell>{s.duration} min</TableCell>
-                  <TableCell><ActiveBadge active={s.active} /></TableCell>
+                  <TableCell>
+                    <span className="[font-family:var(--font-display)] text-lg text-primary">{formatBRL(s.price)}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1 text-sm">
+                      <Clock className="h-3 w-3 text-muted-foreground" />{s.duration} min
+                    </span>
+                  </TableCell>
+                  <TableCell><StatusBadge active={s.active} /></TableCell>
                   <TableCell className="text-right space-x-1">
                     <EditServiceDialog service={s} onUpdated={fetchServices} />
                     <Button size="sm" variant="ghost" onClick={() => toggleActive(s)}>

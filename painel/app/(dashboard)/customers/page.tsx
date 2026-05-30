@@ -4,16 +4,19 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
 import type { Customer } from "@/types"
-import { ActiveBadge } from "@/components/ActiveBadge"
+import { StatusBadge } from "@/components/status-badge"
+import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
+import { Search } from "lucide-react"
 
 // --- Edit Dialog ---
 function EditCustomerDialog({ customer, onUpdated }: { customer: Customer; onUpdated: () => void }) {
@@ -76,12 +79,11 @@ function EditCustomerDialog({ customer, onUpdated }: { customer: Customer; onUpd
           </div>
           <div className="space-y-1">
             <Label htmlFor="ec-notes">Observações</Label>
-            <textarea
+            <Textarea
               id="ec-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
               placeholder="Preferências, alergias, observações…"
             />
           </div>
@@ -104,6 +106,7 @@ export default function CustomersPage() {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [q, setQ] = useState("")
 
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
@@ -122,6 +125,10 @@ export default function CustomersPage() {
 
   useEffect(() => { fetchCustomers() }, [])
 
+  const filtered = customers.filter((c) =>
+    c.name.toLowerCase().includes(q.toLowerCase()) || c.phone.includes(q)
+  )
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -139,34 +146,43 @@ export default function CustomersPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl tracking-wide">Clientes</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button />}>+ Novo Cliente</DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Novo Cliente</DialogTitle></DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4 py-2">
-              <div className="space-y-1">
-                <Label htmlFor="c-name">Nome *</Label>
-                <Input id="c-name" value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="c-phone">Telefone *</Label>
-                <Input id="c-phone" value={phone} onChange={(e) => setPhone(e.target.value)} required placeholder="(11) 99999-9999" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="c-email">E-mail (opcional)</Label>
-                <Input id="c-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={saving}>{saving ? "Salvando…" : "Criar"}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4 mb-6">
+        <div>
+          <h1 className="font-display text-3xl tracking-wide">Clientes</h1>
+          <p className="text-sm text-muted-foreground">{customers.length} cadastrados</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou telefone" className="pl-9" />
+          </div>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger render={<Button />}>+ Novo Cliente</DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Novo Cliente</DialogTitle></DialogHeader>
+              <form onSubmit={handleCreate} className="space-y-4 py-2">
+                <div className="space-y-1">
+                  <Label htmlFor="c-name">Nome *</Label>
+                  <Input id="c-name" value={name} onChange={(e) => setName(e.target.value)} required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="c-phone">Telefone *</Label>
+                  <Input id="c-phone" value={phone} onChange={(e) => setPhone(e.target.value)} required placeholder="(11) 99999-9999" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="c-email">E-mail (opcional)</Label>
+                  <Input id="c-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                  <Button type="submit" disabled={saving}>{saving ? "Salvando…" : "Criar"}</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {loading ? (
@@ -184,14 +200,14 @@ export default function CustomersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.length === 0 && (
+              {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    Nenhum cliente cadastrado.
+                  <TableCell colSpan={5} className="p-0">
+                    <EmptyState message={q ? "Nenhum cliente encontrado." : "Nenhum cliente cadastrado."} />
                   </TableCell>
                 </TableRow>
               )}
-              {customers.map((c) => (
+              {filtered.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-3">
@@ -206,9 +222,9 @@ export default function CustomersPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{c.phone}</TableCell>
+                  <TableCell className="font-mono text-sm">{c.phone}</TableCell>
                   <TableCell>{c.email ?? "—"}</TableCell>
-                  <TableCell><ActiveBadge active={c.active} /></TableCell>
+                  <TableCell><StatusBadge active={c.active} /></TableCell>
                   <TableCell className="text-right space-x-1">
                     <EditCustomerDialog customer={c} onUpdated={fetchCustomers} />
                     <Button size="sm" variant="outline" onClick={() => router.push(`/customers/${c.id}`)}>

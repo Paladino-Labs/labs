@@ -6,6 +6,7 @@ import { formatDateTime } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Check, Link2, Smartphone, Timer } from "lucide-react"
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -244,12 +245,12 @@ export default function IntegrationsPage() {
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold">Integrações</h1>
+      <h1 className="font-display text-3xl tracking-wide">Integrações</h1>
 
       {/* ── Agendamento Online ── */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">🔗 Agendamento Online</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base"><Link2 className="h-4 w-4" /> Agendamento Online</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Slug */}
@@ -307,7 +308,7 @@ export default function IntegrationsPage() {
             <div className="rounded-lg bg-muted px-3 py-2 text-sm break-all flex items-center justify-between gap-2">
               <span className="text-muted-foreground font-mono text-xs">{bookingUrl}</span>
               <Button size="sm" variant="outline" onClick={handleCopyLink}>
-                {copied ? "✓ Copiado" : "Copiar"}
+                {copied ? <><Check className="h-4 w-4" /> Copiado</> : "Copiar"}
               </Button>
             </div>
           )}
@@ -317,7 +318,7 @@ export default function IntegrationsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            📱 WhatsApp Business
+            <Smartphone className="h-4 w-4" /> WhatsApp Business
             <StatusBadge status={conn.status} />
           </CardTitle>
         </CardHeader>
@@ -357,16 +358,16 @@ export default function IntegrationsPage() {
                   <img
                     src={`data:image/png;base64,${conn.qr_code}`}
                     alt="QR Code WhatsApp"
-                    className="w-48 h-48 border rounded-lg"
+                    className="max-w-[12rem] w-full aspect-square border rounded-lg"
                   />
                   {qrCountdown !== null && qrCountdown > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      ⏱ Expira em {qrCountdown}s
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Timer className="h-3 w-3" /> Expira em {qrCountdown}s
                     </p>
                   )}
                 </div>
               ) : (
-                <div className="w-48 h-48 border rounded-lg bg-muted flex items-center justify-center text-sm text-muted-foreground">
+                <div className="max-w-[12rem] w-full aspect-square border rounded-lg bg-muted flex items-center justify-center text-sm text-muted-foreground">
                   QR expirado
                 </div>
               )}

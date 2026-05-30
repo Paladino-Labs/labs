@@ -80,6 +80,24 @@ async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  })
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail ?? "Erro desconhecido")
+  }
+
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
 export const api = {
   get:      <T>(path: string)                       => apiFetch<T>(path),
   post:     <T>(path: string, body: unknown)        => apiFetch<T>(path, { method: "POST",   body: JSON.stringify(body) }),

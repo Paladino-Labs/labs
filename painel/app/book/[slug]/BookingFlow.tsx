@@ -1,8 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { formatBRL } from "@/lib/utils"
+import { addDays, format, isSameDay, startOfDay } from "date-fns"
+import { ptBR } from "date-fns/locale/pt-BR"
+import { ArrowLeft, Check, CheckCircle2, Clock, Scissors, User } from "lucide-react"
+import { publicFetch } from "@/lib/api"
+import { cn, formatBRL } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -11,12 +17,14 @@ interface ServiceOpt {
   name: string
   price: string
   duration_minutes: number
+  description?: string | null
   row_key: string
 }
 
 interface ProfOpt {
   id: string | null
   name: string
+  description?: string | null
   row_key: string
 }
 
@@ -36,20 +44,11 @@ interface SlotOpt {
   row_key: string
 }
 
-interface ShiftOpt {
-  shift: string           // "manha" | "tarde" | "noite"
-  label: string           // "🌅 Manhã (até 12h)"
-  slot_count: number
-  has_availability: boolean
-  row_key: string         // "turno_manha" | "turno_tarde" | "turno_noite"
-}
-
 type SrvState =
   | "IDLE"
   | "AWAITING_SERVICE"
   | "AWAITING_PROFESSIONAL"
   | "AWAITING_DATE"
-  | "AWAITING_SHIFT"
   | "AWAITING_TIME"
   | "AWAITING_CUSTOMER"
   | "AWAITING_CONFIRMATION"
@@ -82,109 +81,72 @@ export interface Session {
   session_id: string
   token: string
   state: SrvState
-  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt | ShiftOpt)[]
+  options: (ServiceOpt | ProfOpt | DateOpt | SlotOpt)[]
   context_summary: ContextSummary
   confirmation: ConfirmData | null
   expires_at: string
   company_timezone: string
+  booking_code?: string | null
   error?: string | null
   dates_has_next?: boolean
   dates_has_previous?: boolean
 }
 
-// ─── API ──────────────────────────────────────────────────────────────────────
+// ─── Stepper ──────────────────────────────────────────────────────────────────
 
-const API = process.env.NEXT_PUBLIC_API_URL!
+const STEP_LABELS = ["Serviço", "Barbeiro", "Horário", "Confirmar"]
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw Object.assign(new Error(body.detail ?? "Erro desconhecido"), { status: res.status })
-  }
-  return res.json()
-}
-
-// ─── Componentes visuais ──────────────────────────────────────────────────────
-
-function StepHeader({ title, subtitle, onBack }: {
-  title: string; subtitle?: string; onBack?: () => void
-}) {
+function BookingStepper({ currentStep }: { currentStep: 1 | 2 | 3 | 4 }) {
   return (
-    <div className="mb-6">
-      {onBack && (
-        <button onClick={onBack} className="text-sm mb-3 flex items-center gap-1 transition-colors"
-          style={{ color: "var(--book-primary)" }}>
-          ← Voltar
-        </button>
-      )}
-      <h2 className="text-xl font-bold" style={{ color: "var(--book-text)" }}>{title}</h2>
-      {subtitle && <p className="text-sm mt-1" style={{ color: "var(--book-text-secondary)" }}>{subtitle}</p>}
+    <div className="flex items-center gap-2 mb-8">
+      {STEP_LABELS.map((label, i) => {
+        const n = (i + 1) as 1 | 2 | 3 | 4
+        const done = currentStep > n
+        const active = currentStep === n
+        return (
+          <div key={label} className="flex flex-1 items-center gap-2">
+            <div className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium shrink-0",
+              done   && "border-primary bg-primary text-primary-foreground",
+              active && "border-primary text-primary",
+              !done && !active && "border-border text-muted-foreground",
+            )}>
+              {done ? <Check className="h-3 w-3" /> : n}
+            </div>
+            <span className={cn(
+              "hidden sm:block text-xs",
+              active ? "text-foreground" : "text-muted-foreground",
+            )}>
+              {label}
+            </span>
+            {n < STEP_LABELS.length && (
+              <div className={cn("h-px flex-1", done ? "bg-primary" : "bg-border")} />
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-function BookCard({ children, onClick, disabled }: {
-  children: React.ReactNode; onClick?: () => void; disabled?: boolean
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled}
-      className="w-full text-left rounded-xl p-4 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
-      onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}
-    >
-      {children}
-    </button>
-  )
+function fsmToStep(state: SrvState): 1 | 2 | 3 | 4 {
+  if (state === "AWAITING_SERVICE")                             return 1
+  if (state === "AWAITING_PROFESSIONAL")                        return 2
+  if (state === "AWAITING_DATE" || state === "AWAITING_TIME")   return 3
+  return 4
 }
 
-function Spinner() {
-  return <p className="text-sm py-6 text-center" style={{ color: "var(--book-text-muted)" }}>Carregando…</p>
-}
+// ─── ErrorBanner ──────────────────────────────────────────────────────────────
 
-function ErrorBanner({ msg }: { msg: string }) {
+function ErrorBanner({ message }: { message: string }) {
   return (
-    <div className="rounded-lg p-3 text-sm mb-4" style={{
-      background: "color-mix(in srgb, #ef4444 10%, var(--book-card))",
-      border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)",
-      color: "#fca5a5",
-    }}>{msg}</div>
-  )
-}
-
-function InputField({ label, type, value, onChange, placeholder, minLength, required }: {
-  label: string; type: string; value: string; onChange: (v: string) => void
-  placeholder?: string; minLength?: number; required?: boolean
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--book-text-secondary)" }}>
-        {label}
-      </label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
-        required={required} minLength={minLength} placeholder={placeholder}
-        className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
-        style={{ background: "var(--book-card)", border: "1px solid var(--book-border)", color: "var(--book-text)" }}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = "var(--book-primary)"
-          e.currentTarget.style.boxShadow = "0 0 0 2px color-mix(in srgb, var(--book-primary) 20%, transparent)"
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = "var(--book-border)"
-          e.currentTarget.style.boxShadow = "none"
-        }}
-      />
+    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+      {message}
     </div>
   )
 }
 
-// ─── Componente principal do fluxo ────────────────────────────────────────────
-// Recebe slug e companyName como props — não busca /info internamente,
-// pois a landing page já carregou essas informações.
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function BookingFlow({
   slug,
@@ -197,20 +159,26 @@ export default function BookingFlow({
   initialToken?: string | null
   onTokenChange?: (token: string) => void
 }) {
-  const router = useRouter()
+  const [session,      setSession]      = useState<Session | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
+  const [custName,     setCustName]     = useState("")
+  const [custPhone,    setCustPhone]    = useState("")
+  const [custEmail,    setCustEmail]    = useState("")
+  const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()))
 
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
-
-  const [custName,  setCustName]  = useState("")
-  const [custPhone, setCustPhone] = useState("")
+  const next14Days = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i))
 
   // ── Iniciar ou retomar sessão ─────────────────────────────────────────────
   useEffect(() => {
     if (initialToken) {
-      apiFetch<Session>(`/booking/${slug}/session/${initialToken}`)
-        .then(setSession)
+      publicFetch<Session>(`/booking/${slug}/session/${initialToken}`)
+        .then(s => {
+          setSession(s)
+          if (s.context_summary.selected_date) {
+            setSelectedDate(startOfDay(new Date(s.context_summary.selected_date + "T12:00:00")))
+          }
+        })
         .catch((e: { status?: number; message: string }) => {
           if (e.status !== 410) console.warn("Falha ao retomar sessão:", e.message)
           startNewSession()
@@ -225,7 +193,7 @@ export default function BookingFlow({
     setLoading(true)
     setError(null)
     try {
-      const result = await apiFetch<Session>(`/booking/${slug}/start`, {
+      const result = await publicFetch<Session>(`/booking/${slug}/start`, {
         method: "POST",
         body: JSON.stringify({}),
       })
@@ -245,11 +213,11 @@ export default function BookingFlow({
       setError(null)
       setLoading(true)
       try {
-        const result = await apiFetch<Partial<Session>>(`/booking/${slug}/update`, {
+        const result = await publicFetch<Partial<Session>>(`/booking/${slug}/update`, {
           method: "POST",
           body: JSON.stringify({ session_id: session.session_id, action, payload }),
         })
-        setSession((prev) => prev ? { ...prev, ...result } : null)
+        setSession(prev => prev ? { ...prev, ...result } : null)
         if (result.error === "SLOT_UNAVAILABLE") {
           setError("Este horário acabou de ser ocupado. Escolha outro.")
         }
@@ -265,532 +233,398 @@ export default function BookingFlow({
   const handleBack  = () => dispatch("BACK")
   const handleReset = () => dispatch("RESET")
 
-  // ── Barra de progresso ────────────────────────────────────────────────────
-  const PROGRESS_STEPS: SrvState[] = [
-    "AWAITING_SERVICE", "AWAITING_PROFESSIONAL", "AWAITING_DATE",
-    "AWAITING_SHIFT", "AWAITING_TIME", "AWAITING_CUSTOMER", "AWAITING_CONFIRMATION",
-  ]
-  const currentIdx  = session ? PROGRESS_STEPS.indexOf(session.state) : -1
-  const showProgress = session && !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
+  function handleSelectDate(d: Date) {
+    setSelectedDate(d)
+    const dateStr = format(d, "yyyy-MM-dd")
+    const opts = (session?.options ?? []) as DateOpt[]
+    const opt = opts.find(o => o.date === dateStr)
+    if (opt) {
+      dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })
+    } else {
+      dispatch("SELECT_DATE", { date: dateStr })
+    }
+  }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <div className="book-page">
-
-      {/* Barra de progresso */}
-      {showProgress && (
-        <div className="max-w-lg mx-auto px-6 pt-2 pb-4">
-          <div className="flex gap-1">
-            {PROGRESS_STEPS.map((s, i) => (
-              <div key={s} className="h-0.5 flex-1 rounded-full transition-colors duration-300"
-                style={{ background: currentIdx >= i ? "var(--book-gradient-gold)" : "var(--book-border)" }} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-lg mx-auto px-6 py-4">
-
-        {/* Erro de inicialização */}
-        {!session && error && (
-          <div className="text-center py-8">
-            <ErrorBanner msg={error} />
-            <button onClick={startNewSession} className="book-btn-primary px-6 py-3 text-sm mt-4">
+  // ── Sem sessão ────────────────────────────────────────────────────────────
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        {loading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {error && (
+          <div className="text-center px-6 space-y-4">
+            <ErrorBanner message={error} />
+            <button onClick={startNewSession}
+              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">
               Tentar novamente
             </button>
           </div>
         )}
-
-        {!session && loading && <Spinner />}
-
-        {session?.state === "AWAITING_SERVICE" && (
-          <ServiceStep options={session.options as ServiceOpt[]} loading={loading}
-            onSelect={(opt) => dispatch("SELECT_SERVICE", { service_id: opt.id })} />
-        )}
-
-        {session?.state === "AWAITING_PROFESSIONAL" && (
-          <ProfessionalStep options={session.options as ProfOpt[]} summary={session.context_summary}
-            loading={loading} onBack={handleBack}
-            onSelect={(opt) => dispatch("SELECT_PROFESSIONAL", { professional_id: opt.id ?? "any" })} />
-        )}
-
-        {session?.state === "AWAITING_DATE" && (
-          <DateStep
-            options={session.options as DateOpt[]}
-            summary={session.context_summary}
-            hasNext={session.dates_has_next ?? false}
-            hasPrevious={session.dates_has_previous ?? false}
-            loading={loading}
-            onBack={handleBack}
-            onSelect={(opt) => dispatch("SELECT_DATE", { date: opt.date, row_key: opt.row_key })}
-            onNavigate={(offsetDays) => dispatch("NAVIGATE_DATES", { offset_days: offsetDays })}
-          />
-        )}
-
-        {session?.state === "AWAITING_SHIFT" && (
-          <ShiftStep
-            options={session.options as ShiftOpt[]}
-            summary={session.context_summary}
-            loading={loading}
-            onBack={handleBack}
-            onSelect={(opt) => dispatch("SELECT_SHIFT", { shift: opt.shift, row_key: opt.row_key })}
-          />
-        )}
-
-        {session?.state === "AWAITING_TIME" && (
-          <TimeStep options={session.options as SlotOpt[]} summary={session.context_summary}
-            companyTimezone={session.company_timezone}
-            loading={loading} error={error} onBack={handleBack}
-            onSelect={(opt) => dispatch("SELECT_TIME", {
-              start_at: opt.start_at, end_at: opt.end_at,
-              professional_id: opt.professional_id, row_key: opt.row_key,
-            })} />
-        )}
-
-        {session?.state === "AWAITING_CUSTOMER" && (
-          <CustomerForm name={custName} phone={custPhone}
-            onName={setCustName} onPhone={setCustPhone}
-            loading={loading} error={error} onBack={handleBack}
-            companyName={companyName}
-            onSubmit={(e) => {
-              e.preventDefault()
-              dispatch("SET_CUSTOMER", { name: custName, phone: custPhone })
-            }} />
-        )}
-
-        {session?.state === "AWAITING_CONFIRMATION" && (
-          <ConfirmStep summary={session.context_summary} loading={loading}
-            companyTimezone={session.company_timezone}
-            error={error} onBack={handleBack}
-            onConfirm={() => dispatch("CONFIRM")} />
-        )}
-
-        {session?.state === "CONFIRMED" && session.confirmation && (
-          <ConfirmedView confirmation={session.confirmation}
-            companyTimezone={session.company_timezone}
-            token={session.token} onReset={handleReset} />
-        )}
-
-        {session?.state === "CANCELLED" && (
-          <CancelledView onReset={handleReset} />
-        )}
-
       </div>
-    </div>
-  )
-}
-
-// ─── Etapas (idênticas ao original) ──────────────────────────────────────────
-
-function ServiceStep({ options, loading, onSelect }: {
-  options: ServiceOpt[]; loading: boolean; onSelect: (opt: ServiceOpt) => void
-}) {
-  return (
-    <div>
-      <StepHeader title="Qual serviço você quer agendar?" />
-      {loading ? <Spinner /> : (
-        <div className="space-y-3">
-          {options.map((svc) => (
-            <BookCard key={svc.row_key} onClick={() => onSelect(svc)} disabled={loading}>
-              <div className="flex gap-4 items-center">
-                <div className="h-12 w-12 rounded-lg flex items-center justify-center text-xl shrink-0"
-                  style={{ background: "var(--book-black-600)", border: "1px solid var(--book-border)" }}>
-                  ✂️
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold" style={{ color: "var(--book-text)" }}>{svc.name}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--book-text-muted)" }}>{svc.duration_minutes} min</div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-semibold" style={{ color: "var(--book-primary)" }}>
-                    {formatBRL(svc.price)}
-                  </div>
-                </div>
-              </div>
-            </BookCard>
-          ))}
-          {options.length === 0 && (
-            <p className="text-sm text-center py-8" style={{ color: "var(--book-text-muted)" }}>
-              Nenhum serviço disponível no momento.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ProfessionalStep({ options, summary, loading, onBack, onSelect }: {
-  options: ProfOpt[]; summary: ContextSummary; loading: boolean
-  onBack: () => void; onSelect: (opt: ProfOpt) => void
-}) {
-  return (
-    <div>
-      <StepHeader title="Com quem você prefere?" subtitle={summary.service_name ?? undefined} onBack={onBack} />
-      {loading ? <Spinner /> : (
-        <div className="space-y-3">
-          {options.map((prof, i) => (
-            <BookCard key={prof.row_key ?? `p-${i}`} onClick={() => onSelect(prof)} disabled={loading}>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                  style={{ background: "var(--book-black-600)", border: "1px solid var(--book-border)", color: "var(--book-primary)" }}>
-                  {prof.name[0]}
-                </div>
-                <span className="font-medium" style={{ color: "var(--book-text)" }}>{prof.name}</span>
-              </div>
-            </BookCard>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DateStep({ options, summary, hasNext, hasPrevious, loading, onBack, onSelect, onNavigate }: {
-  options: DateOpt[]
-  summary: ContextSummary
-  hasNext: boolean
-  hasPrevious: boolean
-  loading: boolean
-  onBack: () => void
-  onSelect: (opt: DateOpt) => void
-  onNavigate: (offsetDays: number) => void
-}) {
-  // Deve refletir DATE_MAX_ADVANCE_DAYS e DATE_WINDOW_SIZE do backend
-  const MAX_ADVANCE_DAYS = 60
-  const PAGE_SIZE = 7
-
-  const [offsetDays, setOffsetDays] = useState(0)
-
-  const subtitle  = [summary.service_name, summary.professional_name].filter(Boolean).join(" · ")
-  const available = options.filter((d) => d.has_availability)
-
-  function handleNext() {
-    const maxOffset = Math.max(0, MAX_ADVANCE_DAYS - PAGE_SIZE)
-    const next = Math.min(offsetDays + PAGE_SIZE, maxOffset)
-    setOffsetDays(next)
-    onNavigate(next)
+    )
   }
 
-  function handlePrev() {
-    const prev = Math.max(0, offsetDays - PAGE_SIZE)
-    setOffsetDays(prev)
-    onNavigate(prev)
-  }
+  const showStepper = !["IDLE", "CONFIRMED", "CANCELLED"].includes(session.state)
+  const ctx = session.context_summary
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div>
-      <StepHeader title="Qual dia funciona para você?" subtitle={subtitle || undefined} onBack={onBack} />
+    <div className="min-h-screen bg-background text-foreground">
 
-      {loading ? <Spinner /> : (
-        <>
-          {/* Botão "dias anteriores" */}
-          {hasPrevious && (
-            <button onClick={handlePrev} disabled={loading}
-              className="w-full text-sm mb-3 flex items-center gap-1 disabled:opacity-40"
-              style={{ color: "var(--book-primary)" }}>
-              ← Dias anteriores
-            </button>
-          )}
-
-          <div className="space-y-2">
-            {available.length === 0 ? (
-              <p className="text-sm py-6 text-center" style={{ color: "var(--book-text-muted)" }}>
-                Nenhum dia disponível nesta semana.
-              </p>
-            ) : (
-              available.map((d) => (
-                <button key={d.row_key} onClick={() => onSelect(d)} disabled={loading}
-                  className="w-full text-left rounded-xl px-4 py-3 transition-all duration-150 disabled:opacity-40"
-                  style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)" }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)" }}>
-                  <span className="font-medium" style={{ color: "var(--book-text)" }}>{d.label}</span>
-                </button>
-              ))
-            )}
-          </div>
-
-          {/* Botão "próximos dias" */}
-          {hasNext && (
-            <button onClick={handleNext} disabled={loading}
-              className="w-full text-sm mt-3 flex items-center justify-end gap-1 disabled:opacity-40"
-              style={{ color: "var(--book-primary)" }}>
-              Próximos dias →
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function ShiftStep({ options, summary, loading, onBack, onSelect }: {
-  options: ShiftOpt[]
-  summary: ContextSummary
-  loading: boolean
-  onBack: () => void
-  onSelect: (opt: ShiftOpt) => void
-}) {
-  const dateLabel = summary.selected_date
-    ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
-        weekday: "long", day: "2-digit", month: "long",
-      })
-    : undefined
-
-  return (
-    <div>
-      <StepHeader title="Qual período prefere?" subtitle={dateLabel} onBack={onBack} />
-      {loading ? <Spinner /> : (
-        <div className="space-y-3">
-          {options.map((shift) => {
-            const unavailable = !shift.has_availability
-            return (
-              <button
-                key={shift.row_key}
-                onClick={() => !unavailable && onSelect(shift)}
-                disabled={loading || unavailable}
-                className="w-full text-left rounded-xl p-4 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}
-                onMouseEnter={(e) => {
-                  if (!unavailable) (e.currentTarget as HTMLElement).style.borderColor = "var(--book-primary)"
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "var(--book-border)"
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium" style={{ color: unavailable ? "var(--book-text-muted)" : "var(--book-text)" }}>
-                    {shift.label}
-                  </span>
-                  {unavailable ? (
-                    <span className="text-xs" style={{ color: "var(--book-text-muted)" }}>
-                      indisponível
-                    </span>
-                  ) : (
-                    <span className="text-xs font-medium" style={{ color: "var(--book-primary)" }}>
-                      {shift.slot_count} horário{shift.slot_count !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-              </button>
-            )
-          })}
-          {options.every((s) => !s.has_availability) && (
-            <p className="text-sm text-center pt-4" style={{ color: "var(--book-text-muted)" }}>
-              Nenhum horário disponível neste dia.{" "}
-              <button onClick={onBack} className="underline" style={{ color: "var(--book-primary)" }}>
-                Escolher outra data
-              </button>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TimeStep({ options, summary, companyTimezone, loading, error, onBack, onSelect }: {
-  options: SlotOpt[]; summary: ContextSummary; companyTimezone: string; loading: boolean
-  error: string | null; onBack: () => void; onSelect: (opt: SlotOpt) => void
-}) {
-  const PAGE_SIZE = 6
-  const [slotPage, setSlotPage] = useState(0)
-
-  // Volta para a primeira página sempre que os slots mudarem (novo turno selecionado)
-  useEffect(() => { setSlotPage(0) }, [options])
-
-  const dateLabel = summary.selected_date
-    ? new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
-        weekday: "long", day: "2-digit", month: "long", timeZone: companyTimezone,
-      })
-    : undefined
-
-  const pageSlots   = options.slice(slotPage * PAGE_SIZE, (slotPage + 1) * PAGE_SIZE)
-  const hasPrevPage = slotPage > 0
-  const hasNextPage = (slotPage + 1) * PAGE_SIZE < options.length
-
-  return (
-    <div>
-      {/* onBack aqui vai para AWAITING_SHIFT (alterar turno) */}
-      <StepHeader title="Escolha um horário" subtitle={dateLabel} onBack={onBack} />
-      {error && <ErrorBanner msg={error} />}
-      {loading ? <Spinner /> : options.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="mb-4" style={{ color: "var(--book-text-secondary)" }}>Nenhum horário disponível neste dia.</p>
-          <button onClick={onBack} className="text-sm underline" style={{ color: "var(--book-primary)" }}>
-            Escolher outra data
+      {/* Header */}
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-3xl px-6 py-4 flex items-center justify-between">
+          <button onClick={handleBack}
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" /> {companyName}
           </button>
+          <img src="/paladino-wordmark.png" alt="Paladino" className="h-8 w-auto" />
         </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-2">
-            {pageSlots.map((slot) => (
-              <button key={slot.row_key} onClick={() => onSelect(slot)} disabled={loading}
-                className="rounded-xl py-3 text-sm font-medium transition-all duration-150 disabled:opacity-40"
-                style={{ background: "var(--book-card)", border: "1px solid var(--book-border)", color: "var(--book-text)" }}
-                onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-primary)"
-                  ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-primary)"
-                }}
-                onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.borderColor = "var(--book-border)"
-                  ;(e.currentTarget as HTMLButtonElement).style.color = "var(--book-text)"
-                }}>
-                {slot.start_display}
-                <div className="text-xs truncate px-1 mt-0.5" style={{ color: "var(--book-text-muted)" }}>
-                  {slot.professional_name}
-                </div>
-              </button>
-            ))}
-          </div>
+      </header>
 
-          {(hasPrevPage || hasNextPage) && (
-            <div className="flex justify-between mt-3">
-              {hasPrevPage ? (
-                <button onClick={() => setSlotPage((p) => p - 1)}
-                  className="text-sm" style={{ color: "var(--book-primary)" }}>
-                  ← Mais cedo
+      {/* Conteúdo */}
+      <div className="mx-auto max-w-3xl px-6 py-8">
+
+        {showStepper && <BookingStepper currentStep={fsmToStep(session.state)} />}
+
+        {error && (
+          <div className="mb-4">
+            <ErrorBanner message={error} />
+          </div>
+        )}
+
+        {/* ── Step 1 — Serviço ────────────────────────────────────────────── */}
+        {session.state === "AWAITING_SERVICE" && (
+          <div>
+            <h2 className="font-display text-2xl tracking-wide mb-4">Escolha o serviço</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(session.options as ServiceOpt[]).map(s => (
+                <button key={s.row_key}
+                  onClick={() => dispatch("SELECT_SERVICE", { service_id: s.id })}
+                  disabled={loading}
+                  className="text-left rounded-lg border border-border bg-card p-4 transition-all hover:border-primary disabled:opacity-40">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold">{s.name}</p>
+                      {s.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{s.description}</p>
+                      )}
+                    </div>
+                    <Scissors className="h-4 w-4 text-primary shrink-0" />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" /> {s.duration_minutes} min
+                    </span>
+                    <span className="font-display text-lg text-primary">
+                      {formatBRL(s.price)}
+                    </span>
+                  </div>
                 </button>
-              ) : <span />}
-              {hasNextPage && (
-                <button onClick={() => setSlotPage((p) => p + 1)}
-                  className="text-sm" style={{ color: "var(--book-primary)" }}>
-                  Mais tarde →
-                </button>
+              ))}
+              {session.options.length === 0 && (
+                <p className="text-sm text-center text-muted-foreground py-8 col-span-2">
+                  Nenhum serviço disponível no momento.
+                </p>
               )}
             </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function CustomerForm({ name, phone, onName, onPhone, loading, error, onBack, onSubmit, companyName }: {
-  name: string; phone: string; onName: (v: string) => void; onPhone: (v: string) => void
-  loading: boolean; error: string | null; onBack: () => void
-  onSubmit: (e: React.FormEvent) => void; companyName: string
-}) {
-  return (
-    <div>
-      <StepHeader title="Quase lá! Seus dados"
-        subtitle={`Para confirmar seu horário em ${companyName}`} onBack={onBack} />
-      <form onSubmit={onSubmit} className="space-y-4">
-        <InputField label="Nome completo *" type="text" value={name} onChange={onName}
-          placeholder="Seu nome" minLength={2} required />
-        <InputField label="WhatsApp / Telefone *" type="tel" value={phone} onChange={onPhone}
-          placeholder="(11) 99999-9999" minLength={10} required />
-        {error && <ErrorBanner msg={error} />}
-        <button type="submit" disabled={loading} className="book-btn-primary w-full py-3 text-sm mt-2">
-          {loading ? "Aguarde…" : "Continuar →"}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-function ConfirmStep({ summary, companyTimezone, loading, error, onBack, onConfirm }: {
-  summary: ContextSummary; companyTimezone: string; loading: boolean; error: string | null
-  onBack: () => void; onConfirm: () => void
-}) {
-  return (
-    <div>
-      <StepHeader title="Confirmar agendamento" onBack={onBack} />
-      <div className="rounded-xl p-4 mb-6" style={{
-        background: "var(--book-card)", border: "1px solid var(--book-border)",
-        borderLeft: "3px solid var(--book-primary)",
-      }}>
-        <div className="font-semibold mb-3" style={{ color: "var(--book-text)" }}>
-          {summary.service_name ?? "Serviço"}
-        </div>
-        <div className="text-sm space-y-1.5" style={{ color: "var(--book-text-secondary)" }}>
-          {summary.customer_name && <div>👤 {summary.customer_name}</div>}
-          {summary.professional_name && <div>💈 {summary.professional_name}</div>}
-          {summary.selected_date && (
-            <div>
-              📅{" "}
-              {new Date(summary.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
-                weekday: "long", day: "2-digit", month: "long", timeZone: companyTimezone,
-              })}
-              {summary.slot_start_display && ` às ${summary.slot_start_display}`}
-            </div>
-          )}
-          {summary.service_duration_minutes && <div>⏱ {summary.service_duration_minutes} min</div>}
-        </div>
-        {summary.service_price && (
-          <div className="text-sm font-semibold mt-3 pt-3"
-            style={{ color: "var(--book-primary)", borderTop: "1px solid var(--book-border)" }}>
-            {formatBRL(summary.service_price)}
           </div>
         )}
-      </div>
-      {error && <ErrorBanner msg={error} />}
-      <button onClick={onConfirm} disabled={loading} className="book-btn-primary w-full py-3 text-sm">
-        {loading ? "Confirmando…" : "Confirmar agendamento"}
-      </button>
-    </div>
-  )
-}
 
-function ConfirmedView({ confirmation, companyTimezone, token, onReset }: {
-  confirmation: ConfirmData; companyTimezone: string; token: string; onReset: () => void
-}) {
-  function fmtDate(iso: string) {
-    return new Date(iso).toLocaleString("pt-BR", {
-      dateStyle: "full", timeStyle: "short", timeZone: companyTimezone,
-    })
-  }
-  return (
-    <div className="text-center py-6">
-      <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-5"
-        style={{ background: "color-mix(in srgb, var(--book-primary) 15%, var(--book-card))", border: "1px solid var(--book-primary)" }}>
-        ✓
-      </div>
-      <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--book-text)" }}>Agendado!</h2>
-      <p className="mb-8" style={{ color: "var(--book-text-secondary)" }}>Seu horário está confirmado.</p>
-      <div className="rounded-2xl p-6 text-left space-y-3 mb-6"
-        style={{ background: "var(--book-card)", border: "1px solid var(--book-border)" }}>
-        {[
-          { label: "Serviço", value: confirmation.service_name },
-          { label: "Profissional", value: confirmation.professional_name },
-          { label: "Data e hora", value: fmtDate(confirmation.start_at) },
-        ].map(({ label, value }) => (
-          <div key={label} className="flex justify-between text-sm">
-            <span style={{ color: "var(--book-text-muted)" }}>{label}</span>
-            <span className="font-medium text-right" style={{ color: "var(--book-text)" }}>{value}</span>
+        {/* ── Step 2 — Barbeiro ────────────────────────────────────────────── */}
+        {session.state === "AWAITING_PROFESSIONAL" && (
+          <div>
+            <h2 className="font-display text-2xl tracking-wide mb-4">Escolha o barbeiro</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(session.options as ProfOpt[]).map(p => (
+                <button key={p.row_key}
+                  onClick={() => dispatch("SELECT_PROFESSIONAL", { professional_id: p.id ?? "any" })}
+                  disabled={loading}
+                  className="text-left rounded-lg border border-border bg-card p-4 transition-all hover:border-primary disabled:opacity-40">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary shrink-0">
+                      {p.name === "Qualquer disponível"
+                        ? <User className="h-5 w-5" />
+                        : p.name.split(" ").map(n => n[0]).slice(0, 2).join("")}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{p.name}</p>
+                      {p.description && (
+                        <p className="text-xs text-muted-foreground">{p.description}</p>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-start pt-6">
+              <button onClick={handleBack}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" /> Voltar
+              </button>
+            </div>
           </div>
-        ))}
-        <div className="flex justify-between text-sm pt-3"
-          style={{ borderTop: "1px solid color-mix(in srgb, var(--book-primary) 20%, transparent)" }}>
-          <span style={{ color: "var(--book-text-muted)" }}>Total</span>
-          <span className="font-bold" style={{ color: "var(--book-primary)" }}>{formatBRL(confirmation.total_amount)}</span>
-        </div>
-      </div>
-      <p className="text-xs mb-6" style={{ color: "var(--book-text-muted)" }}>
-        Código:{" "}
-        <span className="font-mono" style={{ color: "var(--book-text-secondary)" }}>
-          {token.slice(0, 8).toUpperCase()}
-        </span>
-      </p>
-      <button onClick={onReset} className="text-sm underline" style={{ color: "var(--book-primary)" }}>
-        Fazer outro agendamento
-      </button>
-    </div>
-  )
-}
+        )}
 
-function CancelledView({ onReset }: { onReset: () => void }) {
-  return (
-    <div className="text-center py-6">
-      <div className="text-4xl mb-4">✕</div>
-      <h2 className="text-xl font-bold mb-2" style={{ color: "var(--book-text)" }}>Agendamento cancelado</h2>
-      <p className="mb-8 text-sm" style={{ color: "var(--book-text-secondary)" }}>
-        Seu agendamento foi cancelado com sucesso.
-      </p>
-      <button onClick={onReset} className="book-btn-primary px-6 py-3 text-sm">
-        Fazer novo agendamento
-      </button>
+        {/* ── Step 3 — Horário (AWAITING_DATE + AWAITING_TIME) ────────────── */}
+        {(session.state === "AWAITING_DATE" || session.state === "AWAITING_TIME") && (
+          <div className="space-y-6">
+
+            {/* Picker de datas — 14 dias */}
+            <div>
+              <h2 className="font-display text-2xl tracking-wide mb-4">Escolha o dia</h2>
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {next14Days.map(d => {
+                  const active = isSameDay(d, selectedDate)
+                  return (
+                    <button key={d.toISOString()}
+                      onClick={() => handleSelectDate(d)}
+                      disabled={loading}
+                      className={cn(
+                        "flex flex-col items-center rounded-lg border p-3 transition-all disabled:opacity-40",
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:bg-accent",
+                      )}>
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {format(d, "EEE", { locale: ptBR })}
+                      </span>
+                      <span className="font-display text-2xl">
+                        {format(d, "d")}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {format(d, "MMM", { locale: ptBR })}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Slots — só exibir em AWAITING_TIME */}
+            {session.state === "AWAITING_TIME" && (
+              <div>
+                <h3 className="font-semibold mb-3">Horários disponíveis</h3>
+                {(session.options as SlotOpt[]).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum horário disponível neste dia.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {(session.options as SlotOpt[]).map(slot => (
+                      <button key={slot.row_key}
+                        onClick={() => dispatch("SELECT_TIME", {
+                          start_at: slot.start_at,
+                          end_at: slot.end_at,
+                          professional_id: slot.professional_id,
+                          row_key: slot.row_key,
+                        })}
+                        disabled={loading}
+                        className="rounded-md border border-border px-4 py-2 font-mono text-sm hover:border-primary hover:bg-primary/5 transition-all disabled:opacity-40">
+                        {slot.start_display}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-start pt-4">
+              <button onClick={handleBack}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" /> Voltar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4a — Dados do cliente (AWAITING_CUSTOMER) ──────────────── */}
+        {session.state === "AWAITING_CUSTOMER" && (
+          <div className="space-y-6">
+            <h2 className="font-display text-2xl tracking-wide">Seus dados</h2>
+
+            {/* Resumo */}
+            <div className="rounded-lg border-l-4 border-primary bg-card p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Serviço</span>
+                <span className="font-medium">{ctx.service_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Barbeiro</span>
+                <span className="font-medium">{ctx.professional_name}</span>
+              </div>
+              {ctx.selected_date && ctx.slot_start_display && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Quando</span>
+                  <span className="font-medium text-right">
+                    {new Date(ctx.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
+                      weekday: "long", day: "2-digit", month: "long",
+                      timeZone: session.company_timezone,
+                    })} às {ctx.slot_start_display}
+                  </span>
+                </div>
+              )}
+              {ctx.service_price && (
+                <div className="flex justify-between border-t border-border pt-2 mt-1">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-display text-lg text-primary">
+                    {formatBRL(ctx.service_price)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Formulário */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="name">Nome completo</Label>
+                <Input id="name" value={custName} onChange={e => setCustName(e.target.value)}
+                  placeholder="Seu nome completo" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Telefone</Label>
+                <Input id="phone" value={custPhone} onChange={e => setCustPhone(e.target.value)}
+                  placeholder="(11) 90000-0000" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">E-mail (opcional)</Label>
+                <Input id="email" type="email" value={custEmail}
+                  onChange={e => setCustEmail(e.target.value)}
+                  placeholder="seu@email.com" />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button onClick={handleBack}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" /> Voltar
+              </button>
+              <Button
+                onClick={() => dispatch("SET_CUSTOMER", { name: custName, phone: custPhone })}
+                disabled={!custName || !custPhone || loading}
+                className="px-8">
+                {loading ? "Aguarde…" : "Continuar"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4b — Confirmação (AWAITING_CONFIRMATION) ───────────────── */}
+        {session.state === "AWAITING_CONFIRMATION" && (
+          <div className="space-y-6">
+            <h2 className="font-display text-2xl tracking-wide">Confirmar agendamento</h2>
+
+            <div className="rounded-lg border-l-4 border-primary bg-card p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Serviço</span>
+                <span className="font-medium">{ctx.service_name}</span>
+              </div>
+              {ctx.customer_name && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Cliente</span>
+                  <span className="font-medium">{ctx.customer_name}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Barbeiro</span>
+                <span className="font-medium">{ctx.professional_name}</span>
+              </div>
+              {ctx.selected_date && ctx.slot_start_display && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Quando</span>
+                  <span className="font-medium text-right">
+                    {new Date(ctx.selected_date + "T12:00:00").toLocaleDateString("pt-BR", {
+                      weekday: "long", day: "2-digit", month: "long",
+                      timeZone: session.company_timezone,
+                    })} às {ctx.slot_start_display}
+                  </span>
+                </div>
+              )}
+              {ctx.service_price && (
+                <div className="flex justify-between border-t border-border pt-2 mt-1">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-display text-lg text-primary">
+                    {formatBRL(ctx.service_price)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button onClick={handleBack}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="h-4 w-4" /> Voltar
+              </button>
+              <Button onClick={() => dispatch("CONFIRM")} disabled={loading} className="px-8">
+                {loading ? "Confirmando…" : "Confirmar agendamento"}
+                {!loading && <Check className="ml-2 h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Confirmado (CONFIRMED) ───────────────────────────────────────── */}
+        {session.state === "CONFIRMED" && (
+          <div className="flex flex-col items-center text-center py-12 space-y-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/15 text-success">
+              <CheckCircle2 className="h-8 w-8" />
+            </div>
+            <h1 className="font-display text-4xl tracking-wide">
+              Agendamento confirmado!
+            </h1>
+            <p className="text-muted-foreground max-w-sm">
+              Você receberá uma confirmação em breve. Não se atrase!
+            </p>
+            {session.confirmation && (
+              <div className="rounded-2xl border border-border bg-card p-6 text-left space-y-3 w-full max-w-sm text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Serviço</span>
+                  <span className="font-medium">{session.confirmation.service_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Barbeiro</span>
+                  <span className="font-medium">{session.confirmation.professional_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Data e hora</span>
+                  <span className="font-medium text-right">
+                    {new Date(session.confirmation.start_at).toLocaleString("pt-BR", {
+                      dateStyle: "short", timeStyle: "short",
+                      timeZone: session.company_timezone,
+                    })}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-2 mt-1">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-display text-lg text-primary">
+                    {formatBRL(session.confirmation.total_amount)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <p className="font-mono text-xs text-muted-foreground">
+              Código: {(session.booking_code ?? session.token.slice(0, 8)).toUpperCase()}
+            </p>
+            <button onClick={handleReset}
+              className="mt-4 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">
+              Fazer novo agendamento
+            </button>
+          </div>
+        )}
+
+        {/* ── Cancelado (CANCELLED) ────────────────────────────────────────── */}
+        {session.state === "CANCELLED" && (
+          <div className="flex flex-col items-center text-center py-12 space-y-4">
+            <h2 className="font-display text-2xl">Agendamento cancelado</h2>
+            <p className="text-sm text-muted-foreground">
+              Seu agendamento foi cancelado com sucesso.
+            </p>
+            <Button onClick={handleReset} variant="outline">
+              Fazer novo agendamento
+            </Button>
+          </div>
+        )}
+
+      </div>
     </div>
   )
 }

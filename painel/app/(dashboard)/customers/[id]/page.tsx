@@ -107,7 +107,7 @@ export default function CustomerDetailPage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="outline" size="sm" onClick={() => router.back()}>← Voltar</Button>
-        <h1 className="text-2xl font-bold">{customer.name}</h1>
+        <h1 className="font-display text-2xl">{customer.name}</h1>
         <ActiveBadge active={customer.active} />
       </div>
 

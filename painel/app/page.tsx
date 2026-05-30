@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { Sparkles } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -18,14 +18,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Redireciona usuário já autenticado — só depois da hidratação
   useEffect(() => {
     if (hydrated && token) {
       router.replace("/dashboard")
     }
   }, [hydrated, token, router])
 
-  // handleLogin declarado ANTES de qualquer return condicional
   async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
@@ -49,19 +47,38 @@ export default function LoginPage() {
     }
   }
 
-  // Aguarda hidratação — evita flash do formulário para usuário já logado
   if (!hydrated) return null
-
-  // Usuário logado — aguarda redirect do useEffect
   if (token) return null
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold">Paladino Labs</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="grid min-h-screen lg:grid-cols-2">
+
+      {/* Esquerda — só desktop */}
+      <div className="hidden flex-col justify-between bg-sidebar p-12 lg:flex">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <span className="font-display text-2xl tracking-wider">PALADINO</span>
+        </div>
+        <div>
+          <h1 className="font-display text-5xl leading-tight">
+            Sua agenda,<br />sua equipe,<br />seu caixa.
+          </h1>
+          <p className="mt-4 max-w-sm text-muted-foreground">
+            Tudo em um painel feito para barbearias. Sem planilhas, sem atrito.
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Paladino</p>
+      </div>
+
+      {/* Direita — form */}
+      <div className="flex items-center justify-center p-6">
+        <div className="w-full max-w-sm space-y-6">
+          <div>
+            <h2 className="font-display text-3xl">Entrar</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Acesse o painel da sua barbearia</p>
+          </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1">
               <Label htmlFor="email">E-mail</Label>
@@ -92,17 +109,13 @@ export default function LoginPage() {
               <p className="text-sm text-destructive">{error}</p>
             )}
 
-            {/* native button — não depende do shadcn Button propagar type="submit" */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full h-8 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
-            >
+            <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Entrando…" : "Entrar"}
-            </button>
+            </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
     </div>
   )
 }

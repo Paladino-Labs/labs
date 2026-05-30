@@ -29,7 +29,7 @@ const ROLE_COLORS: Record<string, string> = {
   OWNER: "bg-purple-100 text-purple-800",
   ADMIN: "bg-blue-100 text-blue-800",
   OPERATOR: "bg-yellow-100 text-yellow-800",
-  PROFESSIONAL: "bg-green-100 text-green-800",
+  PROFESSIONAL: "bg-success/15 text-success",
   CLIENT: "bg-gray-100 text-gray-800",
 }
 
@@ -188,7 +188,7 @@ export default function UsersPage() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Usuários</h1>
+          <h1 className="font-display text-2xl">Usuários</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gerencie os membros da sua equipe.
           </p>
@@ -230,7 +230,7 @@ export default function UsersPage() {
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full ${
                       u.active
-                        ? "bg-green-100 text-green-700"
+                        ? "bg-success/15 text-success"
                         : "bg-red-100 text-red-700"
                     }`}
                   >

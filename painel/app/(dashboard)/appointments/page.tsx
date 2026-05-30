@@ -2,8 +2,12 @@
 
 import { useEffect, useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import {
+  format, startOfWeek, endOfWeek, addDays, isSameDay,
+} from "date-fns"
+import { ptBR } from "date-fns/locale"
 import { api } from "@/lib/api"
-import { formatDateTime, formatBRL } from "@/lib/utils"
+import { formatDateTime, formatBRL, cn } from "@/lib/utils"
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_STATUS_VARIANT } from "@/lib/constants"
 import type { Appointment, Professional } from "@/types"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +27,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -31,42 +36,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-
-// ── Filtros de data ──────────────────────────────────────────────────────────
-type DateFilter = "hoje" | "semana" | "mes" | "todos"
-
-function startOfWeek(): Date {
-  const d = new Date()
-  d.setDate(d.getDate() - d.getDay())
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function matchesDate(isoStr: string, filter: DateFilter): boolean {
-  if (filter === "todos") return true
-  const d = new Date(isoStr)
-  const today = new Date()
-  if (filter === "hoje") {
-    return d.toDateString() === today.toDateString()
-  }
-  if (filter === "semana") {
-    const sw = startOfWeek()
-    const ew = new Date(sw)
-    ew.setDate(sw.getDate() + 7)
-    return d >= sw && d < ew
-  }
-  // mes
-  return (
-    d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()
-  )
-}
-
-const DATE_TABS: { key: DateFilter; label: string }[] = [
-  { key: "hoje",   label: "Hoje" },
-  { key: "semana", label: "Esta semana" },
-  { key: "mes",    label: "Este mês" },
-  { key: "todos",  label: "Todos" },
-]
 
 const STATUS_OPTIONS = [
   "todos",
@@ -79,8 +48,6 @@ const STATUS_OPTIONS = [
 
 const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED"])
 
-// ── Componente ───────────────────────────────────────────────────────────────
-
 export default function AppointmentsPage() {
   const router = useRouter()
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -88,14 +55,44 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Navegação de semana
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+  const [selectedDay, setSelectedDay] = useState<Date>(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+  const weekEnd   = endOfWeek(currentDate, { weekStartsOn: 0 })
+  const days      = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+
+  function prev() {
+    setCurrentDate((d) => addDays(d, -7))
+    setSelectedDay((d) => addDays(d, -7))
+  }
+  function next() {
+    setCurrentDate((d) => addDays(d, 7))
+    setSelectedDay((d) => addDays(d, 7))
+  }
+  function goToToday() {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    setCurrentDate(d)
+    setSelectedDay(d)
+  }
+
   // Filtros
-  const [dateFilter, setDateFilter] = useState<DateFilter>("hoje")
-  const [profFilter, setProfFilter] = useState("todos")
+  const [profFilter,   setProfFilter]   = useState("todos")
   const [statusFilter, setStatusFilter] = useState("todos")
 
   // Remarcar dialog
   const [rescheduleId, setRescheduleId] = useState<string | null>(null)
-  const [newStartAt, setNewStartAt] = useState("")
+  const [newStartAt,   setNewStartAt]   = useState("")
   const [rescheduling, setRescheduling] = useState(false)
 
   async function fetchAll() {
@@ -116,15 +113,14 @@ export default function AppointmentsPage() {
 
   useEffect(() => { fetchAll() }, [])
 
-  // Filtro client-side (API retorna todos)
   const filtered = useMemo(() => {
     return appointments
-      .filter((a) => matchesDate(a.start_at, dateFilter))
+      .filter((a) => isSameDay(new Date(a.start_at), selectedDay))
       .filter((a) => profFilter   === "todos" || a.professional_id === profFilter)
       .filter((a) => statusFilter === "todos" || a.status === statusFilter)
-  }, [appointments, dateFilter, profFilter, statusFilter])
+  }, [appointments, selectedDay, profFilter, statusFilter])
 
-  // ── Ações ──────────────────────────────────────────────────────────────────
+  // ── Ações ────────────────────────────────────────────────────────────────────
 
   async function handleComplete(id: string) {
     if (!confirm("Marcar como concluído? O cliente receberá uma mensagem de agradecimento.")) return
@@ -163,74 +159,81 @@ export default function AppointmentsPage() {
     }
   }
 
-  // ── Labels para selects ────────────────────────────────────────────────────
-
-  const profLabel = profFilter === "todos"
-    ? "Todos os profissionais"
-    : (professionals.find((p) => p.id === profFilter)?.name ?? "")
-
-  const statusLabel = statusFilter === "todos"
-    ? "Todos os status"
-    : (APPOINTMENT_STATUS_LABELS[statusFilter] ?? statusFilter)
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const profLabel   = profFilter   === "todos" ? "Todos os barbeiros"  : (professionals.find((p) => p.id === profFilter)?.name ?? "")
+  const statusLabel = statusFilter === "todos" ? "Todos os status"     : (APPOINTMENT_STATUS_LABELS[statusFilter] ?? statusFilter)
 
   if (loading) return <p className="text-muted-foreground">Carregando…</p>
   if (error)   return <p className="text-destructive">{error}</p>
 
   return (
-    <div>
+    <div className="space-y-5">
+
       {/* Cabeçalho */}
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold">Agendamentos</h1>
-        <Button onClick={() => router.push("/appointments/new")}>
-          + Novo Agendamento
-        </Button>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-3xl tracking-wide">Agenda</h1>
+          <p className="text-sm text-muted-foreground">
+            {format(weekStart, "d MMM", { locale: ptBR })} –{" "}
+            {format(weekEnd, "d MMM yyyy", { locale: ptBR })}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={prev}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={goToToday}>Hoje</Button>
+          <Button variant="outline" size="icon" onClick={next}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button onClick={() => router.push("/appointments/new")}>
+            + Novo Agendamento
+          </Button>
+        </div>
       </div>
 
-      {/* Barra de filtros */}
-      <div className="flex flex-wrap items-center gap-3 mb-5">
-        {/* Filtro de data — botões agrupados */}
-        <div className="flex rounded-lg border overflow-hidden text-sm">
-          {DATE_TABS.map(({ key, label }) => (
+      {/* Day picker — 7 dias da semana */}
+      <div className="grid grid-cols-7 gap-2">
+        {days.map((d) => {
+          const count  = appointments.filter((a) => isSameDay(new Date(a.start_at), d)).length
+          const active = isSameDay(d, selectedDay)
+          return (
             <button
-              key={key}
-              onClick={() => setDateFilter(key)}
-              className={
-                "px-3 py-1.5 font-medium transition-colors border-r last:border-r-0 " +
-                (dateFilter === key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background text-muted-foreground hover:bg-muted")
-              }
+              key={d.toISOString()}
+              onClick={() => setSelectedDay(d)}
+              className={cn(
+                "flex flex-col items-center rounded-lg border p-3 transition-colors",
+                active
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:bg-accent"
+              )}
             >
-              {label}
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                {format(d, "EEE", { locale: ptBR })}
+              </span>
+              <span className="[font-family:var(--font-display)] text-2xl">{format(d, "d")}</span>
+              <span className="text-[10px] text-muted-foreground">{count} agend.</span>
             </button>
-          ))}
-        </div>
+          )
+        })}
+      </div>
 
-        {/* Filtro de profissional */}
-        <Select
-          value={profFilter}
-          onValueChange={(v) => v && setProfFilter(v)}
-        >
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={profFilter} onValueChange={(v) => v && setProfFilter(v)}>
           <SelectTrigger className="w-52">
             <span className={profFilter !== "todos" ? "text-foreground" : "text-muted-foreground"}>
               {profLabel}
             </span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos os profissionais</SelectItem>
+            <SelectItem value="todos">Todos os barbeiros</SelectItem>
             {professionals.map((p) => (
               <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        {/* Filtro de status */}
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => v && setStatusFilter(v)}
-        >
+        <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
           <SelectTrigger className="w-44">
             <span className={statusFilter !== "todos" ? "text-foreground" : "text-muted-foreground"}>
               {statusLabel}
@@ -245,7 +248,6 @@ export default function AppointmentsPage() {
           </SelectContent>
         </Select>
 
-        {/* Contador */}
         <span className="ml-auto text-sm text-muted-foreground">
           {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
         </span>
@@ -254,17 +256,17 @@ export default function AppointmentsPage() {
       {/* Tabela */}
       {filtered.length === 0 ? (
         <p className="text-center text-muted-foreground py-12">
-          Nenhum agendamento encontrado para os filtros selecionados.
+          Nenhum agendamento para este dia.
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Data / Hora</TableHead>
+                <TableHead>Horário</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Serviço(s)</TableHead>
-                <TableHead>Profissional</TableHead>
+                <TableHead>Barbeiro</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
@@ -315,20 +317,19 @@ export default function AppointmentsPage() {
                       {!terminal && (
                         <div className="flex gap-1 justify-end">
                           <Button
-                            size="sm"
-                            variant="default"
+                            variant="ghost"
+                            size="icon"
                             title="Concluir"
                             onClick={() => handleComplete(a.id)}
                           >
-                            ✅
+                            <CheckCircle2 className="h-4 w-4" />
                           </Button>
                           <Button
-                            size="sm"
-                            variant="outline"
+                            variant="ghost"
+                            size="icon"
                             title="Remarcar"
                             onClick={() => {
                               setRescheduleId(a.id)
-                              // Converte UTC para horário local antes de exibir no input datetime-local
                               const d = new Date(a.start_at)
                               const pad = (n: number) => String(n).padStart(2, "0")
                               setNewStartAt(
@@ -337,15 +338,15 @@ export default function AppointmentsPage() {
                               )
                             }}
                           >
-                            🔄
+                            <RefreshCw className="h-4 w-4" />
                           </Button>
                           <Button
-                            size="sm"
-                            variant="destructive"
+                            variant="ghost"
+                            size="icon"
                             title="Cancelar"
                             onClick={() => handleCancel(a.id)}
                           >
-                            ✕
+                            <X className="h-4 w-4" />
                           </Button>
                         </div>
                       )}
@@ -386,6 +387,7 @@ export default function AppointmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }

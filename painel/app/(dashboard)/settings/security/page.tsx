@@ -83,7 +83,7 @@ export default function SecurityPage() {
   return (
     <div className="max-w-lg">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Segurança</h1>
+        <h1 className="font-display text-2xl">Segurança</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Altere sua senha de acesso.
         </p>
@@ -149,7 +149,7 @@ export default function SecurityPage() {
             )}
 
             {success && (
-              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              <div className="rounded-lg border border-success/40 bg-success/15 px-4 py-3 text-sm text-success">
                 Senha alterada com sucesso!
               </div>
             )}

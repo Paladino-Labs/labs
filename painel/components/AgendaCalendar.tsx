@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
+import { Calendar, Clock, User } from "lucide-react"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -125,23 +126,23 @@ function ApptBlock({
       }}
     >
       <p
-        className="font-semibold leading-tight truncate"
-        style={{ fontSize: 11, color }}
+        className="text-[11px] font-semibold leading-tight truncate"
+        style={{ color }}
       >
         {appt.client_name}
       </p>
       {!isShort && (
         <p
-          className="truncate leading-tight opacity-80"
-          style={{ fontSize: 10, color }}
+          className="text-[10px] truncate leading-tight opacity-80"
+          style={{ color }}
         >
           {appt.service_name}
         </p>
       )}
       {!isShort && (
         <p
-          className="leading-tight opacity-60"
-          style={{ fontSize: 10, color }}
+          className="text-[10px] leading-tight opacity-60"
+          style={{ color }}
         >
           {formatTime(start)}–{formatTime(end)}
         </p>
@@ -516,7 +517,7 @@ function ApptModal({
 
   const statusColor: Record<string, string> = {
     SCHEDULED:  "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    COMPLETED:  "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300",
+    COMPLETED:  "bg-success/15 text-success",
     CANCELLED:  "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
     NO_SHOW:    "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   }
@@ -558,18 +559,18 @@ function ApptModal({
 
           <div className="mt-4 space-y-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
-              <span className="text-base">🕐</span>
+              <Clock className="h-4 w-4" />
               <span>
                 {formatTime(start)} – {formatTime(end)}
                 <span className="ml-1 text-muted-foreground">({durationMin} min)</span>
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-base">👤</span>
+              <User className="h-4 w-4" />
               <span>{appt.professional_name}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-base">📅</span>
+              <Calendar className="h-4 w-4" />
               <span>
                 {start.getDate()} de {MONTHS_PT[start.getMonth()]} de {start.getFullYear()}
               </span>

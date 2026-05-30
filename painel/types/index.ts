@@ -3,6 +3,11 @@ export interface Professional {
   company_id: string
   name: string
   active: boolean
+  work_start?: string
+  work_end?: string
+  working_days?: number[]
+  commission_rate?: number
+  specialties?: string[]
 }
 
 export interface Service {

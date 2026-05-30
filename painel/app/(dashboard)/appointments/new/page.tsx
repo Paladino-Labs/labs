@@ -143,7 +143,7 @@ export default function NewAppointmentPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Novo Agendamento</h1>
+      <h1 className="font-display text-2xl mb-6">Novo Agendamento</h1>
 
       <Card>
         <CardHeader>

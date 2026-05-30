@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
 import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
@@ -45,13 +47,6 @@ function fmtHour(isoStr: string): string {
   })
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  })
-}
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -205,16 +200,13 @@ export default function DashboardPage() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-primary/85">
           <span className="h-px w-8 bg-primary/50" />
-          <span className="text-[11px] uppercase tracking-[0.32em] text-primary/85">
-            Overview · {fmtDate(new Date())}
-          </span>
+          <span>Overview · {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</span>
           <span className="h-px w-8 bg-primary/50" />
         </div>
-        <h1 className="text-5xl md:text-6xl tracking-tight">
-          {greeting()},{" "}
-          <span className="italic">Mestre {firstName}.</span>
+        <h1 className="font-display text-5xl md:text-6xl tracking-tight">
+          {greeting()}, <em>{firstName}.</em>
         </h1>
       </div>
 
@@ -234,12 +226,12 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Two-column body ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
 
         {/* Upcoming list */}
         <section className="rounded-md border border-border bg-card">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="text-3xl tracking-wide">Próximos da casa</h2>
+            <h2 className="font-display text-3xl tracking-wide">Próximos da casa</h2>
             <Link
               href="/appointments"
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -288,7 +280,7 @@ export default function DashboardPage() {
         {/* Top services */}
         <section className="rounded-md border border-border bg-card">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-3xl tracking-wide">Top serviços</h2>
+            <h2 className="font-display text-3xl tracking-wide">Top serviços</h2>
             <p className="text-xs italic text-muted-foreground mt-0.5">
               este mês
             </p>
@@ -328,7 +320,7 @@ export default function DashboardPage() {
           )}
         </section>
 
-      </div>
+      </section>
 
       {/* ── Quick action ─────────────────────────────────────────────────────── */}
       <div className="flex justify-end">

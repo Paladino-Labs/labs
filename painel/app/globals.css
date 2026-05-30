@@ -210,6 +210,9 @@
   --book-text:             var(--foreground);
   --book-text-secondary:   var(--muted-foreground);
   --book-text-muted:       var(--muted-foreground);
+  --book-gradient-gold:    linear-gradient(135deg, oklch(0.70 0.080 80), oklch(0.55 0.070 70));
+  --book-gradient-dark:    linear-gradient(160deg, var(--background), var(--sidebar));
+  --book-black-600:        var(--secondary);
 }
 
 .book-btn-primary {

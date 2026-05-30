@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Camera, CheckCircle2, ExternalLink, Music2, Star } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 
 // ─── Tipo ─────────────────────────────────────────────────────────────────────
 
@@ -107,7 +109,7 @@ function ImageField({
             text-muted-foreground text-sm gap-1"
           style={{ height: cover ? 140 : 96, width: cover ? "100%" : 96 }}
         >
-          <span className="text-2xl">📷</span>
+          <Camera className="h-6 w-6" />
           <span className="text-xs">Clique para enviar</span>
         </div>
       )}
@@ -268,7 +270,7 @@ export default function CompanyProfilePage() {
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Perfil da Empresa</h1>
+          <h1 className="font-display text-2xl">Perfil da Empresa</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Essas informações aparecem na página de agendamento online para seus clientes.
           </p>
@@ -311,15 +313,12 @@ export default function CompanyProfilePage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="description">Descrição</Label>
-              <textarea
+              <Textarea
                 id="description"
                 value={form.description}
                 onChange={handleInput("description")}
                 rows={4}
                 placeholder="Conte um pouco sobre sua barbearia, diferenciais, história…"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm
-                  ring-offset-background focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-ring resize-none"
               />
             </div>
 
@@ -386,7 +385,7 @@ export default function CompanyProfilePage() {
             <div className="space-y-1.5">
               <Label htmlFor="instagram_url">Instagram</Label>
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">📸</span>
+                <Camera className="h-4 w-4 text-muted-foreground" />
                 <Input id="instagram_url" type="url" value={form.instagram_url}
                   onChange={handleInput("instagram_url")}
                   placeholder="https://instagram.com/suabarbearia" />
@@ -396,7 +395,7 @@ export default function CompanyProfilePage() {
             <div className="space-y-1.5">
               <Label htmlFor="facebook_url">Facebook</Label>
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">👤</span>
+                <ExternalLink className="h-4 w-4 text-muted-foreground" />
                 <Input id="facebook_url" type="url" value={form.facebook_url}
                   onChange={handleInput("facebook_url")}
                   placeholder="https://facebook.com/suabarbearia" />
@@ -406,7 +405,7 @@ export default function CompanyProfilePage() {
             <div className="space-y-1.5">
               <Label htmlFor="tiktok_url">TikTok</Label>
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">🎵</span>
+                <Music2 className="h-4 w-4 text-muted-foreground" />
                 <Input id="tiktok_url" type="url" value={form.tiktok_url}
                   onChange={handleInput("tiktok_url")}
                   placeholder="https://tiktok.com/@suabarbearia" />
@@ -420,7 +419,7 @@ export default function CompanyProfilePage() {
                 Para gerar o link: Google Meu Negócio → Compartilhar perfil → Peça avaliações.
               </p>
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">⭐</span>
+                <Star className="h-4 w-4 text-muted-foreground" />
                 <Input id="google_review_url" type="url" value={form.google_review_url}
                   onChange={handleInput("google_review_url")}
                   placeholder="https://g.page/r/…/review" />
@@ -436,8 +435,9 @@ export default function CompanyProfilePage() {
         )}
 
         {success && (
-          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-            ✅ Perfil salvo com sucesso! As alterações já aparecem na página de agendamento.
+          <div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/15 px-4 py-3 text-sm text-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>Perfil salvo com sucesso! As alterações já aparecem na página de agendamento.</span>
           </div>
         )}
 
