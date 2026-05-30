@@ -1,6 +1,10 @@
 # painel — contexto operacional
 
 **Sprint atual:** Sprint de Backend BookingFlow em andamento (pré-G13)
+## Design — Sprints A–F + Ajustes concluídos ✅
+- Todos os desvios resolvidos: ícones semânticos, brand icons → texto,
+  tab Barbeiros sem risco de erro em produção
+- G13 (BookingFlow 4 steps) aguarda sprint de backend
 **Foco do frontend nesta fase:** apenas ajustes mínimos de segurança.
 Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 
