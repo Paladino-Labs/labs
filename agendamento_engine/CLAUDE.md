@@ -1,4 +1,14 @@
-**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
+**Sprint atual:** Sprint 7 em andamento (Fase 2 — Transfer, Reconciliação, CashCount)
+
+## Financial Core — fundação (Sprint 6 concluído)
+- TenantFeeRoutingPolicy: lookup por (company_id, fee_source); sem FK em tenant_configs
+- Account, Movement (append-only), Entry (append-only)
+- FinancialCoreEngine: handle_payment_confirmed, create_manual_adjustment, queries
+- Hook create_company: Account CAIXA + 7 TenantFeeRoutingPolicies (mesma transação)
+- Triggers de imutabilidade no banco + @validates ORM
+- 2 testes de trigger pendentes de validação em staging (PostgreSQL real)
+
+**HEAD migration:** o1p2q3r4s5t6 (add_entries_with_immutability_trigger)
 
 ## Stack e infraestrutura
 
