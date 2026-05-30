@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_admin
+from app.core.deps import get_current_company_id, require_role
 from app.modules.schedule import schemas, service as svc
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
+
+_owner_admin = require_role("OWNER", "ADMIN", "PLATFORM_OWNER")
 
 
 # ── Working Hours ──────────────────────────────────────────────────────────────
@@ -24,7 +26,7 @@ def list_working_hours(
 @router.post("/working-hours", response_model=schemas.WorkingHourResponse)
 def upsert_working_hour(
     body: schemas.WorkingHourCreate,
-    user=Depends(require_admin),
+    user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
     return svc.upsert_working_hour(db, user.company_id, body)
@@ -44,7 +46,7 @@ def list_schedule_blocks(
 @router.post("/blocks", response_model=schemas.ScheduleBlockResponse, status_code=201)
 def create_schedule_block(
     body: schemas.ScheduleBlockCreate,
-    user=Depends(require_admin),
+    user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
     return svc.create_schedule_block(db, user.company_id, body)
@@ -53,7 +55,7 @@ def create_schedule_block(
 @router.delete("/blocks/{block_id}", status_code=204)
 def delete_schedule_block(
     block_id: UUID,
-    user=Depends(require_admin),
+    user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
     svc.delete_schedule_block(db, user.company_id, block_id)

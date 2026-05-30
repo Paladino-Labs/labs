@@ -11,6 +11,11 @@ Contrato:
   - Recebem db + Appointment já commitado e refreshado.
   - Buscam a conexão WhatsApp da empresa internamente.
   - Convertem start_at de UTC para o fuso da empresa antes de formatar.
+
+Feature flag Sprint 5:
+  TenantConfig.permission_overrides["use_communication_service"] = true
+  → despacha via CommunicationService.dispatch (paralelo à chamada direta durante validação).
+  → Após validação em produção: remover chamadas diretas ao evolution_client.
 """
 import logging
 from datetime import datetime, timezone
@@ -23,6 +28,17 @@ from app.infrastructure.db.models.company_settings import CompanySettings
 from app.modules.whatsapp import evolution_client
 
 logger = logging.getLogger(__name__)
+
+
+def _use_communication_service(db: Session, company_id) -> bool:
+    """Retorna True se o tenant optou por usar CommunicationService."""
+    try:
+        from app.infrastructure.db.models.tenant_config import TenantConfig
+        config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
+        overrides = (config.permission_overrides or {}) if config else {}
+        return bool(overrides.get("use_communication_service"))
+    except Exception:
+        return False
 
 _DEFAULT_TZ = "America/Sao_Paulo"
 
@@ -111,6 +127,12 @@ def send_booking_confirmation(db: Session, appointment: Appointment) -> None:
             appointment.id, customer.phone,
         )
 
+        # Feature flag Sprint 5: dispatch paralelo via CommunicationService
+        if _use_communication_service(db, appointment.company_id):
+            _dispatch_via_comm_service(
+                db, appointment, customer, "appointment.confirmed", "CLIENT", tz,
+            )
+
     except Exception:
         # Nunca propagar — notificação não deve derrubar o fluxo de negócio
         logger.exception(
@@ -156,7 +178,51 @@ def send_reschedule_confirmation(db: Session, appointment: Appointment) -> None:
             appointment.id, customer.phone,
         )
 
+        # Feature flag Sprint 5: dispatch paralelo via CommunicationService
+        if _use_communication_service(db, appointment.company_id):
+            _dispatch_via_comm_service(
+                db, appointment, customer, "appointment.confirmed", "CLIENT", tz,
+            )
+
     except Exception:
         logger.exception(
             "send_reschedule_confirmation: falha ao enviar appt_id=%s", appointment.id
+        )
+
+
+def _dispatch_via_comm_service(
+    db: Session,
+    appointment: Appointment,
+    customer: Customer,
+    event_type: str,
+    recipient_type: str,
+    tz: ZoneInfo,
+) -> None:
+    """Dispatch paralelo via CommunicationService (fire-and-forget)."""
+    try:
+        data, hora = _fmt_datetime(appointment.start_at, tz)
+        svc_name = appointment.services[0].service_name if appointment.services else "serviço"
+        prof_name = appointment.professional.name if appointment.professional else "profissional"
+
+        from app.modules.communication.service import communication_service
+        communication_service.dispatch(
+            event_type=event_type,
+            company_id=appointment.company_id,
+            context={
+                "cliente_nome": customer.name,
+                "horario": hora,
+                "data": data,
+                "servico": svc_name,
+                "profissional": prof_name,
+                "empresa_nome": "",
+                "recipient_phone": customer.phone,
+            },
+            recipient_id=customer.id,
+            recipient_type=recipient_type,
+            db=db,
+        )
+    except Exception:
+        logger.exception(
+            "_dispatch_via_comm_service: falha event=%s appt_id=%s",
+            event_type, appointment.id,
         )

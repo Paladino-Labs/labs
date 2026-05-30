@@ -1,17 +1,18 @@
 from uuid import UUID
-from typing import Optional
+from typing import Callable, Optional
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.audit.sensitive_context import ActionScope
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models import User
 
 # auto_error=False: sem token → credentials=None → levantamos 401 manualmente.
-# O padrão (True) levantaria 403, que semanticamente significa "proibido" (autenticado
-# mas sem permissão), não "não autenticado".
+# O padrão (True) levantaria 403, que semanticamente significa "proibido"
+# (autenticado mas sem permissão), não "não autenticado".
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -35,13 +36,92 @@ def get_current_user(
     return user
 
 
-def get_current_company_id(user: User = Depends(get_current_user)) -> UUID:
-    """Extrai o company_id do usuário autenticado. Usado como filtro multi-tenant."""
+def get_current_company_id(user: User = Depends(get_current_user)) -> Optional[UUID]:
+    """Extrai o company_id do usuário autenticado.
+
+    - PLATFORM_OWNER: retorna None (sem tenant).
+    - Demais papéis: retorna user.company_id; levanta 403 se NULL inesperado.
+    """
+    if user.role == "PLATFORM_OWNER":
+        return None
+    if not user.company_id:
+        raise HTTPException(status_code=403, detail="Usuário sem tenant associado")
     return user.company_id
 
 
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Bloqueia acesso a rotas admin para usuários sem permissão."""
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Acesso restrito a administradores")
-    return user
+def require_role(*roles: str) -> Callable:
+    """Dependency factory: exige que o usuário tenha um dos papéis informados.
+
+    Uso: Depends(require_role("OWNER", "ADMIN"))
+    """
+    role_set = set(roles)
+
+    def _dep(user: User = Depends(get_current_user)) -> User:
+        if user.role not in role_set:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Acesso restrito aos papéis: {sorted(role_set)}",
+            )
+        return user
+
+    return _dep
+
+
+def require_action(action: str, scope: ActionScope = ActionScope.TENANT) -> Callable:
+    """Dependency factory: verifica se o papel do usuário tem permissão para a ação.
+
+    Scope CROSS_TENANT: apenas PLATFORM_OWNER.
+    Scope OWN: PROFESSIONAL acessando recursos próprios.
+    Consulta permission_overrides de TenantConfig quando disponível.
+
+    Atenção: tenant_configs só existe a partir do Sprint 3. Implementado com
+    fallback gracioso para {} enquanto a tabela não existe.
+    """
+    def _dep(
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if scope == ActionScope.CROSS_TENANT and user.role != "PLATFORM_OWNER":
+            raise HTTPException(status_code=403, detail="Acesso exclusivo ao PLATFORM_OWNER")
+
+        # Fallback gracioso enquanto tenant_configs ainda não existe (Sprint 3)
+        overrides: dict = {}
+        try:
+            from app.infrastructure.db.models.tenant_config import TenantConfig  # type: ignore
+            if user.company_id:
+                config = (
+                    db.query(TenantConfig)
+                    .filter(TenantConfig.company_id == user.company_id)
+                    .first()
+                )
+                overrides = (config.permission_overrides or {}) if config else {}
+        except Exception:
+            overrides = {}
+
+        # Verifica override granular por papel
+        role_overrides = overrides.get(user.role, {})
+        if role_overrides.get(action):
+            return user
+
+        # Papéis com acesso padrão a tudo no tenant
+        if user.role in ("OWNER", "ADMIN", "PLATFORM_OWNER"):
+            return user
+
+        # OPERATOR: acesso a ações operacionais (sem financeiro)
+        if user.role == "OPERATOR":
+            raise HTTPException(
+                status_code=403,
+                detail=f"OPERATOR não tem permissão para '{action}'. "
+                       f"Solicite ao OWNER/ADMIN via permission_overrides.",
+            )
+
+        # PROFESSIONAL com scope OWN: acesso aos próprios recursos
+        if user.role == "PROFESSIONAL" and scope == ActionScope.OWN:
+            return user
+
+        raise HTTPException(
+            status_code=403,
+            detail=f"Sem permissão para executar '{action}'",
+        )
+
+    return _dep

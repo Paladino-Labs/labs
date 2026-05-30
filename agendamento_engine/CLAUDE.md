@@ -110,6 +110,9 @@
 - Não fazer queries fora de get_db() (HTTP) ou celery_db_session() (workers) — RLS context não será setado
 - Não modificar migrations existentes para SET LOCAL row_security = off
   — superuser no Supabase bypassa automaticamente
+- Não enviar ação SELECT_SHIFT pelo FSM — AWAITING_SHIFT foi removido
+  do fluxo principal. O endpoint stateless GET /booking/{slug}/slots?shift=
+  ainda funciona; apenas o step do FSM foi eliminado.
 
 ## Decisões registradas
 

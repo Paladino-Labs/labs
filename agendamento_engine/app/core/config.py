@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str = ""
     SUPABASE_STORAGE_BUCKET: str = "uploads"
 
+    # Redis — broker/backend Celery
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Credenciais de integração — chave Fernet para criptografia em repouso.
+    # Gerar com: from cryptography.fernet import Fernet; Fernet.generate_key()
+    # Obrigatória em produção. Nunca commitar no repositório.
+    CREDENTIAL_ENCRYPTION_KEY: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

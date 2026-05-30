@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.infrastructure.db.models import (
-    Appointment, Customer, Professional, Service, WorkingHour, ScheduleBlock, Company,
+    Appointment, Customer, Professional, Service, WorkingHour, ScheduleBlock, TenantConfig,
 )
 from app.domain.enums import AppointmentStatus, FinancialStatus
 from app.modules.appointments.schemas import AppointmentCreate, RescheduleRequest
@@ -56,15 +56,16 @@ def _assert_slot_available(
         )
 
     # 2. Slot dentro da janela de trabalho?
-    company = db.query(Company).filter(Company.id == company_id).first()
-    tz_name = (company.timezone if company else None) or "America/Sao_Paulo"
+    config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
+    tz_name = (getattr(config, "timezone", None) or "America/Sao_Paulo")
     try:
         tz = ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
         tz = ZoneInfo("America/Sao_Paulo")
 
-    day_start = datetime.combine(start_at.date(), working_hour.opening_time).replace(tzinfo=tz).astimezone(timezone.utc)
-    day_end   = datetime.combine(start_at.date(), working_hour.closing_time).replace(tzinfo=tz).astimezone(timezone.utc)
+    slot_date = start_at.astimezone(tz).date()
+    day_start = datetime.combine(slot_date, working_hour.opening_time, tzinfo=tz).astimezone(timezone.utc)
+    day_end   = datetime.combine(slot_date, working_hour.closing_time, tzinfo=tz).astimezone(timezone.utc)
 
     if start_at < day_start or end_at > day_end:
         raise HTTPException(

@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_admin
+from app.core.deps import get_current_company_id, require_role
 from app.modules.services import schemas, service as svc
 
 router = APIRouter(prefix="/services", tags=["services"])
+
+_owner_admin = require_role("OWNER", "ADMIN", "PLATFORM_OWNER")
 
 
 @router.get("/", response_model=List[schemas.ServiceResponse])
@@ -22,7 +24,7 @@ def list_services(
 @router.post("/", response_model=schemas.ServiceResponse, status_code=201)
 def create_service(
     body: schemas.ServiceCreate,
-    user=Depends(require_admin),
+    user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
     return svc.create_service(db, user.company_id, body)
@@ -41,7 +43,7 @@ def get_service(
 def update_service(
     service_id: UUID,
     body: schemas.ServiceUpdate,
-    user=Depends(require_admin),
+    user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
     return svc.update_service(db, user.company_id, service_id, body)

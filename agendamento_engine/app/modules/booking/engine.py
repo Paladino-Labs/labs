@@ -114,12 +114,11 @@ _CHANNEL_TTL: dict[str, timedelta] = {
     "admin":    timedelta(hours=2),
 }
 
-# [FIX 1] Mapa de estado → estado anterior (para BACK) atualizado com AWAITING_CUSTOMER
+# Mapa de estado → estado anterior (para BACK)
 _BACK_STATE: dict[str, str] = {
     "AWAITING_PROFESSIONAL":   "AWAITING_SERVICE",
     "AWAITING_DATE":           "AWAITING_PROFESSIONAL",
-    "AWAITING_SHIFT":          "AWAITING_DATE",         # novo — volta para seleção de data
-    "AWAITING_TIME":           "AWAITING_SHIFT",        # alterado — volta para seleção de turno
+    "AWAITING_TIME":           "AWAITING_DATE",
     "AWAITING_CUSTOMER":       "AWAITING_TIME",
     "AWAITING_CONFIRMATION":   "AWAITING_CUSTOMER",
     "AWAITING_CANCEL_CONFIRM": "AWAITING_CONFIRMATION",
@@ -629,20 +628,16 @@ class BookingEngine:
 
     # ─── BookingSession FSM ───────────────────────────────────────────────────
 
-    # [FIX 1] Transições válidas atualizadas:
-    #   - IDLE agora inicia em AWAITING_SERVICE (sem SET_CUSTOMER inicial)
-    #   - Novo estado AWAITING_CUSTOMER inserido entre AWAITING_TIME e AWAITING_CONFIRMATION
     _VALID_TRANSITIONS: dict[tuple[str, str], str] = {
         ("IDLE",                    BookingAction.SELECT_SERVICE):      "_handle_select_service",
         ("AWAITING_SERVICE",        BookingAction.SELECT_SERVICE):      "_handle_select_service",
         ("AWAITING_PROFESSIONAL",   BookingAction.SELECT_PROFESSIONAL): "_handle_select_professional",
         ("AWAITING_DATE",           BookingAction.SELECT_DATE):         "_handle_select_date",
         ("AWAITING_DATE",           BookingAction.NAVIGATE_DATES):      "_handle_navigate_dates",
-        ("AWAITING_SHIFT",          BookingAction.SELECT_SHIFT):        "_handle_select_shift",
         ("AWAITING_TIME",           BookingAction.SELECT_TIME):         "_handle_select_time",
         ("AWAITING_TIME",           BookingAction.MORE_SLOTS_LATER):    "_handle_more_slots_later",
         ("AWAITING_TIME",           BookingAction.MORE_SLOTS_EARLIER):  "_handle_more_slots_earlier",
-        ("AWAITING_CUSTOMER",       BookingAction.SET_CUSTOMER):        "_handle_set_customer",  # [FIX 1] movido para cá
+        ("AWAITING_CUSTOMER",       BookingAction.SET_CUSTOMER):        "_handle_set_customer",
         ("AWAITING_CONFIRMATION",   BookingAction.CONFIRM):             "_handle_confirm",
         ("CONFIRMED",               BookingAction.RESCHEDULE_START):    "_handle_reschedule_start",
         ("CONFIRMED",               BookingAction.CANCEL_START):        "_handle_cancel_start",
@@ -766,15 +761,6 @@ class BookingEngine:
             ctx["dates_has_previous"] = has_previous
             session.context = ctx
             return dates
-
-        if state == "AWAITING_SHIFT":
-            service_id   = UUID(ctx["service_id"])
-            prof_id      = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
-            target_date  = date.fromisoformat(ctx["selected_date"])
-            return self.get_shift_availability(
-                db, company_id, prof_id, service_id, target_date,
-                company_timezone=tz,
-            )
 
         if state == "AWAITING_TIME":
             from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -956,9 +942,8 @@ class BookingEngine:
         self, db: Session, session: "BookingSession", payload: dict
     ) -> SessionUpdateResult:
         """
-        Armazena a data e lista os turnos disponíveis do dia.
-        [FIX 2] Contexto montado completamente antes de uma única atribuição.
-        Transição: AWAITING_DATE → AWAITING_SHIFT.
+        Armazena a data e lista todos os slots disponíveis do dia.
+        Transição: AWAITING_DATE → AWAITING_TIME (sem passo de turno intermediário).
         """
         ctx = dict(session.context or {})
 
@@ -975,37 +960,36 @@ class BookingEngine:
 
         prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
 
-        # [FIX 2] Calcular disponibilidade por turno ANTES de montar o ctx final
-        shift_options = self.get_shift_availability(
+        # Listar todos os slots do dia ANTES de montar o ctx final
+        slot_options = self.list_available_slots(
             db, session.company_id, prof_id, UUID(ctx["service_id"]), selected_date,
-            company_timezone=session.company_timezone,
+            limit=0, company_timezone=session.company_timezone,
         )
 
-        # [FIX 2] Montar ctx completo e fazer uma única atribuição
-        # Limpar metadados de navegação de datas e turno anterior — não são mais necessários
+        # Limpar metadados de navegação de datas e turno anterior
         ctx.pop("date_offset_days", None)
         ctx.pop("dates_has_next", None)
         ctx.pop("dates_has_previous", None)
         ctx.pop("selected_shift", None)
-        ctx.pop("last_listed_slots", None)
+        ctx.pop("last_listed_shifts", None)
         ctx.pop("slot_offset", None)
         ctx.update({
             "selected_date": selected_date.isoformat(),
-            "last_listed_shifts": [
+            "last_listed_slots": [
                 {
-                    "shift":            o.shift,
-                    "label":            o.label,
-                    "slot_count":       o.slot_count,
-                    "has_availability": o.has_availability,
-                    "row_key":          o.row_key,
+                    "start_at":          o.start_at.isoformat(),
+                    "end_at":            o.end_at.isoformat(),
+                    "professional_id":   str(o.professional_id),
+                    "professional_name": o.professional_name,
+                    "row_key":           o.row_key,
                 }
-                for o in shift_options
+                for o in slot_options
             ],
         })
         session.context = ctx  # atribuição única
-        session.state = "AWAITING_SHIFT"
+        session.state = "AWAITING_TIME"
 
-        return SessionUpdateResult(next_state="AWAITING_SHIFT", options=shift_options)
+        return SessionUpdateResult(next_state="AWAITING_TIME", options=slot_options)
 
     def _handle_select_shift(
         self, db: Session, session: "BookingSession", payload: dict

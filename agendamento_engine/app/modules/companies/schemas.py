@@ -43,3 +43,8 @@ class CompanySettingsUpdate(BaseModel):
 class CompanyPatch(BaseModel):
     company: Optional[CompanyUpdate] = None
     settings: Optional[CompanySettingsUpdate] = None
+
+
+class CompanyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100)

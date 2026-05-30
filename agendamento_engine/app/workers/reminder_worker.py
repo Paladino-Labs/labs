@@ -1,29 +1,25 @@
 """
-Worker de lembretes de agendamento via WhatsApp.
+Worker de lembretes de agendamento via WhatsApp — Celery task.
 
-Executa a cada 10 minutos. Em cada ciclo, busca agendamentos
-que estejam dentro da janela de tempo de cada lembrete e envia
-mensagens via Evolution API.
+Migrado de asyncio loop para Celery Beat no Sprint 4.
+Agendado via beat_schedule: a cada 10 minutos.
 
-Janelas de detecção (±10min ao redor do marco):
-  - 24h: start_at BETWEEN (now + 23h50m) AND (now + 24h10m)
-  - 2h:  start_at BETWEEN (now + 1h50m) AND (now + 2h10m)
+Estratégia de coexistência: durante a transição, asyncio workers ainda
+podem estar ativos em paralelo. Idempotência via reminder_24h_sent /
+reminder_2h_sent garante zero duplicatas — quem chegar primeiro marca
+o flag e o outro pula.
 
-Idempotência:
-  - reminder_24h_sent / reminder_2h_sent são setados após envio bem-sucedido.
-  - Em caso de crash após o envio mas antes do SET, o worker pode re-enviar
-    na próxima execução — máximo 1 duplicata por agendamento no pior caso.
-  - FOR UPDATE SKIP LOCKED garante que deploys multi-processo não enviem
-    o mesmo lembrete em paralelo.
+Após 24h de coexistência sem erros: remover asyncio.create_task do lifespan.
 """
-import asyncio
 import logging
+import redis as redis_client
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.infrastructure.celery_app import celery_app
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.db.models import Appointment, WhatsAppConnection, Customer
 from app.infrastructure.db.models.company_settings import CompanySettings
@@ -32,72 +28,77 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_INTERVAL_SECONDS = 10 * 60   # 10 minutos
-_WINDOW_MINUTES   = 10         # janela de ±10 min ao redor do marco
-
+_WINDOW_MINUTES = 10
 _DEFAULT_TZ = "America/Sao_Paulo"
+_DEAD_LETTER_KEY = "dead_letter:send_reminders"
 
 
 def _company_tz(db: Session, company_id) -> ZoneInfo:
-    """
-    Retorna o ZoneInfo do fuso da empresa.
-    Busca em CompanySettings.timezone; usa America/Sao_Paulo como fallback.
-    """
     try:
         row = (
             db.query(CompanySettings.timezone)
             .filter(CompanySettings.company_id == company_id)
             .first()
         )
-        tz_name = (row.timezone if row and row.timezone else _DEFAULT_TZ)
+        tz_name = row.timezone if row and row.timezone else _DEFAULT_TZ
         return ZoneInfo(tz_name)
     except (ZoneInfoNotFoundError, Exception):
         return ZoneInfo(_DEFAULT_TZ)
 
 
 def _localize(dt: datetime, tz: ZoneInfo) -> datetime:
-    """
-    Converte datetime para o fuso da empresa.
-    Datetimes naive são tratados como UTC antes da conversão.
-    """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(tz)
 
 
-async def run_reminder_worker() -> None:
-    """Loop infinito. Registrado no startup do FastAPI."""
-    logger.info("reminder_worker: iniciado (intervalo=%ds)", _INTERVAL_SECONDS)
-    while True:
-        try:
-            await _send_reminders_once()
-        except Exception:
-            logger.exception("reminder_worker: erro inesperado")
-        await asyncio.sleep(_INTERVAL_SECONDS)
-
-
-async def _send_reminders_once() -> None:
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _send_reminders_sync)
-
-
-def _send_reminders_sync() -> None:
+@celery_app.task(
+    bind=True,
+    name="app.workers.reminder_worker.send_reminders",
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=3600,
+    retry_jitter=True,
+)
+def send_reminders(self):
+    """Busca e envia lembretes de 24h e 2h para agendamentos na janela."""
     db = SessionLocal()
     try:
+        from app.core.db_rls import set_rls_context
+        set_rls_context(db, None)  # scan multi-tenant — bypass RLS
         now = datetime.now(timezone.utc)
         _process_24h(db, now)
         _process_2h(db, now)
-    except Exception:
-        logger.exception("reminder_worker: erro inesperado no ciclo")
+    except Exception as exc:
+        db.rollback()
+        logger.exception("reminder_worker: erro no ciclo attempt=%d", self.request.retries)
+        if self.request.retries >= self.max_retries:
+            _push_dead_letter(self, exc)
+        raise
     finally:
         db.close()
 
 
+def _push_dead_letter(task, exc: Exception) -> None:
+    try:
+        r = redis_client.from_url(settings.REDIS_URL)
+        r.rpush(
+            _DEAD_LETTER_KEY,
+            f"task_id={task.request.id} retries={task.request.retries} error={exc!r}",
+        )
+        logger.error(
+            "reminder_worker: dead-letter após %d tentativas task_id=%s",
+            task.request.retries, task.request.id,
+        )
+    except Exception:
+        logger.exception("reminder_worker: falha ao gravar dead-letter")
+
+
 def _process_24h(db: Session, now: datetime) -> None:
-    """Envia lembretes de 24h para agendamentos na janela correta."""
     advance = timedelta(hours=settings.BOT_REMINDER_ADVANCE_HOURS_FIRST)
-    window  = timedelta(minutes=_WINDOW_MINUTES)
-    low  = now + advance - window
+    window = timedelta(minutes=_WINDOW_MINUTES)
+    low = now + advance - window
     high = now + advance + window
 
     appointments = (
@@ -111,16 +112,14 @@ def _process_24h(db: Session, now: datetime) -> None:
         .with_for_update(skip_locked=True)
         .all()
     )
-
     for appt in appointments:
         _send_reminder(db, appt, kind="24h")
 
 
 def _process_2h(db: Session, now: datetime) -> None:
-    """Envia lembretes de 2h para agendamentos na janela correta."""
     advance = timedelta(hours=settings.BOT_REMINDER_ADVANCE_HOURS_SECOND)
-    window  = timedelta(minutes=_WINDOW_MINUTES)
-    low  = now + advance - window
+    window = timedelta(minutes=_WINDOW_MINUTES)
+    low = now + advance - window
     high = now + advance + window
 
     appointments = (
@@ -134,24 +133,17 @@ def _process_2h(db: Session, now: datetime) -> None:
         .with_for_update(skip_locked=True)
         .all()
     )
-
     for appt in appointments:
         _send_reminder(db, appt, kind="2h")
 
 
 def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
-    """
-    Envia o lembrete para o cliente do agendamento.
-    Marca a flag de enviado apenas após sucesso no envio.
-    """
     try:
-        # Busca cliente para obter o número WhatsApp
         customer = db.query(Customer).filter(Customer.id == appt.client_id).first()
         if not customer or not customer.phone:
             logger.warning("reminder_worker: cliente sem phone appt_id=%s", appt.id)
             return
 
-        # Busca instância WhatsApp da empresa
         conn = db.query(WhatsAppConnection).filter(
             WhatsAppConnection.company_id == appt.company_id,
             WhatsAppConnection.status == "CONNECTED",
@@ -163,14 +155,12 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
             )
             return
 
-        # FIX: converter start_at de UTC para o fuso da empresa antes de formatar
-        tz       = _company_tz(db, appt.company_id)
+        tz = _company_tz(db, appt.company_id)
         start_local = _localize(appt.start_at, tz)
-
         service_name = appt.services[0].service_name if appt.services else "serviço"
-        prof_name    = appt.professional.name if appt.professional else "profissional"
-        hora         = start_local.strftime("%H:%M")   # horário no fuso da empresa
-        data         = start_local.strftime("%d/%m")   # data no fuso da empresa
+        prof_name = appt.professional.name if appt.professional else "profissional"
+        hora = start_local.strftime("%H:%M")
+        data = start_local.strftime("%d/%m")
 
         if kind == "24h":
             msg = (
@@ -179,7 +169,7 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
                 f"amanhã, {data} às {hora}. 💈\n\n"
                 f"Responda _Ver agendamentos_ para gerenciar."
             )
-        else:  # 2h
+        else:
             msg = (
                 f"Olá, {customer.name}! 😊\n\n"
                 f"Seu *{service_name}* começa em 2 horas, às {hora}. "
@@ -188,7 +178,6 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
 
         evolution_client.send_text(conn.instance_name, customer.phone, msg)
 
-        # Marca como enviado somente após o envio bem-sucedido
         if kind == "24h":
             appt.reminder_24h_sent = True
         else:
@@ -206,3 +195,34 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
             "reminder_worker: falha ao enviar lembrete %s appt_id=%s",
             kind, appt.id,
         )
+        raise
+
+
+# --- Compatibilidade asyncio (mantida durante coexistência, removida ao fim do Sprint 4) ---
+import asyncio as _asyncio
+
+
+async def run_reminder_worker() -> None:
+    """Loop asyncio legado. Mantido durante coexistência com Celery. Ver plano-fase1-v3.md."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    _log.info("reminder_worker: asyncio loop iniciado (coexistência com Celery)")
+    while True:
+        try:
+            loop = _asyncio.get_event_loop()
+            await loop.run_in_executor(None, _send_reminders_sync_compat)
+        except Exception:
+            _log.exception("reminder_worker (asyncio): erro inesperado")
+        await _asyncio.sleep(10 * 60)
+
+
+def _send_reminders_sync_compat() -> None:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        _process_24h(db, now)
+        _process_2h(db, now)
+    except Exception:
+        logger.exception("reminder_worker (asyncio compat): erro inesperado no ciclo")
+    finally:
+        db.close()

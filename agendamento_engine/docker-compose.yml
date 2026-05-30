@@ -8,18 +8,34 @@
 #   Subir:           docker compose up -d
 #   Rebuild:         docker compose up -d --build
 #   Logs:            docker compose logs -f api
+#   Logs celery:     docker compose logs -f celery_worker
 #   Migrations:      docker compose exec api alembic upgrade head
 #   Acessar shell:   docker compose exec api bash
 #   Parar:           docker compose down
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: paladino_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: paladino_api
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
     ports:
       - "8000:8000"
@@ -31,6 +47,7 @@ services:
       # Hot-reload ativo em dev. Mude para 'false' em produção.
       RELOAD: "true"
       PORT: "8000"
+      REDIS_URL: "redis://redis:6379/0"
 
     volumes:
       # Código-fonte montado para hot-reload funcionar (dev only)
@@ -44,6 +61,40 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paladino_celery_worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.infrastructure.celery_app:celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - .:/app
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paladino_celery_beat
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_beat_entrypoint:celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - .:/app
 
 # Volume nomeado para uploads — persiste entre rebuilds
 volumes:

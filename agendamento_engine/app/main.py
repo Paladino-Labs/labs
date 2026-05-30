@@ -57,13 +57,50 @@ from app.modules.booking.router import router as booking_router
 from app.modules.products.router import router as products_router
 from app.modules.uploads.router import router as uploads_router
 from app.modules.public.router import router as public_router
+from app.modules.audit.router import router as audit_router
+from app.modules.tenant.router import router as tenant_router
+from app.modules.categories.router import router as categories_router
+from app.modules.integrations.router import router as integrations_router
+from app.modules.communication.router import router as communication_router
+
+from app.infrastructure.db.session import engine
+from app.core.db_rls import configure_rls_events
+configure_rls_events(engine)
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_encryption_key() -> None:
+    """Fail-fast na ausência de CREDENTIAL_ENCRYPTION_KEY em ambiente não-dev."""
+    if not settings.CREDENTIAL_ENCRYPTION_KEY.strip():
+        import os
+        env = os.getenv("ENVIRONMENT", "development").lower()
+        if env not in ("development", "dev", "test", "testing"):
+            raise KeyError(
+                "CREDENTIAL_ENCRYPTION_KEY ausente. "
+                "Gerar com: from cryptography.fernet import Fernet; Fernet.generate_key(). "
+                "Nunca commitar no repositório. Armazenar no vault Railway."
+            )
+        logger.warning(
+            "CREDENTIAL_ENCRYPTION_KEY não configurada — endpoints de credenciais "
+            "falharão. Aceitável apenas em desenvolvimento."
+        )
+
+
+_validate_encryption_key()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação (substitui @on_event deprecated)."""
+    # Registrar handlers do EventBus
+    from app.workers.booking_session_handlers import register_handlers as register_booking_handlers
+    from app.workers.appointment_reminder_handler import register_handlers as register_reminder_handlers
+    register_booking_handlers()
+    register_reminder_handlers()
+
+    # Coexistência Sprint 4: asyncio workers rodando em paralelo ao Celery durante validação.
+    # REMOVER estes create_task após 24h de coexistência sem erros no Sentry (ver plano-fase1-v3.md).
     from app.workers.session_cleanup_worker import run_session_cleanup_worker
     from app.workers.reminder_worker import run_reminder_worker
 
@@ -71,7 +108,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(run_session_cleanup_worker(), name="session_cleanup_worker"),
         asyncio.create_task(run_reminder_worker(), name="reminder_worker"),
     ]
-    logger.info("Background workers iniciados: session_cleanup, reminder")
+    logger.info("Background workers iniciados: session_cleanup, reminder (coexistência asyncio+Celery)")
 
     yield  # aplicação em execução
 
@@ -120,6 +157,11 @@ app.include_router(booking_router)
 app.include_router(products_router)
 app.include_router(uploads_router)
 app.include_router(public_router)
+app.include_router(audit_router)
+app.include_router(tenant_router)
+app.include_router(categories_router)
+app.include_router(integrations_router)
+app.include_router(communication_router)
 
 
 @app.get("/health")

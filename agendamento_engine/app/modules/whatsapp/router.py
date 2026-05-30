@@ -17,13 +17,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_admin
+from app.core.deps import get_current_company_id, require_role
 from app.modules.whatsapp import connection_service
 from app.modules.whatsapp.schemas import ConnectionResponse, QRCodeResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
+
+_owner_admin = require_role("OWNER", "ADMIN", "PLATFORM_OWNER")
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +36,7 @@ router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 def start_connection(
     company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
-    _: object = Depends(require_admin),
+    _: object = Depends(_owner_admin),
 ):
     """Inicia a conexão WhatsApp. Retorna QR Code para scan."""
     return connection_service.connect(db, company_id)
@@ -44,7 +46,7 @@ def start_connection(
 def get_connection_status(
     company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
-    _: object = Depends(require_admin),
+    _: object = Depends(_owner_admin),
 ):
     """Retorna o estado atual da conexão WhatsApp da empresa."""
     return connection_service.get_connection(db, company_id)
@@ -54,7 +56,7 @@ def get_connection_status(
 def disconnect(
     company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
-    _: object = Depends(require_admin),
+    _: object = Depends(_owner_admin),
 ):
     """Desconecta o WhatsApp e remove a sessão."""
     connection_service.disconnect(db, company_id)
@@ -64,7 +66,7 @@ def disconnect(
 def refresh_qr(
     company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
-    _: object = Depends(require_admin),
+    _: object = Depends(_owner_admin),
 ):
     """Gera novo QR Code quando o anterior expirou."""
     return connection_service.refresh_qr(db, company_id)

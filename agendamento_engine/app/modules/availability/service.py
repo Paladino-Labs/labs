@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date, time as dt_time, timezone
 from uuid import UUID
 from typing import List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,20 +7,29 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import (
-    WorkingHour, ScheduleBlock, Appointment, Service, Professional, Company,
+    WorkingHour, ScheduleBlock, Appointment, Service, Professional, TenantConfig,
 )
 from app.domain.constants.scheduling import SLOT_INTERVAL_MINUTES
 from app.modules.availability.schemas import AvailableSlot
 
 
-def _company_tz(db: Session, company_id: UUID) -> ZoneInfo:
-    """Retorna o ZoneInfo da empresa, com fallback para América/São Paulo."""
-    company = db.query(Company).filter(Company.id == company_id).first()
-    tz_name = (company.timezone if company else None) or "America/Sao_Paulo"
+def _localize_to_utc(slot_date: date, slot_time: dt_time, tz_name: str) -> datetime:
+    """
+    Combina data + horário local do tenant e retorna datetime UTC-aware.
+    Exemplo: slot_date=2026-05-29, slot_time=09:00, tz_name="America/Sao_Paulo"
+    → 2026-05-29 12:00:00+00:00
+    """
     try:
-        return ZoneInfo(tz_name)
+        tz = ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
-        return ZoneInfo("America/Sao_Paulo")
+        tz = ZoneInfo("America/Sao_Paulo")
+    return datetime.combine(slot_date, slot_time, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+
+
+def _tenant_tz_name(db: Session, company_id: UUID) -> str:
+    """Retorna o nome de timezone do TenantConfig, com fallback para America/Sao_Paulo."""
+    config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
+    return (getattr(config, "timezone", None) or "America/Sao_Paulo")
 
 
 def get_next_available_slots(
@@ -97,11 +106,11 @@ def get_available_slots(
     if not working_hour:
         return []
 
-    # Janela do dia — converte horário local da empresa para UTC
-    # opening_time/closing_time são horários locais (ex: 09:00 América/São Paulo)
-    tz = _company_tz(db, company_id)
-    day_start = datetime.combine(target_date, working_hour.opening_time).replace(tzinfo=tz).astimezone(timezone.utc)
-    day_end   = datetime.combine(target_date, working_hour.closing_time).replace(tzinfo=tz).astimezone(timezone.utc)
+    # Janela do dia — converte horário local do tenant (TenantConfig.timezone) para UTC
+    # opening_time/closing_time são horários locais (ex: 09:00 America/Sao_Paulo)
+    tz_name = _tenant_tz_name(db, company_id)
+    day_start = _localize_to_utc(target_date, working_hour.opening_time, tz_name)
+    day_end   = _localize_to_utc(target_date, working_hour.closing_time, tz_name)
 
     # Agendamentos existentes no dia (apenas ativos)
     day_appointments = db.query(Appointment).filter(
