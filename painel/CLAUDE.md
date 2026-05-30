@@ -136,3 +136,8 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - Não hardcodar cores (`text-white`, `#25D366`, `bg-green-*`, etc.)
 - Não usar emojis como ícones — sempre Lucide
 - Não usar inline styles para hover/focus — sempre classes Tailwind
+
+## Dívidas conhecidas
+- book/[slug]: dias sem horários só são descobertos após seleção
+  (business_hours retorna string livre — filtro visual preventivo
+  requer backend retornar [{weekday, open, close}])
