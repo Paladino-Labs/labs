@@ -634,6 +634,8 @@ class BookingEngine:
         ("AWAITING_PROFESSIONAL",   BookingAction.SELECT_PROFESSIONAL): "_handle_select_professional",
         ("AWAITING_DATE",           BookingAction.SELECT_DATE):         "_handle_select_date",
         ("AWAITING_DATE",           BookingAction.NAVIGATE_DATES):      "_handle_navigate_dates",
+        ("AWAITING_TIME",           BookingAction.SELECT_DATE):         "_handle_select_date",
+        ("AWAITING_TIME",           BookingAction.NAVIGATE_DATES):      "_handle_navigate_dates",
         ("AWAITING_TIME",           BookingAction.SELECT_TIME):         "_handle_select_time",
         ("AWAITING_TIME",           BookingAction.MORE_SLOTS_LATER):    "_handle_more_slots_later",
         ("AWAITING_TIME",           BookingAction.MORE_SLOTS_EARLIER):  "_handle_more_slots_earlier",
