@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey
+from sqlalchemy import Column, String, Boolean, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -13,6 +13,12 @@ class Professional(Base, TimestampMixin):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     active = Column(Boolean, default=True, nullable=False)
+
+    # Sprint 8 — PII criptografado; nunca armazenar plaintext
+    cpf_cnpj_encrypted = Column(Text, nullable=True)      # Fernet(PII_ENCRYPTION_KEY)
+    cpf_cnpj_hash = Column(Text, nullable=True)           # HMAC-SHA256 para dedup
+    cpf_cnpj_masked = Column(String(18), nullable=True)   # "***.***.***-12"
+    external_wallet_id = Column(String(255), nullable=True)
 
     company = relationship("Company", back_populates="professionals")
     services = relationship("ProfessionalService", back_populates="professional", lazy="dynamic")

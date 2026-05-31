@@ -8,6 +8,8 @@ from app.core.deps import require_role, get_current_company_id, get_current_user
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models.user import User
 from app.modules.tenant import schemas, service
+from app.modules.financial_core import service as financial_service
+from app.modules.financial_core.schemas import FeeRoutingResponse, FeeRoutingUpdate
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
 
@@ -86,3 +88,34 @@ def update_branding(
     db: Session = Depends(get_db),
 ):
     return service.update_branding(db, company_id, body)
+
+
+# ── Fee Routing ───────────────────────────────────────────────────────────────
+
+@router.get("/fee-routing", response_model=List[FeeRoutingResponse])
+def list_fee_routing(
+    company_id: UUID = Depends(get_current_company_id),
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Lista todas as políticas de roteio de taxa do tenant."""
+    return financial_service.list_fee_routing_policies(company_id, db)
+
+
+@router.put("/fee-routing/{fee_source}", response_model=FeeRoutingResponse)
+def update_fee_routing(
+    fee_source: str,
+    body: FeeRoutingUpdate,
+    company_id: UUID = Depends(get_current_company_id),
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Atualiza shares de rateio para um fee_source. Valida soma = 100."""
+    return financial_service.update_fee_routing_policy(
+        fee_source=fee_source.upper(),
+        client_share=body.client_share,
+        tenant_share=body.tenant_share,
+        professional_share=body.professional_share,
+        company_id=company_id,
+        db=db,
+    )

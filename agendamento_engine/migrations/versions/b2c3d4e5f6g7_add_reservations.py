@@ -1,7 +1,7 @@
 """add_reservations
 
 Revision ID: b2c3d4e5f6g7
-Revises: a2b3c4d5e6f7
+Revises: a3b4c5d6e7f8
 Create Date: 2026-05-30
 
 Cria tabela reservations com EXCLUDE USING gist (tstzrange).

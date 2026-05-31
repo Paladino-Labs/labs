@@ -44,6 +44,10 @@ class Appointment(Base, TimestampMixin):
     cancelled_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     cancel_reason = Column(String(500), nullable=True)
 
+    # Operations FSM — Sprint 10
+    operation_type = Column(String(30), nullable=False, server_default="SERVICE_SCHEDULED")
+    # SERVICE_SCHEDULED | SERVICE_DIRECT | PRODUCT_SALE
+
     # Flags de idempotência para workers de lembrete
     reminder_24h_sent = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))
     reminder_2h_sent  = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))

@@ -18,7 +18,6 @@ class TenantConfigResponse(BaseModel):
     no_penalty_cancel_h: int
     require_payment_upfront: bool
     default_commission_pct: Decimal
-    fee_routing_policy_id: Optional[UUID]
     accounting_mode: str
     permission_overrides: dict
 

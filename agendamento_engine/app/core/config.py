@@ -76,6 +76,20 @@ class Settings(BaseSettings):
     # Obrigatória em produção. Nunca commitar no repositório.
     CREDENTIAL_ENCRYPTION_KEY: str = ""
 
+    # Sprint 8 — PII encryption (CPF/CNPJ)
+    # Fernet key para cpf_cnpj_encrypted. Fallback para CREDENTIAL_ENCRYPTION_KEY se ausente.
+    # Falha no startup se nenhuma das duas estiver disponível em produção.
+    PII_ENCRYPTION_KEY: str = ""
+
+    # HMAC-SHA256 key para cpf_cnpj_hash (deduplicação sem plaintext).
+    # Fallback para CREDENTIAL_ENCRYPTION_KEY se ausente.
+    PII_HASH_KEY: str = ""
+
+    # Asaas — API key de plataforma; fallback quando tenant não tem IntegrationCredential.
+    ASAAS_API_KEY: str = ""
+    ASAAS_API_URL: str = "https://sandbox.asaas.com/api/v3"
+    ASAAS_WEBHOOK_TOKEN: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

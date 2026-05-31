@@ -30,8 +30,8 @@ class TenantConfig(Base):
     require_payment_upfront = Column(Boolean, nullable=False, default=False)
     default_commission_pct = Column(Numeric(5, 2), nullable=False, default=Decimal("40.00"))
 
-    # Placeholder — FK real criada na Fase 2 Sprint 6 quando tenant_fee_routing_policies existir
-    fee_routing_policy_id = Column(UUID(as_uuid=True), nullable=True)
+    # fee_routing_policy_id removido na migration l1m2n3o4p5q6 (Sprint 6)
+    # Lookup agora via (company_id, fee_source) em tenant_fee_routing_policies
 
     # Contábil — ACCRUAL bloqueado por trigger no banco no Estágio 0
     accounting_mode = Column(

@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -9,6 +10,8 @@ from app.modules.professionals.schemas import (
     ProfessionalServiceCreate,
     ProfessionalServiceResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def list_by_service(db: Session, company_id: UUID, service_id: UUID) -> list[Professional]:
@@ -59,11 +62,61 @@ def update_professional(
     db: Session, company_id: UUID, professional_id: UUID, data: ProfessionalUpdate
 ) -> Professional:
     p = get_professional_or_404(db, company_id, professional_id)
-    for field, value in data.model_dump(exclude_none=True).items():
+
+    fields = data.model_dump(exclude_none=True)
+    raw_cpf_cnpj = fields.pop("cpf_cnpj", None)
+
+    for field, value in fields.items():
         setattr(p, field, value)
+
+    if raw_cpf_cnpj is not None:
+        _apply_pii(db, p, raw_cpf_cnpj, company_id)
+
     db.commit()
     db.refresh(p)
     return p
+
+
+def _apply_pii(db: Session, professional: Professional, raw: str, company_id: UUID) -> None:
+    """Normaliza, valida e grava CPF/CNPJ como encrypted+hash+masked. Nunca plaintext."""
+    from app.modules.payments.validators import (
+        normalize_cpf_cnpj,
+        encrypt_pii,
+        hash_pii,
+        mask_cpf_cnpj,
+    )
+
+    digits = normalize_cpf_cnpj(raw)
+
+    # Verificar duplicata por hash na mesma empresa, excluindo o próprio profissional
+    cpf_hash = hash_pii(digits)
+    duplicate = (
+        db.query(Professional)
+        .filter(
+            Professional.company_id == company_id,
+            Professional.cpf_cnpj_hash == cpf_hash,
+            Professional.id != professional.id,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="CPF/CNPJ já cadastrado para outro profissional desta empresa",
+        )
+
+    professional.cpf_cnpj_encrypted = encrypt_pii(digits)
+    professional.cpf_cnpj_hash = cpf_hash
+    professional.cpf_cnpj_masked = mask_cpf_cnpj(digits)
+    # plaintext (digits) sai de escopo aqui — nunca gravado
+    logger.info(
+        "pii_updated",
+        extra={
+            "professional_id": str(professional.id),
+            "company_id": str(company_id),
+            "masked": professional.cpf_cnpj_masked,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -62,6 +62,11 @@ from app.modules.tenant.router import router as tenant_router
 from app.modules.categories.router import router as categories_router
 from app.modules.integrations.router import router as integrations_router
 from app.modules.communication.router import router as communication_router
+from app.modules.financial_core.router import router as financial_router
+from app.modules.payments.router import router as payments_router
+from app.modules.payments.router import financial_router as payments_financial_router
+from app.modules.agenda.router import router as agenda_router
+from app.modules.schedule_exceptions.router import router as schedule_exceptions_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -90,14 +95,39 @@ def _validate_encryption_key() -> None:
 _validate_encryption_key()
 
 
+def _validate_pii_keys() -> None:
+    """Fail-fast se nenhuma chave PII estiver disponível em produção."""
+    has_pii = bool(settings.PII_ENCRYPTION_KEY.strip())
+    has_cred = bool(settings.CREDENTIAL_ENCRYPTION_KEY.strip())
+    if not has_pii and not has_cred:
+        import os
+        env = os.getenv("ENVIRONMENT", "development").lower()
+        if env not in ("development", "dev", "test", "testing"):
+            raise KeyError(
+                "PII_ENCRYPTION_KEY ausente e CREDENTIAL_ENCRYPTION_KEY não pode servir de fallback. "
+                "Configure PII_ENCRYPTION_KEY no vault Railway antes de subir em produção."
+            )
+        logger.warning(
+            "PII_ENCRYPTION_KEY não configurada — operações de PII (CPF/CNPJ) falharão. "
+            "Aceitável apenas em desenvolvimento."
+        )
+
+
+_validate_pii_keys()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação (substitui @on_event deprecated)."""
     # Registrar handlers do EventBus
     from app.workers.booking_session_handlers import register_handlers as register_booking_handlers
     from app.workers.appointment_reminder_handler import register_handlers as register_reminder_handlers
+    from app.modules.communication.handlers import register_handlers as register_communication_handlers
+    from app.workers.handlers.soft_reservation_handler import register_handlers as register_soft_reservation_handlers
     register_booking_handlers()
     register_reminder_handlers()
+    register_communication_handlers()
+    register_soft_reservation_handlers()
 
     # Coexistência Sprint 4: asyncio workers rodando em paralelo ao Celery durante validação.
     # REMOVER estes create_task após 24h de coexistência sem erros no Sentry (ver plano-fase1-v3.md).
@@ -124,8 +154,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Paladino Labs API",
-    version="0.3.0",
-    description="Sistema de gestão para barbearias — Sprint 4 (Agendamento Online)",
+    version="2.0.0",
+    description="Paladino — Fase 2 concluída (Financial Core + Pagamentos)",
     lifespan=lifespan,
 )
 
@@ -162,8 +192,13 @@ app.include_router(tenant_router)
 app.include_router(categories_router)
 app.include_router(integrations_router)
 app.include_router(communication_router)
+app.include_router(financial_router)
+app.include_router(payments_router)
+app.include_router(payments_financial_router)
+app.include_router(agenda_router)
+app.include_router(schedule_exceptions_router)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.3.0"}
+    return {"status": "ok", "version": "2.0.0"}

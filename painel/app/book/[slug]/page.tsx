@@ -62,8 +62,9 @@ export default function BookingPage() {
   const [profile,      setProfile]      = useState<CompanyProfile | null>(null)
   const [services,     setServices]     = useState<ServiceOption[]>([])
   const [error,        setError]        = useState<string | null>(null)
-  const [showBooking,  setShowBooking]  = useState(false)
-  const [bookingToken, setBookingToken] = useState<string | null>(
+  const [showBooking,       setShowBooking]       = useState(false)
+  const [initialServiceId,  setInitialServiceId]  = useState<string | null>(null)
+  const [bookingToken,      setBookingToken]       = useState<string | null>(
     searchParams.get("t")
   )
 
@@ -86,6 +87,15 @@ export default function BookingPage() {
   }, [slug])
 
   function handleStartBooking() {
+    setInitialServiceId(null)
+    setShowBooking(true)
+    setTimeout(() => {
+      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 80)
+  }
+
+  function handleBookService(serviceId: string) {
+    setInitialServiceId(serviceId)
     setShowBooking(true)
     setTimeout(() => {
       bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -279,7 +289,7 @@ export default function BookingPage() {
                       </span>
                       {profile.online_booking_enabled && (
                         <button
-                          onClick={handleStartBooking}
+                          onClick={() => handleBookService(s.id)}
                           className="book-btn-secondary px-3 py-1 text-xs"
                         >
                           Agendar
@@ -432,6 +442,7 @@ export default function BookingPage() {
               companyName={profile.company_name}
               initialToken={bookingToken}
               onTokenChange={handleTokenChange}
+              initialServiceId={initialServiceId}
             />
           </section>
         )}

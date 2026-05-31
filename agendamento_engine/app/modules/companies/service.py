@@ -1,3 +1,5 @@
+import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -11,7 +13,22 @@ from app.infrastructure.db.models.tenant_branding import TenantBranding
 from app.infrastructure.db.models.category import Category, EntityType
 from app.infrastructure.db.models.communication_setting import CommunicationSetting
 from app.infrastructure.db.models.communication_template import CommunicationTemplate
+from app.infrastructure.db.models.account import Account
+from app.infrastructure.db.models.tenant_fee_routing_policy import TenantFeeRoutingPolicy
 from app.modules.companies.schemas import CompanyCreate, CompanyPatch
+
+logger = logging.getLogger(__name__)
+
+
+_DEFAULT_FEE_SOURCES = [
+    "ASAAS_PIX",
+    "ASAAS_CARD",
+    "MAQUININHA_DEBIT",
+    "MAQUININHA_CREDIT",
+    "ANTECIPACAO",
+    "ESTORNO",
+    "RECORRENTE_FEE",
+]
 
 
 _DEFAULT_CATEGORIES: dict = {
@@ -164,8 +181,64 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
             **tmpl_data,
         ))
 
+    # ── Financial Core (Sprint 6) ─────────────────────────────────────────────
+
+    # Account default CAIXA
+    db.add(Account(
+        company_id=company.id,
+        name="Caixa principal",
+        type="CAIXA",
+        is_default_inflow=True,
+    ))
+
+    # TenantFeeRoutingPolicy defaults — tenant_share=100% (sem repasse)
+    for fs in _DEFAULT_FEE_SOURCES:
+        db.add(TenantFeeRoutingPolicy(
+            company_id=company.id,
+            fee_source=fs,
+            client_share=0,
+            tenant_share=100,
+            professional_share=0,
+        ))
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     db.commit()
     db.refresh(company)
+
+    # ── Sprint 8: subconta Asaas — NÃO BLOQUEANTE ─────────────────────────────
+    # Falha não impede a criação do tenant; apenas loga warning.
+    try:
+        from app.modules.payments.provider_factory import get_payment_provider
+        provider = get_payment_provider(company_id=company.id, db=db)
+
+        # Busca OWNER recém-criado para email
+        from app.infrastructure.db.models.user import User
+        owner = (
+            db.query(User)
+            .filter(User.company_id == company.id, User.role == "OWNER")
+            .first()
+        )
+        owner_email = owner.email if owner else f"{company.slug or str(company.id)}@paladino.app"
+
+        result = provider.create_subaccount(
+            name=company.name,
+            cpf_cnpj="",  # owner CPF não disponível neste fluxo — Asaas aceita vazio para MEI
+            email=owner_email,
+        )
+        company.payment_provider = "asaas"
+        company.external_account_id = result["accountId"]
+        company.external_account_status = "pending_verification"
+        company.external_account_created_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(company)
+    except Exception as exc:
+        logger.warning(
+            "payment_subaccount_creation_failed",
+            extra={"company_id": str(company.id), "error": str(exc)},
+        )
+    # ──────────────────────────────────────────────────────────────────────────
+
     return company
 
 

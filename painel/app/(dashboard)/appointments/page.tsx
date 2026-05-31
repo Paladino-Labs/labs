@@ -39,14 +39,17 @@ import {
 
 const STATUS_OPTIONS = [
   "todos",
+  "DRAFT",
   "SCHEDULED",
+  "REQUESTED",
   "IN_PROGRESS",
   "COMPLETED",
   "CANCELLED",
   "NO_SHOW",
+  "FAILED",
 ]
 
-const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED"])
+const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED", "FAILED"])
 
 export default function AppointmentsPage() {
   const router = useRouter()

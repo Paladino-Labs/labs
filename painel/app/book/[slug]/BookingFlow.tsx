@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { addDays, format, isSameDay, startOfDay } from "date-fns"
 import { ptBR } from "date-fns/locale/pt-BR"
 import { ArrowLeft, Check, CheckCircle2, Clock, Scissors, User } from "lucide-react"
@@ -153,11 +153,13 @@ export default function BookingFlow({
   companyName,
   initialToken,
   onTokenChange,
+  initialServiceId,
 }: {
   slug: string
   companyName: string
   initialToken?: string | null
   onTokenChange?: (token: string) => void
+  initialServiceId?: string | null
 }) {
   const [session,      setSession]      = useState<Session | null>(null)
   const [loading,      setLoading]      = useState(false)
@@ -165,7 +167,8 @@ export default function BookingFlow({
   const [custName,     setCustName]     = useState("")
   const [custPhone,    setCustPhone]    = useState("")
   const [custEmail,    setCustEmail]    = useState("")
-  const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()))
+  const [selectedDate, setSelectedDate] = useState<Date | null>(startOfDay(new Date()))
+  const autoSelectedRef = useRef(false)
 
   const next14Days = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i))
 
@@ -232,6 +235,25 @@ export default function BookingFlow({
 
   const handleBack  = () => dispatch("BACK")
   const handleReset = () => dispatch("RESET")
+
+  // Auto-seleciona serviço ao montar quando vindo do botão "Agendar" da vitrine
+  useEffect(() => {
+    if (
+      initialServiceId &&
+      !autoSelectedRef.current &&
+      session?.state === "AWAITING_SERVICE"
+    ) {
+      autoSelectedRef.current = true
+      dispatch("SELECT_SERVICE", { service_id: initialServiceId })
+    }
+  }, [session?.state, initialServiceId, dispatch])
+
+  // Reseta data selecionada quando o dia está fechado (zero slots retornados)
+  useEffect(() => {
+    if (session?.state === "AWAITING_TIME" && session.options.length === 0) {
+      setSelectedDate(null)
+    }
+  }, [session?.state, session?.options])
 
   function handleSelectDate(d: Date) {
     setSelectedDate(d)
@@ -374,7 +396,7 @@ export default function BookingFlow({
               <h2 className="font-display text-2xl tracking-wide mb-4">Escolha o dia</h2>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {next14Days.map(d => {
-                  const active = isSameDay(d, selectedDate)
+                  const active = selectedDate !== null && isSameDay(d, selectedDate)
                   return (
                     <button key={d.toISOString()}
                       onClick={() => handleSelectDate(d)}
@@ -406,7 +428,7 @@ export default function BookingFlow({
                 <h3 className="font-semibold mb-3">Horários disponíveis</h3>
                 {(session.options as SlotOpt[]).length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Nenhum horário disponível neste dia.
+                    Sem horários disponíveis neste dia. Escolha outra data.
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-2">

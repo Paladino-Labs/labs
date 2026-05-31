@@ -10,8 +10,8 @@
 - Appointment: DRAFT, FAILED, operation_type
 
 **HEAD migration:** c2d3e4f5g6h7 (add_direct_occupancies)
-**Total migrations Fase 2:** 14 (k1→c2)
-**Total testes:** 140/140 (+ 2 skips PostgreSQL real — validar em staging)
+**Total migrations Fase 2:** 19 (k1→c2)
+**Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
 - Payment FSM: PENDING → CONFIRMED → REFUNDED
@@ -142,7 +142,6 @@
 - Não implementar `accounting_mode=ACCRUAL` — bloqueado por trigger no Estágio 0
 - Não adicionar workers via asyncio.create_task no lifespan — usar Celery Beat
 - Não publicar eventos sem idempotency_key
-- Não usar nome agenda.soft_reservation.expired — modelo Reservation é Sprint 10 (Fase 3)
 - asyncio.create_task ainda ATIVO no lifespan (coexistência) — remover somente
   após 24h sem erros em produção; atualizar CLAUDE.md após o flip
 - Não chamar `evolution_client.send_text()` diretamente em código novo

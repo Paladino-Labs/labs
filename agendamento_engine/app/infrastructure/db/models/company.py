@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from sqlalchemy.orm import relationship
 
 from app.infrastructure.db.base import Base, TimestampMixin
@@ -18,6 +18,12 @@ class Company(Base, TimestampMixin):
     # Obrigatório para geração correta de labels de data/hora e exibição no frontend.
     # Backfill padrão: "America/Sao_Paulo" (aplicado pela migration).
     timezone = Column(String(50), nullable=False, server_default="America/Sao_Paulo")
+
+    # Sprint 8 — Asaas subconta
+    payment_provider = Column(String(50), nullable=True)
+    external_account_id = Column(String(255), nullable=True)
+    external_account_status = Column(String(50), nullable=True)
+    external_account_created_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     users = relationship("User", back_populates="company", lazy="dynamic")
     professionals = relationship("Professional", back_populates="company", lazy="dynamic")

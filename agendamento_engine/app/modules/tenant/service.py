@@ -51,7 +51,7 @@ def update_tenant_config(
     }
 
     updates = data.model_dump(exclude_none=True)
-    # fee_routing_policy_id não é alterável aqui
+    # fee_routing_policy_id removido na migration l1m2n3o4p5q6 (Sprint 6)
     updates.pop("fee_routing_policy_id", None)
 
     for field, value in updates.items():

@@ -27,4 +27,8 @@ beat_schedule = {
         "task": "app.workers.communication_worker.drain_scheduled_communications",
         "schedule": crontab(minute="*/5"),
     },
+    "soft-reservation-expiry-scan": {
+        "task": "app.workers.tasks.expire_reservations.expire_soft_reservations_scan",
+        "schedule": crontab(minute="*/5"),
+    },
 }
