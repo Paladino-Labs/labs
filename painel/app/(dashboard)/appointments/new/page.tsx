@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { Suspense, useEffect, useState, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
@@ -33,6 +33,14 @@ function todayString(): string {
 }
 
 export default function NewAppointmentPage() {
+  return (
+    <Suspense>
+      <NewAppointmentContent />
+    </Suspense>
+  )
+}
+
+function NewAppointmentContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 

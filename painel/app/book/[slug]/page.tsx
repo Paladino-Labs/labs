@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import {
   Clock, CreditCard, ExternalLink, Frown,
   MapPin, MessageCircle, Phone, Scissors, Star,
@@ -55,6 +55,14 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function BookingPage() {
+  return (
+    <Suspense>
+      <BookingContent />
+    </Suspense>
+  )
+}
+
+function BookingContent() {
   const { slug }       = useParams<{ slug: string }>()
   const searchParams   = useSearchParams()
   const router         = useRouter()
