@@ -212,13 +212,15 @@ export default function ProfessionalEditorPage() {
     const row = whRows[weekday]
     patchWh(weekday, { saving: true })
     try {
-      await api.post("/schedule/working-hours", {
-        professional_id: profId,
-        weekday,
-        opening_time: row.opening_time,
-        closing_time: row.closing_time,
-        is_active: row.is_active,
-      })
+      await api.post("/schedule/working-hours", [
+        {
+          professional_id: profId,
+          weekday,
+          opening_time: row.opening_time,
+          closing_time: row.closing_time,
+          is_active: row.is_active,
+        },
+      ])
     } catch (e: unknown) {
       alert((e as Error).message)
     } finally {

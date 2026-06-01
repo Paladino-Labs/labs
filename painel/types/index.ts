@@ -8,6 +8,7 @@ export interface Professional {
   working_days?: number[]
   commission_rate?: number
   specialties?: string[]
+  cpf_cnpj_masked?: string
 }
 
 export interface Service {
