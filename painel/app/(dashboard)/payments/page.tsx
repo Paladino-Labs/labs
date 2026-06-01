@@ -40,7 +40,7 @@ export default function PaymentsPage() {
   const [dateTo, setDateTo] = useState("")
 
   useEffect(() => {
-    api<Payment[]>("/payments")
+    api.get<Payment[]>("/payments")
       .then(setPayments)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
