@@ -35,6 +35,26 @@ const EMPTY: CompanyProfile = {
   tiktok_url: "", google_review_url: "", business_hours: "",
 }
 
+// A API pode retornar null em qualquer campo opcional — normaliza para os defaults.
+function normalizeProfile(data: Partial<Record<keyof CompanyProfile, string | string[] | null>>): CompanyProfile {
+  return {
+    tagline:           (data.tagline           as string  | null) ?? "",
+    description:       (data.description       as string  | null) ?? "",
+    logo_url:          (data.logo_url          as string  | null) ?? "",
+    cover_url:         (data.cover_url         as string  | null) ?? "",
+    gallery_urls:      (data.gallery_urls      as string[] | null) ?? [],
+    address:           (data.address           as string  | null) ?? "",
+    city:              (data.city              as string  | null) ?? "",
+    whatsapp:          (data.whatsapp          as string  | null) ?? "",
+    maps_url:          (data.maps_url          as string  | null) ?? "",
+    instagram_url:     (data.instagram_url     as string  | null) ?? "",
+    facebook_url:      (data.facebook_url      as string  | null) ?? "",
+    tiktok_url:        (data.tiktok_url        as string  | null) ?? "",
+    google_review_url: (data.google_review_url as string  | null) ?? "",
+    business_hours:    (data.business_hours    as string  | null) ?? "",
+  }
+}
+
 // ─── Helper de upload (mesmo padrão do services page) ────────────────────────
 
 async function uploadImage(file: File): Promise<string> {
@@ -214,8 +234,8 @@ export default function CompanyProfilePage() {
 
   // ── Fetch inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
-    api.get<Partial<CompanyProfile>>("/company/profile")
-      .then((data) => setForm({ ...EMPTY, ...data, gallery_urls: data.gallery_urls ?? [] }))
+    api.get<Partial<Record<keyof CompanyProfile, string | string[] | null>>>("/company/profile")
+      .then((data) => setForm(normalizeProfile(data)))
       .catch(() => setError("Não foi possível carregar o perfil."))
       .finally(() => setLoading(false))
   }, [])
