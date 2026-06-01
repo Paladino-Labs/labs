@@ -14,6 +14,8 @@ class Professional(Base, TimestampMixin):
     name = Column(String(255), nullable=False)
     active = Column(Boolean, default=True, nullable=False)
 
+    specialty = Column(String(255), nullable=True)
+
     # Sprint 8 — PII criptografado; nunca armazenar plaintext
     cpf_cnpj_encrypted = Column(Text, nullable=True)      # Fernet(PII_ENCRYPTION_KEY)
     cpf_cnpj_hash = Column(Text, nullable=True)           # HMAC-SHA256 para dedup

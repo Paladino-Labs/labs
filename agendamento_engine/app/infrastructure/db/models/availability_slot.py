@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, Time, Integer, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, ForeignKey, Time, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy import TIMESTAMP
@@ -20,13 +20,6 @@ class WorkingHour(Base):
     is_active = Column(Boolean, default=True, nullable=False)
 
     professional = relationship("Professional", back_populates="working_hours")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "company_id", "professional_id", "weekday",
-            name="uq_working_hours_day",
-        ),
-    )
 
 
 class ScheduleBlock(Base, TimestampMixin):

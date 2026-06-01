@@ -1,7 +1,7 @@
 from uuid import UUID
 from typing import Optional
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ProductCreate(BaseModel):
@@ -18,6 +18,13 @@ class ProductUpdate(BaseModel):
     image_url: Optional[str] = None
     active: Optional[bool] = None
     stock: Optional[int] = None
+
+    @field_validator("stock")
+    @classmethod
+    def stock_non_negative(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 0:
+            raise ValueError("stock não pode ser negativo")
+        return v
 
 
 class ProductResponse(BaseModel):

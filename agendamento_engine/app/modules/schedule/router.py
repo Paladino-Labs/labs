@@ -32,6 +32,17 @@ def upsert_working_hour(
     return svc.upsert_working_hour(db, user.company_id, body)
 
 
+@router.put("/working-hours/{professional_id}/{weekday}", response_model=List[schemas.WorkingHourResponse])
+def replace_working_hours(
+    professional_id: UUID,
+    weekday: int,
+    body: List[schemas.WorkingHourPeriod],
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    return svc.replace_working_hours_for_day(db, user.company_id, professional_id, weekday, body)
+
+
 # ── Schedule Blocks ────────────────────────────────────────────────────────────
 
 @router.get("/blocks/{professional_id}", response_model=List[schemas.ScheduleBlockResponse])

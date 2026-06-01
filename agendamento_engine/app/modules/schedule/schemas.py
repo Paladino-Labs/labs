@@ -12,6 +12,11 @@ class WorkingHourCreate(BaseModel):
     is_active: bool = True
 
 
+class WorkingHourPeriod(BaseModel):
+    start_time: time
+    end_time: time
+
+
 class WorkingHourResponse(BaseModel):
     id: UUID
     company_id: UUID

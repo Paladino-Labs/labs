@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, Numeric, Text
+from sqlalchemy import Column, String, Boolean, ForeignKey, Numeric, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -17,5 +17,6 @@ class Product(Base, TimestampMixin):
     price = Column(Numeric(10, 2), nullable=False)
     image_url = Column(String(500), nullable=True)
     active = Column(Boolean, default=True, nullable=False)
+    stock = Column(Integer, default=0, nullable=True)
 
     company = relationship("Company", back_populates="products")

@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import WorkingHour, ScheduleBlock
-from app.modules.schedule.schemas import WorkingHourCreate, ScheduleBlockCreate
+from app.modules.schedule.schemas import WorkingHourCreate, WorkingHourPeriod, ScheduleBlockCreate
 
 
 # ── Working Hours ──────────────────────────────────────────────────────────────
@@ -44,6 +44,58 @@ def upsert_working_hour(
     new_records: List[WorkingHour] = []
     for data in periods:
         wh = WorkingHour(company_id=company_id, **data.model_dump())
+        db.add(wh)
+        new_records.append(wh)
+
+    db.commit()
+    for wh in new_records:
+        db.refresh(wh)
+    return new_records
+
+
+def replace_working_hours_for_day(
+    db: Session,
+    company_id: UUID,
+    professional_id: UUID,
+    weekday: int,
+    periods: List[WorkingHourPeriod],
+) -> List[WorkingHour]:
+    """
+    Substitui todos os períodos do dia por `periods` (estado completo).
+    Lista vazia = dia de folga (DELETE sem INSERT).
+    Valida: máx 3 períodos, start < end, sem sobreposição.
+    """
+    if len(periods) > 3:
+        raise HTTPException(status_code=422, detail="Máximo de 3 períodos por dia")
+
+    for p in periods:
+        if p.start_time >= p.end_time:
+            raise HTTPException(
+                status_code=422,
+                detail=f"start_time ({p.start_time}) deve ser anterior a end_time ({p.end_time})",
+            )
+
+    sorted_periods = sorted(periods, key=lambda x: x.start_time)
+    for i in range(len(sorted_periods) - 1):
+        if sorted_periods[i].end_time > sorted_periods[i + 1].start_time:
+            raise HTTPException(status_code=422, detail="Períodos se sobrepõem")
+
+    db.query(WorkingHour).filter(
+        WorkingHour.company_id == company_id,
+        WorkingHour.professional_id == professional_id,
+        WorkingHour.weekday == weekday,
+    ).delete(synchronize_session=False)
+
+    new_records: List[WorkingHour] = []
+    for p in sorted_periods:
+        wh = WorkingHour(
+            company_id=company_id,
+            professional_id=professional_id,
+            weekday=weekday,
+            opening_time=p.start_time,
+            closing_time=p.end_time,
+            is_active=True,
+        )
         db.add(wh)
         new_records.append(wh)
 
