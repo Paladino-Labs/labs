@@ -60,7 +60,7 @@ export default function PaymentDetailPage() {
   const [payment, setPayment] = useState<Payment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [refundReason, setRefundReason] = useState<string>("")
+  const [refundReason, setRefundReason] = useState<string | null>(null)
   const [refunding, setRefunding] = useState(false)
   const [refundError, setRefundError] = useState<string | null>(null)
 
@@ -157,7 +157,7 @@ export default function PaymentDetailPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Motivo do reembolso</label>
-              <Select value={refundReason} onValueChange={setRefundReason}>
+              <Select value={refundReason ?? ""} onValueChange={(v) => setRefundReason(v || null)}>
                 <SelectTrigger className="w-full max-w-xs">
                   <SelectValue placeholder="Selecione o motivo" />
                 </SelectTrigger>
