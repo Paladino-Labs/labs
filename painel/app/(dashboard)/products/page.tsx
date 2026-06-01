@@ -142,6 +142,7 @@ function EditProductDialog({ product, onUpdated }: { product: Product; onUpdated
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState(product.name)
   const [price, setPrice] = useState(product.price)
+  const [stock, setStock] = useState(String(product.stock))
   const [description, setDescription] = useState(product.description ?? "")
   const [imageUrl, setImageUrl] = useState(product.image_url ?? "")
 
@@ -149,6 +150,7 @@ function EditProductDialog({ product, onUpdated }: { product: Product; onUpdated
     if (v) {
       setName(product.name)
       setPrice(product.price)
+      setStock(String(product.stock))
       setDescription(product.description ?? "")
       setImageUrl(product.image_url ?? "")
       setError(null)
@@ -164,13 +166,19 @@ function EditProductDialog({ product, onUpdated }: { product: Product; onUpdated
       await api.patch(`/products/${product.id}`, {
         name,
         price: parseFloat(price),
+        stock: parseInt(stock, 10),
         description: description || null,
         image_url: imageUrl || null,
       })
       setOpen(false)
       onUpdated()
     } catch (err: unknown) {
-      setError((err as Error).message)
+      const e = err as { message?: string; status?: number }
+      if (e.status === 422) {
+        setError("Estoque não pode ser negativo")
+      } else {
+        setError(e.message ?? "Erro desconhecido")
+      }
     } finally {
       setSaving(false)
     }
@@ -196,6 +204,17 @@ function EditProductDialog({ product, onUpdated }: { product: Product; onUpdated
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ep-stock">Estoque</Label>
+            <Input
+              id="ep-stock"
+              type="number"
+              min="0"
+              step="1"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
             />
           </div>
           <div className="space-y-1">
@@ -268,6 +287,7 @@ export default function ProductsPage() {
                 <TableHead>Imagem</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Preço</TableHead>
+                <TableHead>Estoque</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead />
               </TableRow>
@@ -275,7 +295,7 @@ export default function ProductsPage() {
             <TableBody>
               {products.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     Nenhum produto cadastrado.
                   </TableCell>
                 </TableRow>
@@ -298,6 +318,7 @@ export default function ProductsPage() {
                     )}
                   </TableCell>
                   <TableCell>{formatBRL(p.price)}</TableCell>
+                  <TableCell>{p.stock}</TableCell>
                   <TableCell><ActiveBadge active={p.active} /></TableCell>
                   <TableCell className="text-right space-x-1">
                     <EditProductDialog product={p} onUpdated={fetchProducts} />

@@ -2,6 +2,7 @@ export interface Professional {
   id: string
   company_id: string
   name: string
+  specialty?: string | null
   active: boolean
   work_start?: string
   work_end?: string
@@ -47,6 +48,7 @@ export interface Product {
   company_id: string
   name: string
   price: string
+  stock: number
   description?: string
   image_url?: string
   active: boolean

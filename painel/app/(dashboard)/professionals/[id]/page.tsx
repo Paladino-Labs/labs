@@ -85,6 +85,7 @@ export default function ProfessionalEditorPage() {
   // ── Estado ────────────────────────────────────────────────────────────────
   const [prof, setProf] = useState<Professional | null>(null)
   const [editName, setEditName] = useState("")
+  const [editSpecialty, setEditSpecialty] = useState("")
   const [editCpfCnpj, setEditCpfCnpj] = useState("")
   const [cpfCnpjError, setCpfCnpjError] = useState<string | null>(null)
   const [savingInfo, setSavingInfo] = useState(false)
@@ -120,6 +121,7 @@ export default function ProfessionalEditorPage() {
       ])
       setProf(profData)
       setEditName(profData.name)
+      setEditSpecialty(profData.specialty ?? "")
       setEditCpfCnpj("")  // nunca pré-preencher com valor criptografado
       setWhRows(mergeWh(wh))
       setProfServices(ps)
@@ -178,7 +180,7 @@ export default function ProfessionalEditorPage() {
     if (cpfCnpjError) return
     setSavingInfo(true)
     try {
-      const body: Record<string, unknown> = { name: editName }
+      const body: Record<string, unknown> = { name: editName, specialty: editSpecialty || null }
       const digits = editCpfCnpj.replace(/\D/g, "")
       if (digits.length > 0) body.cpf_cnpj = editCpfCnpj
       await api.patch(`/professionals/${profId}`, body)
@@ -336,6 +338,16 @@ export default function ProfessionalEditorPage() {
           </div>
 
           <div className="space-y-1">
+            <Label>Especialidade</Label>
+            <Input
+              value={editSpecialty}
+              onChange={(e) => setEditSpecialty(e.target.value)}
+              placeholder="Ex: Barbeiro, Colorista, Manicure"
+              className="max-w-xs"
+            />
+          </div>
+
+          <div className="space-y-1">
             <Label>CPF / CNPJ</Label>
             {prof.cpf_cnpj_masked && (
               <p className="text-sm text-muted-foreground mb-1">
@@ -362,7 +374,7 @@ export default function ProfessionalEditorPage() {
           <div>
             <Button
               onClick={handleSaveInfo}
-              disabled={savingInfo || (editName.trim() === prof.name && editCpfCnpj.replace(/\D/g,"").length === 0) || !!cpfCnpjError}
+              disabled={savingInfo || (editName.trim() === prof.name && editSpecialty === (prof.specialty ?? "") && editCpfCnpj.replace(/\D/g,"").length === 0) || !!cpfCnpjError}
             >
               {savingInfo ? "Salvando…" : "Salvar informações"}
             </Button>
