@@ -144,3 +144,9 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - [CORRIGIDO] NEXT_PUBLIC_API_URL=localhost em produção — causa raiz de todos os "Failed to fetch"
 - [CORRIGIDO] cpf_cnpj_masked ausente do tipo Professional — fix em 6bf4afe
 - [CORRIGIDO] working-hours frontend enviava objeto em vez de array — fix em 6bf4afe
+- [CORRIGIDO] useSearchParams sem Suspense em 4 páginas (login, reset-password,
+  book/[slug], appointments/new) — fix 8af2769 + e4983ee
+- [CORRIGIDO] settings/profile: spread { ...EMPTY, ...data } sobrescrevia defaults
+  com null da API — normalizeProfile() adicionado em 124a3c9
+- [CORRIGIDO] payments/page.tsx: api() chamado sem .get() — fix eeb494d
+- [CORRIGIDO] refundReason tipo incompatível com Select — fix e804949

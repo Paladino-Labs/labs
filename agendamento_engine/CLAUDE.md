@@ -173,6 +173,10 @@
 - [CORRIGIDO] professionals/schemas: specialty ausente de ProfessionalUpdate/Response — fix em bbb5632
 - [CORRIGIDO] products/schemas: stock ausente de ProductUpdate/Response — fix em bbb5632
 - [CORRIGIDO] schedule/service: upsert_working_hour suportava apenas 1 período/dia — refatorado DELETE→INSERT em bbb5632
+- [CORRIGIDO] booking FSM: SELECT_DATE e NAVIGATE_DATES bloqueados em AWAITING_TIME — fix ddb52c9
+- [CORRIGIDO] working_hours: upsert suportava apenas 1 período/dia — refatorado DELETE→INSERT em bbb5632
+- [CORRIGIDO] professionals: specialty ausente dos schemas — fix bbb5632
+- [CORRIGIDO] products: stock ausente dos schemas — fix bbb5632
 
 ## Segurança
 
