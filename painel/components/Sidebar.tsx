@@ -14,6 +14,7 @@ import {
   Package,
   Settings,
   Link2,
+  UserCog,
   LogOut,
   Sun,
   Moon,
@@ -22,14 +23,15 @@ import Image from "next/image"
 import { useTheme } from "@/lib/theme"
 
 const NAV_LINKS = [
-  { href: "/dashboard",        label: "Início",            icon: LayoutDashboard },
-  { href: "/appointments",     label: "Agendamentos",      icon: CalendarDays },
-  { href: "/customers",        label: "Clientes",          icon: Users },
-  { href: "/services",         label: "Serviços",          icon: Scissors },
-  { href: "/professionals",    label: "Barbeiros",          icon: UserCircle },
-  { href: "/products",         label: "Produtos",          icon: Package },
-  { href: "/settings", label: "Configurações", icon: Settings },
-  { href: "/integrations",     label: "Integrações",       icon: Link2 },
+  { href: "/dashboard",        label: "Início",            icon: LayoutDashboard, roles: null },
+  { href: "/appointments",     label: "Agendamentos",      icon: CalendarDays,    roles: null },
+  { href: "/customers",        label: "Clientes",          icon: Users,           roles: null },
+  { href: "/services",         label: "Serviços",          icon: Scissors,        roles: null },
+  { href: "/professionals",    label: "Barbeiros",         icon: UserCircle,      roles: null },
+  { href: "/products",         label: "Produtos",          icon: Package,         roles: null },
+  { href: "/integrations",     label: "Integrações",       icon: Link2,           roles: null },
+  { href: "/users",            label: "Usuários",          icon: UserCog,         roles: ["OWNER", "ADMIN", "PLATFORM_OWNER"] },
+  { href: "/settings",         label: "Configurações",     icon: Settings,        roles: null },
 ]
 
 function getInitials(email: string | null): string {
@@ -80,7 +82,7 @@ function SidebarContent({
           Navegação
         </p>
         <div className="space-y-0.5">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+          {NAV_LINKS.filter(({ roles }) => !roles || roles.includes(role ?? "")).map(({ href, label, icon: Icon }) => {
             const active =
               pathname === href ||
               (href !== "/dashboard" && pathname.startsWith(href))

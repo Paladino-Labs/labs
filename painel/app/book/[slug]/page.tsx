@@ -59,9 +59,16 @@ export default function BookingPage() {
   const searchParams   = useSearchParams()
   const router         = useRouter()
 
-  const [profile,      setProfile]      = useState<CompanyProfile | null>(null)
-  const [services,     setServices]     = useState<ServiceOption[]>([])
-  const [error,        setError]        = useState<string | null>(null)
+  interface ProfessionalOption {
+    id: string | null
+    name: string
+    row_key: string
+  }
+
+  const [profile,         setProfile]         = useState<CompanyProfile | null>(null)
+  const [services,        setServices]        = useState<ServiceOption[]>([])
+  const [vitrineProfs,    setVitrineProfs]    = useState<ProfessionalOption[]>([])
+  const [error,           setError]           = useState<string | null>(null)
   const [showBooking,       setShowBooking]       = useState(false)
   const [initialServiceId,  setInitialServiceId]  = useState<string | null>(null)
   const [bookingToken,      setBookingToken]       = useState<string | null>(
@@ -82,7 +89,20 @@ export default function BookingPage() {
 
   useEffect(() => {
     publicFetch<ServiceOption[]>(`/booking/${slug}/services`)
-      .then(setServices)
+      .then((svcs) => {
+        setServices(svcs)
+        // Carrega profissionais usando o primeiro serviço disponível
+        if (svcs.length > 0) {
+          publicFetch<ProfessionalOption[]>(
+            `/booking/${slug}/professionals?service_id=${svcs[0].id}`
+          )
+            .then((profs) => {
+              // Filtra "Qualquer disponível" (id=null) para mostrar só profissionais reais
+              setVitrineProfs(profs.filter((p) => p.id !== null))
+            })
+            .catch(() => {})
+        }
+      })
       .catch(() => {})
   }, [slug])
 
@@ -307,9 +327,27 @@ export default function BookingPage() {
             </TabsContent>
 
             <TabsContent value="professionals">
-              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                Selecione um serviço para ver os profissionais disponíveis.
-              </div>
+              {vitrineProfs.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                  Nenhum profissional disponível no momento.
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {vitrineProfs.map((p) => (
+                    <article
+                      key={p.id}
+                      className="rounded-lg border border-border bg-card p-5 flex items-center gap-4"
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                        {p.name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold">{p.name}</h3>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="reviews">

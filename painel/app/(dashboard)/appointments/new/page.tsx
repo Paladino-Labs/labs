@@ -16,8 +16,21 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
+interface AvailableSlot {
+  start_at: string
+  end_at: string
+  professional_id: string
+  professional_name: string
+}
+
 // ── Modos do campo cliente ────────────────────────────────────────────────────
 type ClientMode = "search" | "new"
+
+function todayString(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 export default function NewAppointmentPage() {
   const router       = useRouter()
@@ -30,18 +43,21 @@ export default function NewAppointmentPage() {
 
   const [professionalId, setProfessionalId] = useState(searchParams.get("professional_id") ?? "")
   const [serviceId,      setServiceId]      = useState("")
-  const [clientId,       setClientId]       = useState("")
-  const [startAt,        setStartAt]        = useState(() => {
-    // Pré-preenche com o slot clicado no calendário, se veio via query string
+  const [selectedDate,   setSelectedDate]   = useState(() => {
+    // Pré-preenche com a data do slot clicado no calendário
     const raw = searchParams.get("start_at")
-    if (!raw) return ""
+    if (!raw) return todayString()
     const d = new Date(raw)
     const pad = (n: number) => String(n).padStart(2, "0")
-    return (
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    )
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   })
+  const [startAt,        setStartAt]        = useState("")
+  const [endAt,          setEndAt]          = useState("")
+
+  // ── Slots ─────────────────────────────────────────────────────────────────
+  const [slots,         setSlots]        = useState<AvailableSlot[]>([])
+  const [loadingSlots,  setLoadingSlots] = useState(false)
+  const [selectedSlot,  setSelectedSlot] = useState<AvailableSlot | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
@@ -49,6 +65,7 @@ export default function NewAppointmentPage() {
   // ── Modo do campo cliente: buscar existente ou cadastrar novo ─────────────
   const [clientMode,    setClientMode]    = useState<ClientMode>("search")
   const [clientSearch,  setClientSearch]  = useState("")
+  const [clientId,      setClientId]      = useState("")
   const [newName,       setNewName]       = useState("")
   const [newPhone,      setNewPhone]      = useState("")
   const [newEmail,      setNewEmail]      = useState("")
@@ -68,6 +85,30 @@ export default function NewAppointmentPage() {
     }).catch(() => setError("Erro ao carregar dados. Recarregue a página."))
   }, [])
 
+  // ── Buscar slots quando profissional + serviço + data estão selecionados ──
+  useEffect(() => {
+    if (!professionalId || !serviceId || !selectedDate) {
+      setSlots([])
+      setSelectedSlot(null)
+      setStartAt("")
+      setEndAt("")
+      return
+    }
+
+    setLoadingSlots(true)
+    setSlots([])
+    setSelectedSlot(null)
+    setStartAt("")
+    setEndAt("")
+
+    api.get<AvailableSlot[]>(
+      `/availability/slots?professional_id=${professionalId}&service_id=${serviceId}&date=${selectedDate}`
+    )
+      .then(setSlots)
+      .catch(() => setSlots([]))
+      .finally(() => setLoadingSlots(false))
+  }, [professionalId, serviceId, selectedDate])
+
   // ── Filtro de clientes por busca ───────────────────────────────────────────
   const filteredCustomers = useMemo(() => {
     const q = clientSearch.trim().toLowerCase()
@@ -78,6 +119,14 @@ export default function NewAppointmentPage() {
         (c.phone ?? "").includes(q)
     )
   }, [customers, clientSearch])
+
+  // ── Selecionar slot ───────────────────────────────────────────────────────
+  function handleSelectSlot(slot: AvailableSlot) {
+    setSelectedSlot(slot)
+    setStartAt(slot.start_at)
+    setEndAt(slot.end_at)
+    // Se o profissional ainda não foi fixado e o slot tem profissional, mantém o selecionado
+  }
 
   // ── Cadastrar novo cliente inline ─────────────────────────────────────────
   async function handleCreateClient() {
@@ -97,7 +146,6 @@ export default function NewAppointmentPage() {
         phone: newPhone.trim(),
         email: newEmail.trim() || undefined,
       })
-      // Adiciona à lista local e já seleciona
       setCustomers((prev) => [...prev, created])
       setClientId(created.id)
       setClientMode("search")
@@ -119,6 +167,10 @@ export default function NewAppointmentPage() {
       setError("Selecione ou cadastre um cliente.")
       return
     }
+    if (!startAt) {
+      setError("Selecione um horário disponível.")
+      return
+    }
     setError(null)
     setLoading(true)
     try {
@@ -126,7 +178,7 @@ export default function NewAppointmentPage() {
         client_id:       clientId,
         professional_id: professionalId,
         services:        [{ service_id: serviceId }],
-        start_at:        new Date(startAt).toISOString(),
+        start_at:        startAt,
         idempotency_key: crypto.randomUUID(),
       })
       router.replace("/dashboard")
@@ -137,8 +189,9 @@ export default function NewAppointmentPage() {
     }
   }
 
-  // ── Cliente selecionado (para exibição no modo search) ────────────────────
   const selectedCustomer = customers.find((c) => c.id === clientId)
+
+  const canFetchSlots = Boolean(professionalId && serviceId && selectedDate)
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -155,7 +208,9 @@ export default function NewAppointmentPage() {
             {/* ── Profissional ──────────────────────────────────────────────── */}
             <div className="space-y-1.5">
               <Label>Profissional</Label>
-              <Select value={professionalId} onValueChange={(v) => v && setProfessionalId(v)}>
+              <Select value={professionalId} onValueChange={(v) => {
+                if (v) { setProfessionalId(v); setSelectedSlot(null); setStartAt("") }
+              }}>
                 <SelectTrigger>
                   <span className={professionalId ? "text-foreground" : "text-muted-foreground"}>
                     {professionals.find((p) => p.id === professionalId)?.name ?? "Selecione o profissional"}
@@ -172,7 +227,9 @@ export default function NewAppointmentPage() {
             {/* ── Serviço ───────────────────────────────────────────────────── */}
             <div className="space-y-1.5">
               <Label>Serviço</Label>
-              <Select value={serviceId} onValueChange={(v) => v && setServiceId(v)}>
+              <Select value={serviceId} onValueChange={(v) => {
+                if (v) { setServiceId(v); setSelectedSlot(null); setStartAt("") }
+              }}>
                 <SelectTrigger>
                   <span className={serviceId ? "text-foreground" : "text-muted-foreground"}>
                     {(() => {
@@ -191,17 +248,67 @@ export default function NewAppointmentPage() {
               </Select>
             </div>
 
-            {/* ── Horário ───────────────────────────────────────────────────── */}
+            {/* ── Data ──────────────────────────────────────────────────────── */}
             <div className="space-y-1.5">
-              <Label htmlFor="start-at">Horário de início</Label>
+              <Label htmlFor="date">Data</Label>
               <Input
-                id="start-at"
-                type="datetime-local"
-                value={startAt}
-                onChange={(e) => setStartAt(e.target.value)}
+                id="date"
+                type="date"
+                value={selectedDate}
+                min={todayString()}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value)
+                  setSelectedSlot(null)
+                  setStartAt("")
+                }}
                 required
               />
             </div>
+
+            {/* ── Horários disponíveis ──────────────────────────────────────── */}
+            {canFetchSlots && (
+              <div className="space-y-1.5">
+                <Label>Horário disponível</Label>
+                {loadingSlots ? (
+                  <p className="text-sm text-muted-foreground">Buscando horários…</p>
+                ) : slots.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum horário disponível para esta data. Tente outro dia.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {slots.map((slot) => {
+                      const t = new Date(slot.start_at)
+                      const pad = (n: number) => String(n).padStart(2, "0")
+                      const label = `${pad(t.getHours())}:${pad(t.getMinutes())}`
+                      const selected = selectedSlot?.start_at === slot.start_at &&
+                                       selectedSlot?.professional_id === slot.professional_id
+                      return (
+                        <button
+                          key={`${slot.start_at}-${slot.professional_id}`}
+                          type="button"
+                          onClick={() => handleSelectSlot(slot)}
+                          className={
+                            selected
+                              ? "rounded-md border-2 border-primary bg-primary/10 px-4 py-2 font-mono text-sm font-medium transition-all"
+                              : "rounded-md border border-border px-4 py-2 font-mono text-sm hover:border-primary hover:bg-primary/5 transition-all"
+                          }
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {selectedSlot && (
+                  <p className="text-xs text-muted-foreground">
+                    Horário selecionado: {new Date(selectedSlot.start_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    {" — "}
+                    {selectedSlot.professional_name}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* ── Cliente ───────────────────────────────────────────────────── */}
             <div className="space-y-1.5">
@@ -226,7 +333,6 @@ export default function NewAppointmentPage() {
                 )}
               </div>
 
-              {/* Modo: buscar cliente existente */}
               {clientMode === "search" && (
                 <div className="space-y-2">
                   <Input
@@ -234,12 +340,10 @@ export default function NewAppointmentPage() {
                     value={clientSearch}
                     onChange={(e) => {
                       setClientSearch(e.target.value)
-                      // Limpa seleção ao editar o campo
                       if (clientId) setClientId("")
                     }}
                   />
 
-                  {/* Lista de resultados — só aparece enquanto digitando e sem seleção */}
                   {clientSearch && !clientId && (
                     <div className="border rounded-lg overflow-hidden divide-y max-h-44 overflow-y-auto">
                       {filteredCustomers.length === 0 ? (
@@ -272,7 +376,6 @@ export default function NewAppointmentPage() {
                     </div>
                   )}
 
-                  {/* Cliente selecionado */}
                   {selectedCustomer && (
                     <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
                       <div>
@@ -291,7 +394,6 @@ export default function NewAppointmentPage() {
                 </div>
               )}
 
-              {/* Modo: cadastrar novo cliente inline */}
               {clientMode === "new" && (
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
