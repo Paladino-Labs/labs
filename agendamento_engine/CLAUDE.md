@@ -169,6 +169,10 @@
   Fix em availability/service.py + appointments/service.py.
   Usa TenantConfig.timezone como fonte canônica com fallback
   "America/Sao_Paulo". Requer tzdata==2026.2 (adicionado ao requirements).
+- [CORRIGIDO] company_profile router: User object passado em vez de company_id — fix em 9fed210
+- [CORRIGIDO] professionals/schemas: specialty ausente de ProfessionalUpdate/Response — fix em bbb5632
+- [CORRIGIDO] products/schemas: stock ausente de ProductUpdate/Response — fix em bbb5632
+- [CORRIGIDO] schedule/service: upsert_working_hour suportava apenas 1 período/dia — refatorado DELETE→INSERT em bbb5632
 
 ## Segurança
 

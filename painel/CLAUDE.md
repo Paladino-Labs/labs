@@ -141,3 +141,6 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - book/[slug]: dias sem horários só são descobertos após seleção
   (business_hours retorna string livre — filtro visual preventivo
   requer backend retornar [{weekday, open, close}])
+- [CORRIGIDO] NEXT_PUBLIC_API_URL=localhost em produção — causa raiz de todos os "Failed to fetch"
+- [CORRIGIDO] cpf_cnpj_masked ausente do tipo Professional — fix em 6bf4afe
+- [CORRIGIDO] working-hours frontend enviava objeto em vez de array — fix em 6bf4afe
