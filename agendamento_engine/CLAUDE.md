@@ -9,8 +9,8 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** c2d3e4f5g6h7 (add_direct_occupancies)
-**Total migrations Fase 2:** 19 (k1→c2)
+**HEAD migration:** d1e2f3g4h5i6 (align_orm_schema_gaps)
+**Total migrations Fase 2 + alinhamento:** 20 (k1→d1)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
