@@ -23,9 +23,9 @@ def list_working_hours(
     return svc.list_working_hours(db, company_id, professional_id)
 
 
-@router.post("/working-hours", response_model=schemas.WorkingHourResponse)
+@router.post("/working-hours", response_model=List[schemas.WorkingHourResponse])
 def upsert_working_hour(
-    body: schemas.WorkingHourCreate,
+    body: List[schemas.WorkingHourCreate],
     user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):

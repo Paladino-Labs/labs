@@ -1,4 +1,5 @@
 from uuid import UUID
+from typing import List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -15,29 +16,41 @@ def list_working_hours(db: Session, company_id: UUID, professional_id: UUID):
             WorkingHour.company_id == company_id,
             WorkingHour.professional_id == professional_id,
         )
-        .order_by(WorkingHour.weekday)
+        .order_by(WorkingHour.weekday, WorkingHour.opening_time)
         .all()
     )
 
 
-def upsert_working_hour(db: Session, company_id: UUID, data: WorkingHourCreate) -> WorkingHour:
-    wh = db.query(WorkingHour).filter(
-        WorkingHour.company_id == company_id,
-        WorkingHour.professional_id == data.professional_id,
-        WorkingHour.weekday == data.weekday,
-    ).first()
+def upsert_working_hour(
+    db: Session, company_id: UUID, periods: List[WorkingHourCreate]
+) -> List[WorkingHour]:
+    """
+    Substitui todos os horários do dia (professional_id + weekday) pelos novos.
+    Aceita uma lista de períodos — permite manhã + tarde no mesmo dia.
+    Cada chamada representa o estado COMPLETO do dia; registros anteriores são deletados.
+    """
+    if not periods:
+        return []
 
-    if wh:
-        wh.opening_time = data.opening_time
-        wh.closing_time = data.closing_time
-        wh.is_active = data.is_active
-    else:
+    professional_id = periods[0].professional_id
+    weekday = periods[0].weekday
+
+    db.query(WorkingHour).filter(
+        WorkingHour.company_id == company_id,
+        WorkingHour.professional_id == professional_id,
+        WorkingHour.weekday == weekday,
+    ).delete(synchronize_session=False)
+
+    new_records: List[WorkingHour] = []
+    for data in periods:
         wh = WorkingHour(company_id=company_id, **data.model_dump())
         db.add(wh)
+        new_records.append(wh)
 
     db.commit()
-    db.refresh(wh)
-    return wh
+    for wh in new_records:
+        db.refresh(wh)
+    return new_records
 
 
 # ── Schedule Blocks ────────────────────────────────────────────────────────────

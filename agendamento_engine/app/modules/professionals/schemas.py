@@ -11,6 +11,7 @@ class ProfessionalCreate(BaseModel):
 class ProfessionalUpdate(BaseModel):
     name: Optional[str] = None
     active: Optional[bool] = None
+    specialty: Optional[str] = None
     cpf_cnpj: Optional[str] = None  # recebido em plaintext; gravado encrypted+hash+masked
 
 
@@ -19,6 +20,7 @@ class ProfessionalResponse(BaseModel):
     company_id: UUID
     name: str
     active: bool
+    specialty: Optional[str] = None
     cpf_cnpj_masked: Optional[str] = None  # nunca retornar encrypted ou plaintext
 
     model_config = {"from_attributes": True}

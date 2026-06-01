@@ -17,6 +17,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     active: Optional[bool] = None
+    stock: Optional[int] = None
 
 
 class ProductResponse(BaseModel):
@@ -27,5 +28,6 @@ class ProductResponse(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     active: bool
+    stock: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
