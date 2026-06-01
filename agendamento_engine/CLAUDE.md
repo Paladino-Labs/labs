@@ -177,6 +177,10 @@
 - [CORRIGIDO] working_hours: upsert suportava apenas 1 período/dia — refatorado DELETE→INSERT em bbb5632
 - [CORRIGIDO] professionals: specialty ausente dos schemas — fix bbb5632
 - [CORRIGIDO] products: stock ausente dos schemas — fix bbb5632
+- [CORRIGIDO] Professional.specialty: ausente do modelo ORM — adicionado em d5c4741
+- [CORRIGIDO] Product.stock: ausente do modelo ORM — adicionado com validator >= 0 em d5c4741
+- [CORRIGIDO] WorkingHour: UniqueConstraint removido do ORM (nunca existiu no banco) — múltiplos períodos/dia funcionam em d5c4741
+- replace_working_hours_for_day: DELETE+INSERT atômico, max 3 períodos, validação de sobreposição
 
 ## Segurança
 
