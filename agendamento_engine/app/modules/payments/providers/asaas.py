@@ -140,10 +140,21 @@ class AsaasProvider(PaymentProvider):
         """Atualiza CPF/CNPJ de um customer Asaas já existente."""
         self._put(f"/customers/{asaas_id}", {"cpfCnpj": cpf_cnpj})
 
+    # Mapeamento dos métodos internos para os billingType do Asaas
+    _BILLING_TYPE_MAP: dict[str, str] = {
+        "CARD_CREDIT": "CREDIT_CARD",
+        "CARD_DEBIT":  "CREDIT_CARD",   # Asaas não distingue débito/crédito
+        "MAQUININHA":  "CREDIT_CARD",   # tratado como cartão no Asaas
+        "PIX":         "PIX",
+        "BOLETO":      "BOLETO",
+        "CASH":        "UNDEFINED",      # nunca deveria chegar aqui, mas mapeia com segurança
+    }
+
     def create_charge(self, amount, customer: dict, payment_method: str, **kwargs) -> dict:
+        billing_type = self._BILLING_TYPE_MAP.get(payment_method.upper(), payment_method.upper())
         payload = {
             "customer": customer.get("external_id", customer.get("id")),
-            "billingType": payment_method,
+            "billingType": billing_type,
             "value": float(amount),
             **{k: v for k, v in kwargs.items()},
         }
