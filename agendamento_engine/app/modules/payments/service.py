@@ -101,9 +101,28 @@ def create_payment(
     _is_cash_or_manual = payment_method.upper() == "CASH" or provider.lower() == "manual"
     if not _is_cash_or_manual:
         prov = get_payment_provider(company_id=company_id, db=db)
+
+        # Resolve o Asaas customer ID (cus_...) para este cliente.
+        # Lazy registration: cria no Asaas na primeira cobrança e persiste o ID.
+        asaas_customer_id: str | None = None
+        if customer_id:
+            from app.infrastructure.db.models.customer import Customer
+            cust = db.query(Customer).filter(Customer.id == customer_id).first()
+            if cust:
+                if not cust.asaas_customer_id:
+                    from app.modules.payments.providers.asaas import AsaasProvider
+                    if isinstance(prov, AsaasProvider):
+                        cust.asaas_customer_id = prov.ensure_customer(
+                            name=cust.name,
+                            email=cust.email,
+                            external_reference=str(customer_id),
+                        )
+                        db.flush()
+                asaas_customer_id = cust.asaas_customer_id
+
         charge = prov.create_charge(
             amount=gross_amount,
-            customer={"external_id": str(customer_id)} if customer_id else {},
+            customer={"external_id": asaas_customer_id} if asaas_customer_id else {},
             payment_method=payment_method.upper(),
         )
         payment.external_charge_id = charge["id"]

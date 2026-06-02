@@ -25,6 +25,8 @@ class Customer(Base, TimestampMixin):
     email = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)        # observações internas (visível apenas no painel)
     active = Column(Boolean, default=True, nullable=False)
+    # ID do customer no Asaas (cus_...). Preenchido na primeira cobrança via Asaas.
+    asaas_customer_id = Column(String(50), nullable=True)
 
     company = relationship("Company", back_populates="customers")
     appointments = relationship("Appointment", back_populates="customer", lazy="dynamic")

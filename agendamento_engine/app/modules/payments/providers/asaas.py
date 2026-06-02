@@ -102,6 +102,18 @@ class AsaasProvider(PaymentProvider):
             "status": data.get("accountStatus", "pending_verification"),
         }
 
+    def ensure_customer(self, name: str, email: str | None, external_reference: str) -> str:
+        """Retorna o Asaas customer ID (cus_...) para o cliente.
+
+        Cria o customer no Asaas se ainda não existir. Usa externalReference
+        (UUID interno do Customer) para evitar duplicatas entre chamadas.
+        """
+        payload: dict = {"name": name, "externalReference": external_reference}
+        if email:
+            payload["email"] = email
+        data = self._post("/customers", payload)
+        return data["id"]
+
     def create_charge(self, amount, customer: dict, payment_method: str, **kwargs) -> dict:
         payload = {
             "customer": customer.get("external_id", customer.get("id")),
