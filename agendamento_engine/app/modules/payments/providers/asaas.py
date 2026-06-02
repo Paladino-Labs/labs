@@ -26,18 +26,24 @@ class AsaasError(Exception):
 
 
 def _resolve_api_key(company_id: UUID, db: Session) -> str:
-    """Busca API key do tenant via IntegrationCredential; fallback para settings."""
+    """Busca API key do tenant via IntegrationCredential; fallback para settings.
+
+    Usa savepoint (begin_nested) para isolar falhas de DB: se a query falhar
+    por qualquer motivo (coluna ausente, RLS, etc.), apenas o savepoint é
+    revertido e a transação pai continua utilizável.
+    """
     try:
         from app.infrastructure.db.models.integration_credential import IntegrationCredential
-        cred = (
-            db.query(IntegrationCredential)
-            .filter(
-                IntegrationCredential.company_id == company_id,
-                IntegrationCredential.provider == "ASAAS",
-                IntegrationCredential.status == "ACTIVE",
+        with db.begin_nested():
+            cred = (
+                db.query(IntegrationCredential)
+                .filter(
+                    IntegrationCredential.company_id == company_id,
+                    IntegrationCredential.provider == "ASAAS",
+                    IntegrationCredential.status == "ACTIVE",
+                )
+                .first()
             )
-            .first()
-        )
         if cred:
             return decrypt_secret(cred.secret_encrypted)
     except Exception as exc:
