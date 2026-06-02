@@ -188,3 +188,8 @@
 - Troca de senha invalida tokens emitidos antes dela via `last_password_change_at`
   em User — tokens sem `iat` (pré-deploy) são aceitos por backward compat
 - change_password e reset_password atualizam last_password_change_at
+
+## Dívidas de integração
+- Asaas create_subaccount: campo birthDate obrigatório para CPF;
+  onboarding atual não coleta o campo; novos tenants ficam sem
+  external_account_id até ser corrigido
