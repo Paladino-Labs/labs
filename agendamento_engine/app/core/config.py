@@ -40,6 +40,9 @@ class Settings(BaseSettings):
 
     # WhatsApp
     WHATSAPP_QR_TTL_SECONDS: int = 60  # TTL do QR Code
+    # Segredo opcional para validar requests do webhook da Evolution API.
+    # Comparado com o header "x-evolution-global-apikey". Vazio → sem validação.
+    EVOLUTION_WEBHOOK_SECRET: str = ""
 
     # Workers
     BOT_SESSION_CLEANUP_BATCH_SIZE: int = 100  # Sessões deletadas por ciclo

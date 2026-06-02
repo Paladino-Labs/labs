@@ -1,4 +1,4 @@
-"""Routers do módulo Payments — Sprints 8 + 9.
+"""Routers do módulo Payments — Sprints 8 + 9 + 11.
 
 Endpoints Sprint 8:
     GET    /payment-sources
@@ -16,6 +16,9 @@ Endpoints Sprint 9:
     GET    /deposit-policies           OWNER/ADMIN
     POST   /deposit-policies           OWNER/ADMIN
     PUT    /deposit-policies/{id}      OWNER/ADMIN
+
+Endpoints Sprint 11:
+    POST   /payments/{id}/confirm-manual   OWNER/ADMIN — CASH/manual apenas
 """
 import logging
 from uuid import UUID

@@ -14,9 +14,11 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
+from app.core.config import settings
 from app.core.deps import get_current_company_id, require_role
 from app.modules.whatsapp import connection_service
 from app.modules.whatsapp.schemas import ConnectionResponse, QRCodeResponse
@@ -81,8 +83,18 @@ def refresh_qr(
 async def webhook(request: Request, db: Session = Depends(get_db)):
     """
     Recebe eventos da Evolution API (messages.upsert, connection.update, qrcode.updated).
-    Sempre retorna 200 — a Evolution API desabilita o webhook em caso de 5xx.
+
+    Segurança: se EVOLUTION_WEBHOOK_SECRET estiver configurado, o header
+    "x-evolution-global-apikey" deve corresponder; caso contrário retorna 401.
+    Configure IGNORE_WEBHOOK_ERRORS na Evolution API para que o 401 não desabilite
+    a instância. Sem segredo configurado, qualquer request é aceito (modo legado).
     """
+    if settings.EVOLUTION_WEBHOOK_SECRET:
+        incoming_key = request.headers.get("x-evolution-global-apikey", "")
+        if incoming_key != settings.EVOLUTION_WEBHOOK_SECRET:
+            logger.warning("webhook: segredo inválido, request rejeitado")
+            return JSONResponse(status_code=401, content={"status": "rejected"})
+
     try:
         payload = await request.json()
     except Exception:

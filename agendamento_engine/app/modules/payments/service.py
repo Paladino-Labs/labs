@@ -220,6 +220,58 @@ def confirm(
     return payment
 
 
+def confirm_manual(
+    payment_id: UUID,
+    company_id: UUID,
+    db: Session,
+) -> Payment:
+    """Confirma pagamento CASH ou provider=manual de forma síncrona e idempotente.
+
+    Wrapper de confirm() com event_id sintético determinístico:
+        event_id = f"manual-{payment.payment_id}"
+
+    Idempotência: re-submit no mesmo payment já CONFIRMED retorna o payment
+    sem reprocessar (is_processed=True dentro de confirm()).
+    """
+    payment = _get_payment(payment_id, company_id, db)
+
+    is_cash_or_manual = (
+        payment.payment_method.upper() == "CASH"
+        or payment.provider == "manual"
+    )
+    if not is_cash_or_manual:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"confirm-manual só é permitido para pagamentos CASH ou provider=manual. "
+                f"payment_method={payment.payment_method}, provider={payment.provider}"
+            ),
+        )
+
+    event_id = f"manual-{payment.payment_id}"
+
+    # Status != PENDING: só é permitido se já foi processado (idempotência)
+    if payment.status != "PENDING":
+        if is_processed(key=event_id, consumer=_CONSUMER, db=db):
+            return payment
+        raise HTTPException(
+            status_code=422,
+            detail=f"Pagamento deve estar PENDING para confirmação manual. Status atual: {payment.status}",
+        )
+
+    webhook_data = {
+        "value": str(payment.net_charged_amount),
+        "fee": "0",
+    }
+    return confirm(
+        payment_id=payment_id,
+        event_id=event_id,
+        webhook_data=webhook_data,
+        company_id=company_id,
+        db=db,
+    )
+
+
 def refund(
     payment_id: UUID,
     reason: RefundReason,

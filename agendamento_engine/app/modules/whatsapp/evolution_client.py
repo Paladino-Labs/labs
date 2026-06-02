@@ -267,7 +267,7 @@ def send_list(
     }
     
     import json as _json
-    logger.error(
+    logger.debug(
         "sendList PAYLOAD: %s",
         _json.dumps(payload, ensure_ascii=False, indent=2, default=str),
     )
