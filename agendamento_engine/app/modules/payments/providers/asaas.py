@@ -41,7 +41,7 @@ def _resolve_api_key(company_id: UUID, db: Session) -> str:
         if cred:
             return decrypt_secret(cred.secret_encrypted)
     except Exception as exc:
-        logger.warning("asaas_credential_resolve_failed", company_id=str(company_id), error=str(exc))
+        logger.warning("asaas_credential_resolve_failed", extra={"company_id": str(company_id), "error": str(exc)})
 
     if settings.ASAAS_API_KEY:
         return settings.ASAAS_API_KEY
