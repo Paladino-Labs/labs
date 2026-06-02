@@ -30,6 +30,7 @@ from app.infrastructure.db.models.payment import Payment
 from app.infrastructure.db.models.payment_transaction import PaymentTransaction
 from app.infrastructure.event_bus import DomainEvent, event_bus
 from app.modules.financial_core import service as financial_core
+from app.modules.payments.provider_factory import get_payment_provider
 
 
 class RefundReason(str, Enum):
@@ -93,6 +94,20 @@ def create_payment(
         status="PENDING",
     )
     db.add(payment)
+    db.flush()
+
+    # Cria cobrança no provider antes do commit; falha reverte a transação inteira.
+    # CASH e provider=manual não passam pelo provider externo.
+    _is_cash_or_manual = payment_method.upper() == "CASH" or provider.lower() == "manual"
+    if not _is_cash_or_manual:
+        prov = get_payment_provider(company_id=company_id, db=db)
+        charge = prov.create_charge(
+            amount=gross_amount,
+            customer={"external_id": str(customer_id)} if customer_id else {},
+            payment_method=payment_method.upper(),
+        )
+        payment.external_charge_id = charge["id"]
+
     db.commit()
     db.refresh(payment)
     return payment
@@ -136,8 +151,16 @@ def confirm(
     if is_processed(key=event_id, consumer=_CONSUMER, db=db):
         return payment
 
-    amount = Decimal(str(webhook_data.get("value", str(payment.net_charged_amount))))
-    provider_fee = Decimal(str(webhook_data.get("fee", str(payment.provider_fee))))
+    # Payload Asaas real: {"event": "...", "payment": {"value": 100, "fee": 3, ...}}
+    # Fallback legado: {"value": 100, "fee": 3} no nível raiz.
+    _pd = webhook_data.get("payment")
+    _pd = _pd if isinstance(_pd, dict) else {}
+    amount = Decimal(str(
+        _pd["value"] if "value" in _pd else webhook_data.get("value", str(payment.net_charged_amount))
+    ))
+    provider_fee = Decimal(str(
+        _pd["fee"] if "fee" in _pd else webhook_data.get("fee", str(payment.provider_fee))
+    ))
 
     try:
         # Passo 2: INSERT PaymentTransaction — UNIQUE(company_id, provider_transaction_id)

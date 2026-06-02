@@ -170,7 +170,13 @@ def test_create_payment_returns_pending():
     )
     db.refresh.side_effect = lambda obj: None
 
-    with patch("app.modules.payments.service.Payment") as MockPayment:
+    mock_provider = MagicMock()
+    mock_provider.create_charge.return_value = {"id": "pay_test_charge", "status": "PENDING"}
+
+    with (
+        patch("app.modules.payments.service.Payment") as MockPayment,
+        patch("app.modules.payments.service.get_payment_provider", return_value=mock_provider),
+    ):
         MockPayment.return_value = expected_payment
         from app.modules.payments.service import create_payment
 
