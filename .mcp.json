@@ -1,5 +1,8 @@
 {
   "mcpServers": {
+    "asaas": {
+      "url": "https://docs.asaas.com/mcp"
+    },
     "filesystem": {
       "command": "npx",
       "args": [
