@@ -12,6 +12,7 @@ ATOMICIDADE CRÍTICA em confirm():
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -67,6 +68,63 @@ def _get_payment(payment_id: UUID, company_id: UUID, db: Session) -> Payment:
     return payment
 
 
+# ── Helpers de validação ──────────────────────────────────────────────────────
+
+def _clean_cpf_cnpj(value: str) -> str:
+    """Remove formatação e retorna apenas os dígitos."""
+    return re.sub(r"\D", "", value)
+
+
+def _validate_cpf(digits: str) -> bool:
+    """Valida CPF (11 dígitos) pelos dígitos verificadores."""
+    if len(digits) != 11 or len(set(digits)) == 1:
+        return False
+    # Primeiro dígito verificador
+    s = sum(int(d) * (10 - i) for i, d in enumerate(digits[:9]))
+    r = (s * 10 % 11) % 10
+    if r != int(digits[9]):
+        return False
+    # Segundo dígito verificador
+    s = sum(int(d) * (11 - i) for i, d in enumerate(digits[:10]))
+    r = (s * 10 % 11) % 10
+    return r == int(digits[10])
+
+
+def _validate_cnpj(digits: str) -> bool:
+    """Valida CNPJ (14 dígitos) pelos dígitos verificadores."""
+    if len(digits) != 14 or len(set(digits)) == 1:
+        return False
+    w1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    w2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    s = sum(int(d) * w for d, w in zip(digits[:12], w1))
+    r = 0 if s % 11 < 2 else 11 - s % 11
+    if r != int(digits[12]):
+        return False
+    s = sum(int(d) * w for d, w in zip(digits[:13], w2))
+    r = 0 if s % 11 < 2 else 11 - s % 11
+    return r == int(digits[13])
+
+
+def validate_and_clean_cpf_cnpj(raw: str) -> str:
+    """Limpa e valida CPF ou CNPJ. Levanta HTTP 422 se inválido.
+
+    Retorna os dígitos limpos prontos para envio ao Asaas.
+    """
+    digits = _clean_cpf_cnpj(raw)
+    if len(digits) == 11:
+        if not _validate_cpf(digits):
+            raise HTTPException(status_code=422, detail="CPF inválido.")
+    elif len(digits) == 14:
+        if not _validate_cnpj(digits):
+            raise HTTPException(status_code=422, detail="CNPJ inválido.")
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="CPF/CNPJ inválido: deve ter 11 dígitos (CPF) ou 14 dígitos (CNPJ).",
+        )
+    return digits
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 def create_payment(
@@ -107,6 +165,11 @@ def create_payment(
         # Resolve o Asaas customer ID (cus_...) para este cliente.
         # Lazy registration: cria no Asaas na primeira cobrança e persiste o ID.
         from datetime import date as _date
+        # Valida e limpa CPF/CNPJ antes de qualquer chamada ao Asaas.
+        clean_cpf_cnpj: str | None = None
+        if customer_cpf_cnpj:
+            clean_cpf_cnpj = validate_and_clean_cpf_cnpj(customer_cpf_cnpj)
+
         asaas_customer_id: str | None = None
         if customer_id:
             from app.infrastructure.db.models.customer import Customer
@@ -119,15 +182,15 @@ def create_payment(
                             name=cust.name,
                             email=cust.email,
                             external_reference=str(customer_id),
-                            cpf_cnpj=customer_cpf_cnpj,
+                            cpf_cnpj=clean_cpf_cnpj,
                         )
                         db.flush()
-                    elif customer_cpf_cnpj:
+                    elif clean_cpf_cnpj:
                         # Customer Asaas já existe mas CPF/CNPJ não foi informado antes;
                         # atualiza via PUT para habilitar PIX/BOLETO.
                         prov.update_customer(
                             asaas_id=cust.asaas_customer_id,
-                            cpf_cnpj=customer_cpf_cnpj,
+                            cpf_cnpj=clean_cpf_cnpj,
                         )
                 asaas_customer_id = cust.asaas_customer_id
 
