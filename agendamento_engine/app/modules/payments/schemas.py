@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -43,6 +43,9 @@ class PaymentCreate(BaseModel):
     provider: str
     target_account_id: UUID
     payment_source_id: Optional[UUID] = None
+    # Campos usados para registro no Asaas (obrigatórios para PIX/BOLETO)
+    customer_cpf_cnpj: Optional[str] = None   # apenas dígitos, e.g. "12345678901"
+    due_date: Optional[date] = None            # padrão: hoje
 
 
 class PaymentResponse(BaseModel):

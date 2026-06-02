@@ -78,6 +78,8 @@ def create_payment(
     target_account_id: UUID,
     appointment_id: Optional[UUID] = None,
     payment_source_id: Optional[UUID] = None,
+    customer_cpf_cnpj: Optional[str] = None,
+    due_date=None,          # date | None — padrão: hoje
     db: Optional[Session] = None,
 ) -> Payment:
     payment = Payment(
@@ -104,26 +106,37 @@ def create_payment(
 
         # Resolve o Asaas customer ID (cus_...) para este cliente.
         # Lazy registration: cria no Asaas na primeira cobrança e persiste o ID.
+        from datetime import date as _date
         asaas_customer_id: str | None = None
         if customer_id:
             from app.infrastructure.db.models.customer import Customer
             cust = db.query(Customer).filter(Customer.id == customer_id).first()
             if cust:
-                if not cust.asaas_customer_id:
-                    from app.modules.payments.providers.asaas import AsaasProvider
-                    if isinstance(prov, AsaasProvider):
+                from app.modules.payments.providers.asaas import AsaasProvider
+                if isinstance(prov, AsaasProvider):
+                    if not cust.asaas_customer_id:
                         cust.asaas_customer_id = prov.ensure_customer(
                             name=cust.name,
                             email=cust.email,
                             external_reference=str(customer_id),
+                            cpf_cnpj=customer_cpf_cnpj,
                         )
                         db.flush()
+                    elif customer_cpf_cnpj:
+                        # Customer Asaas já existe mas CPF/CNPJ não foi informado antes;
+                        # atualiza via PUT para habilitar PIX/BOLETO.
+                        prov.update_customer(
+                            asaas_id=cust.asaas_customer_id,
+                            cpf_cnpj=customer_cpf_cnpj,
+                        )
                 asaas_customer_id = cust.asaas_customer_id
 
+        _due_date = (due_date or _date.today()).strftime("%Y-%m-%d")
         charge = prov.create_charge(
             amount=gross_amount,
             customer={"external_id": asaas_customer_id} if asaas_customer_id else {},
             payment_method=payment_method.upper(),
+            dueDate=_due_date,
         )
         payment.external_charge_id = charge["id"]
 

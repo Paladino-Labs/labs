@@ -122,6 +122,8 @@ def create_payment(
         target_account_id=body.target_account_id,
         appointment_id=body.appointment_id,
         payment_source_id=body.payment_source_id,
+        customer_cpf_cnpj=body.customer_cpf_cnpj,
+        due_date=body.due_date,
         db=db,
     )
 

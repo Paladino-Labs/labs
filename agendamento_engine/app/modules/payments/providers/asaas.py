@@ -108,17 +108,37 @@ class AsaasProvider(PaymentProvider):
             "status": data.get("accountStatus", "pending_verification"),
         }
 
-    def ensure_customer(self, name: str, email: str | None, external_reference: str) -> str:
-        """Retorna o Asaas customer ID (cus_...) para o cliente.
+    def _put(self, path: str, body: dict) -> dict:
+        url = f"{self._base_url}/{path.lstrip('/')}"
+        try:
+            resp = httpx.put(url, json=body, headers=self._headers(), timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise AsaasError(f"Asaas HTTP {exc.response.status_code}: {exc.response.text}") from exc
+        except httpx.RequestError as exc:
+            raise AsaasError(f"Asaas connection error: {exc}") from exc
 
-        Cria o customer no Asaas se ainda não existir. Usa externalReference
-        (UUID interno do Customer) para evitar duplicatas entre chamadas.
+    def ensure_customer(
+        self, name: str, email: str | None, external_reference: str,
+        cpf_cnpj: str | None = None,
+    ) -> str:
+        """Cria customer no Asaas e retorna o ID (cus_...).
+
+        Usa externalReference (UUID interno) para rastreabilidade.
+        cpf_cnpj: apenas dígitos — obrigatório para PIX/BOLETO.
         """
         payload: dict = {"name": name, "externalReference": external_reference}
         if email:
             payload["email"] = email
+        if cpf_cnpj:
+            payload["cpfCnpj"] = cpf_cnpj
         data = self._post("/customers", payload)
         return data["id"]
+
+    def update_customer(self, asaas_id: str, cpf_cnpj: str) -> None:
+        """Atualiza CPF/CNPJ de um customer Asaas já existente."""
+        self._put(f"/customers/{asaas_id}", {"cpfCnpj": cpf_cnpj})
 
     def create_charge(self, amount, customer: dict, payment_method: str, **kwargs) -> dict:
         payload = {
