@@ -147,6 +147,19 @@ def get_payment(
     )
 
 
+@router.post("/payments/{payment_id}/confirm-manual", response_model=PaymentResponse)
+def confirm_manual_payment(
+    payment_id: UUID,
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    return payment_service.confirm_manual(
+        payment_id=payment_id,
+        company_id=user.company_id,
+        db=db,
+    )
+
+
 @router.post("/payments/{payment_id}/refund", response_model=PaymentResponse)
 def refund_payment(
     payment_id: UUID,
