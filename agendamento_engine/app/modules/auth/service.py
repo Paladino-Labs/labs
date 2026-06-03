@@ -1,3 +1,4 @@
+import logging
 import random
 import string
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,60 @@ from sqlalchemy.orm import Session
 from app.core.security import verify_password, hash_password, create_access_token
 from app.infrastructure.db.models import User
 from app.infrastructure.db.models.password_reset_token import PasswordResetToken
+
+logger = logging.getLogger(__name__)
+
+
+def _send_reset_email_direct(recipient_email: str, user_name: str, token: str) -> None:
+    """Envia email de reset diretamente via Mailtrap/SMTP, sem passar pelo CommunicationService.
+
+    Usado para PLATFORM_OWNER (company_id=None) que não tem tenant nem CommunicationSetting.
+    """
+    from app.core.config import settings as app_settings
+
+    subject = "Seu código de redefinição de senha — Paladino"
+    body = (
+        f"Olá, {user_name}!\n\n"
+        f"Seu código de redefinição de senha é: {token}\n\n"
+        "Válido por 15 minutos. Não compartilhe este código.\n\n"
+        "Se você não solicitou a redefinição, ignore este e-mail."
+    )
+    from_email = app_settings.SMTP_FROM_EMAIL or "noreply@paladino.app"
+
+    if app_settings.MAILTRAP_API_TOKEN:
+        import requests
+        if app_settings.MAILTRAP_SANDBOX_INBOX_ID:
+            url = f"https://sandbox.api.mailtrap.io/api/send/{app_settings.MAILTRAP_SANDBOX_INBOX_ID}"
+            headers = {"Api-Token": app_settings.MAILTRAP_API_TOKEN}
+        else:
+            url = "https://send.api.mailtrap.io/api/send"
+            headers = {"Authorization": f"Bearer {app_settings.MAILTRAP_API_TOKEN}"}
+        payload = {
+            "from": {"email": from_email, "name": "Paladino"},
+            "to": [{"email": recipient_email}],
+            "subject": subject,
+            "text": body,
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        if not resp.ok:
+            raise RuntimeError(f"Mailtrap erro {resp.status_code}: {resp.text}")
+        return
+
+    # Fallback SMTP
+    import smtplib
+    from email.mime.text import MIMEText
+    if not app_settings.SMTP_HOST:
+        raise RuntimeError("Email não configurado: MAILTRAP_API_TOKEN e SMTP_HOST ausentes")
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = from_email
+    msg["To"] = recipient_email
+    with smtplib.SMTP(app_settings.SMTP_HOST, app_settings.SMTP_PORT, timeout=10) as s:
+        if app_settings.SMTP_USE_TLS:
+            s.starttls()
+        if app_settings.SMTP_USER and app_settings.SMTP_PASSWORD:
+            s.login(app_settings.SMTP_USER, app_settings.SMTP_PASSWORD)
+        s.sendmail(from_email, [recipient_email], msg.as_string())
 
 
 def authenticate(db: Session, email: str, password: str) -> dict:
@@ -61,27 +116,31 @@ def forgot_password(db: Session, email: str) -> None:
     db.add(reset_token)
     db.commit()
 
-    # Envia via CommunicationService quando disponível.
+    # Envia via CommunicationService (tenant) ou direto (PLATFORM_OWNER sem company).
     # Falha de envio não deve bloquear a resposta ao usuário.
     try:
-        from app.modules.communication.service import communication_service
-        communication_service.dispatch(
-            event_type="auth.password_reset_requested",
-            company_id=user.company_id,
-            context={
-                "recipient_phone": getattr(user, "phone", None),
-                "recipient_email": user.email,
-                "email_subject": "Seu código de redefinição de senha — Paladino",
-                "token": raw_token,
-                "user_name": user.name,
-                "email": user.email,
-            },
-            recipient_id=user.id,
-            recipient_type="CLIENT",
-            db=db,
-        )
+        if user.company_id is None:
+            # PLATFORM_OWNER: sem tenant, sem CommunicationSetting — envia diretamente.
+            _send_reset_email_direct(user.email, user.name, raw_token)
+        else:
+            from app.modules.communication.service import communication_service
+            communication_service.dispatch(
+                event_type="auth.password_reset_requested",
+                company_id=user.company_id,
+                context={
+                    "recipient_phone": getattr(user, "phone", None),
+                    "recipient_email": user.email,
+                    "email_subject": "Seu código de redefinição de senha — Paladino",
+                    "token": raw_token,
+                    "user_name": user.name,
+                    "email": user.email,
+                },
+                recipient_id=user.id,
+                recipient_type="CLIENT",
+                db=db,
+            )
     except Exception:
-        pass  # best-effort; token já gravado
+        logger.exception("forgot_password: falha ao enviar email para %s", email)
 
 
 def reset_password(
