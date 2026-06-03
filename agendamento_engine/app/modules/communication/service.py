@@ -281,10 +281,16 @@ class CommunicationService:
                 "subject": subject,
                 "text": rendered_body,
             }
+            # Sandbox usa "Api-Token"; produção usa "Authorization: Bearer"
+            if app_settings.MAILTRAP_SANDBOX_INBOX_ID:
+                auth_header = {"Api-Token": app_settings.MAILTRAP_API_TOKEN}
+            else:
+                auth_header = {"Authorization": f"Bearer {app_settings.MAILTRAP_API_TOKEN}"}
+
             resp = requests.post(
                 url,
                 json=payload,
-                headers={"Api-Token": app_settings.MAILTRAP_API_TOKEN},
+                headers=auth_header,
                 timeout=10,
             )
             if not resp.ok:
