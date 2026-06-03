@@ -205,3 +205,6 @@
 - Asaas create_subaccount: campo birthDate obrigatório para CPF;
   onboarding atual não coleta o campo; novos tenants ficam sem
   external_account_id até ser corrigido
+- Email em produção: Railway bloqueia SMTP (portas 25/465/587/2525);
+  implementação atual usa Mailtrap HTTP API (sandbox only);
+  substituir por SendGrid/Mailgun/Mailtrap Email API antes de ir a produção
