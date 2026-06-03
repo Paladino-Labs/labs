@@ -164,13 +164,8 @@ def invite_user(
             f"{app_settings.FRONTEND_URL}/activate?token={invitation.token}"
         )
 
-        # Mapeia role do convidado para audience válido no enum
-        _role_to_audience = {
-            "PROFESSIONAL": "PROFESSIONAL",
-            "OWNER": "OWNER",
-        }
-        audience = _role_to_audience.get(role, "CLIENT")
-
+        # Convites sempre usam audience="CLIENT" — o convidado ainda não é
+        # um usuário do sistema e um único template cobre todos os roles.
         communication_service.dispatch(
             event_type="user.invitation_sent",
             company_id=actor.company_id,
@@ -183,7 +178,7 @@ def invite_user(
                 "role": role,
             },
             recipient_id=uuid.UUID(invitation.invitation_id),
-            recipient_type=audience,
+            recipient_type="CLIENT",
             db=db,
         )
     except Exception:

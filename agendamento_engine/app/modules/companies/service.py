@@ -139,18 +139,6 @@ _DEFAULT_TEMPLATES: list[dict] = [
         ),
     },
     {
-        "event_type": "user.invitation_sent",
-        "channel": "EMAIL",
-        "audience": "PROFESSIONAL",
-        "body_template": (
-            "Olá!\n\n"
-            "Você foi convidado como profissional em {{company_name}} no Paladino.\n\n"
-            "Clique no link abaixo para criar sua senha e ativar sua conta:\n"
-            "{{activation_link}}\n\n"
-            "Este convite expira em 48 horas."
-        ),
-    },
-    {
         "event_type": "auth.password_reset_requested",
         "channel": "EMAIL",
         "audience": "CLIENT",
