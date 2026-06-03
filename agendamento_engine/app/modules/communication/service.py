@@ -249,15 +249,53 @@ class CommunicationService:
         rendered_body: str,
         db: Session,
     ) -> None:
-        """Envia via SMTP usando IntegrationCredential provider=SMTP ou fallback global."""
+        """Envia email via Mailtrap HTTP API (preferencial) ou SMTP (fallback).
+
+        Prioridade:
+          1. MAILTRAP_API_TOKEN configurado → HTTP API (funciona em Railway e outros
+             ambientes que bloqueiam conexões SMTP de saída).
+          2. IntegrationCredential provider=SMTP do tenant.
+          3. SMTP_* de settings (fallback global).
+        """
         from app.core.config import settings as app_settings
-        from app.infrastructure.db.models.integration_credential import IntegrationCredential
 
         recipient_email = context.get("recipient_email")
         if not recipient_email:
             raise ValueError("recipient_email ausente no context de dispatch")
 
-        # Resolve credencial SMTP do tenant (preferencial) ou usa globals de settings.
+        subject = context.get("email_subject", "Mensagem Paladino")
+        from_email = app_settings.SMTP_FROM_EMAIL or "noreply@paladino.app"
+
+        # ── Caminho 1: Mailtrap HTTP API ──────────────────────────────────────
+        if app_settings.MAILTRAP_API_TOKEN:
+            import requests
+
+            if app_settings.MAILTRAP_SANDBOX_INBOX_ID:
+                url = f"https://sandbox.api.mailtrap.io/api/send/{app_settings.MAILTRAP_SANDBOX_INBOX_ID}"
+            else:
+                url = "https://send.api.mailtrap.io/api/send"
+
+            payload = {
+                "from": {"email": from_email, "name": "Paladino"},
+                "to": [{"email": recipient_email}],
+                "subject": subject,
+                "text": rendered_body,
+            }
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Api-Token": app_settings.MAILTRAP_API_TOKEN},
+                timeout=10,
+            )
+            if not resp.ok:
+                raise RuntimeError(
+                    f"Mailtrap HTTP API erro {resp.status_code}: {resp.text}"
+                )
+            return
+
+        # ── Caminho 2 e 3: SMTP ───────────────────────────────────────────────
+        from app.infrastructure.db.models.integration_credential import IntegrationCredential
+
         smtp_cred = None
         if getattr(comm_settings, "smtp_credential_id", None):
             smtp_cred = (
@@ -275,22 +313,19 @@ class CommunicationService:
             cfg = smtp_cred.config or {}
             host = cfg.get("host") or app_settings.SMTP_HOST
             port = int(cfg.get("port") or app_settings.SMTP_PORT)
-            from_email = cfg.get("from_email") or app_settings.SMTP_FROM_EMAIL
+            from_email = cfg.get("from_email") or from_email
             use_tls = cfg.get("use_tls", app_settings.SMTP_USE_TLS)
             smtp_user = cfg.get("user") or from_email
             smtp_password = decrypt_secret(smtp_cred.secret_encrypted)
         else:
             host = app_settings.SMTP_HOST
             port = app_settings.SMTP_PORT
-            from_email = app_settings.SMTP_FROM_EMAIL
             use_tls = app_settings.SMTP_USE_TLS
             smtp_user = app_settings.SMTP_USER
             smtp_password = app_settings.SMTP_PASSWORD
 
         if not host:
-            raise RuntimeError("SMTP não configurado: SMTP_HOST ausente")
-
-        subject = context.get("email_subject", "Mensagem Paladino")
+            raise RuntimeError("SMTP não configurado: SMTP_HOST ausente e MAILTRAP_API_TOKEN vazio")
 
         msg = MIMEText(rendered_body, "plain", "utf-8")
         msg["Subject"] = subject

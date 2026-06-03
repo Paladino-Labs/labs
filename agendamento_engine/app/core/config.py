@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
 
+    # Mailtrap HTTP API — alternativa ao SMTP quando a plataforma bloqueia conexões SMTP
+    # (ex: Railway). Quando MAILTRAP_API_TOKEN está preenchido, _send_email() usa a
+    # HTTP API em vez de smtplib. MAILTRAP_SANDBOX_INBOX_ID=0 → usa a API de envio real.
+    MAILTRAP_API_TOKEN: str = ""
+    MAILTRAP_SANDBOX_INBOX_ID: int = 0  # 0 = produção; > 0 = sandbox (testing)
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

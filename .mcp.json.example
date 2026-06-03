@@ -1,5 +1,11 @@
 {
   "mcpServers": {
+    "mailtrap": {
+      "url": "https://mcp.mailtrap.io/sse",
+      "headers": {
+        "Authorization": "Bearer SEU_API_TOKEN_AQUI"
+      }
+    },
     "asaas": {
       "url": "https://docs.asaas.com/mcp"
     },
