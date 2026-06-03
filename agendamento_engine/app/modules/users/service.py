@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -5,6 +6,8 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.core.security import hash_password
 from app.core.audit.sensitive_context import SensitiveAuditContext, record_sensitive_action
@@ -182,7 +185,7 @@ def invite_user(
             db=db,
         )
     except Exception:
-        pass  # best-effort; convite já gravado
+        logger.exception("invite_user: falha ao enviar email de convite para %s", email)
 
     return invitation
 
