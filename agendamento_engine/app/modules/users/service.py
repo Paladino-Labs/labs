@@ -180,7 +180,7 @@ def invite_user(
                 "company_name": company_name,
                 "role": role,
             },
-            recipient_id=uuid.UUID(invitation.invitation_id),
+            recipient_id=invitation.invitation_id if isinstance(invitation.invitation_id, uuid.UUID) else uuid.UUID(str(invitation.invitation_id)),
             recipient_type="CLIENT",
             db=db,
         )
