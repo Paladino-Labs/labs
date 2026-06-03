@@ -69,13 +69,15 @@ def forgot_password(db: Session, email: str) -> None:
             event_type="auth.password_reset_requested",
             company_id=user.company_id,
             context={
-                "recipient_phone": None,
-                "reset_token": raw_token,
+                "recipient_phone": getattr(user, "phone", None),
+                "recipient_email": user.email,
+                "email_subject": "Seu código de redefinição de senha — Paladino",
+                "token": raw_token,
                 "user_name": user.name,
                 "email": user.email,
             },
             recipient_id=user.id,
-            recipient_type="USER",
+            recipient_type="CLIENT",
             db=db,
         )
     except Exception:

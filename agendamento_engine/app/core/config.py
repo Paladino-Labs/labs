@@ -93,6 +93,15 @@ class Settings(BaseSettings):
     ASAAS_API_URL: str = "https://sandbox.asaas.com/api/v3"
     ASAAS_WEBHOOK_TOKEN: str = ""
 
+    # SMTP — fallback global quando tenant não tem IntegrationCredential provider=SMTP.
+    # Em produção, prefira configurar por tenant via IntegrationCredential.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_USE_TLS: bool = True
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

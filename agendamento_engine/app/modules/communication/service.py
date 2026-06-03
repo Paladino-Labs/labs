@@ -1,9 +1,13 @@
 """
-CommunicationService — Sprint 5.
+CommunicationService — Sprint 5 (EMAIL adicionado no Sprint 11).
 
 Responsabilidades:
   - dispatch(): enviar mensagem para um destinatário via canal configurado.
   - drain_scheduled(): processar logs SCHEDULED cujo scheduled_send_at já passou.
+
+Seleção de canal em dispatch():
+  Tenta EMAIL primeiro se email_enabled=True e existe template EMAIL para o evento.
+  Faz fallback para WHATSAPP se whatsapp_enabled=True e existe template WHATSAPP.
 
 Distinção de quiet_hours por tipo de evento:
   Transacionais (appointment.confirmed, appointment.cancelled):
@@ -13,7 +17,9 @@ Distinção de quiet_hours por tipo de evento:
 """
 import logging
 import re
+import smtplib
 from datetime import datetime, time, timezone
+from email.mime.text import MIMEText
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -84,19 +90,20 @@ class CommunicationService:
         Enviar mensagem para um destinatário.
 
         Passos:
-          1. Busca CommunicationSettings — canal habilitado?
+          1. Busca CommunicationSettings — algum canal habilitado?
           2. Verifica quiet_hours (com distinção transacional vs automático).
-          3. Busca template ativo para (event_type, channel, audience).
+          3. Seleciona canal: EMAIL se email_enabled + template EMAIL existe;
+             fallback para WHATSAPP se whatsapp_enabled + template WHATSAPP existe.
           4. ConsentRecord: Sprint 20. Skip gracioso por ora.
           5. Renderiza template.
-          6. Envia via canal.
+          6. Envia via canal selecionado.
           7. Grava log com status SENT ou FAILED.
         """
-        def _log(status: str, **kwargs) -> CommunicationLog:
+        def _log(status: str, channel: str = "WHATSAPP", **kwargs) -> CommunicationLog:
             entry = CommunicationLog(
                 company_id=company_id,
                 event_type=event_type,
-                channel="WHATSAPP",
+                channel=channel,
                 recipient_id=recipient_id,
                 recipient_type=recipient_type,
                 status=status,
@@ -112,10 +119,16 @@ class CommunicationService:
             .filter(CommunicationSetting.company_id == company_id)
             .first()
         )
-        if not comm_settings or not comm_settings.whatsapp_enabled:
-            return _log("SKIPPED_CHANNEL_DISABLED")
 
-        channel = "WHATSAPP"
+        # Uso de `is True` para ser seguro com mocks nos testes (MagicMock não é True).
+        email_enabled = comm_settings is not None and comm_settings.email_enabled is True
+        whatsapp_enabled = comm_settings is not None and comm_settings.whatsapp_enabled is True
+
+        if not email_enabled and not whatsapp_enabled:
+            return _log("SKIPPED_CHANNEL_DISABLED", channel="WHATSAPP")
+
+        # Canal preferido para logs de early-exit (antes de encontrar template).
+        default_channel = "EMAIL" if email_enabled else "WHATSAPP"
 
         # 2. Quiet hours — apenas para eventos automáticos
         is_transactional = event_type in _TRANSACTIONAL_EVENTS
@@ -128,24 +141,42 @@ class CommunicationService:
             if _in_quiet_hours(now_time, qs, qe):
                 if event_type in _QUIET_HOURS_SCHEDULED_EVENTS:
                     scheduled_send_at = _next_quiet_hours_end(now_utc, qe)
-                    return _log("SCHEDULED", scheduled_send_at=scheduled_send_at)
+                    return _log(
+                        "SCHEDULED",
+                        channel=default_channel,
+                        scheduled_send_at=scheduled_send_at,
+                    )
                 else:
-                    return _log("SKIPPED_QUIET_HOURS")
+                    return _log("SKIPPED_QUIET_HOURS", channel=default_channel)
 
-        # 3. Busca template
-        template = (
-            db.query(CommunicationTemplate)
-            .filter(
-                CommunicationTemplate.company_id == company_id,
-                CommunicationTemplate.event_type == event_type,
-                CommunicationTemplate.channel == channel,
-                CommunicationTemplate.audience == recipient_type,
-                CommunicationTemplate.is_active == True,
+        # 3. Seleciona canal e busca template
+        channel_preference = []
+        if email_enabled:
+            channel_preference.append("EMAIL")
+        if whatsapp_enabled:
+            channel_preference.append("WHATSAPP")
+
+        template = None
+        channel = None
+        for candidate in channel_preference:
+            tpl = (
+                db.query(CommunicationTemplate)
+                .filter(
+                    CommunicationTemplate.company_id == company_id,
+                    CommunicationTemplate.event_type == event_type,
+                    CommunicationTemplate.channel == candidate,
+                    CommunicationTemplate.audience == recipient_type,
+                    CommunicationTemplate.is_active == True,
+                )
+                .first()
             )
-            .first()
-        )
+            if tpl:
+                channel = candidate
+                template = tpl
+                break
+
         if not template:
-            return _log("SKIPPED_NO_TEMPLATE")
+            return _log("SKIPPED_NO_TEMPLATE", channel=channel_preference[0])
 
         # 4. Consent: Sprint 20 — skip gracioso
 
@@ -154,7 +185,10 @@ class CommunicationService:
 
         # 6. Envia
         try:
-            self._send_whatsapp(comm_settings, context, rendered, db)
+            if channel == "EMAIL":
+                self._send_email(comm_settings, context, rendered, db)
+            else:
+                self._send_whatsapp(comm_settings, context, rendered, db)
         except Exception as exc:
             logger.exception(
                 "CommunicationService.dispatch: falha ao enviar event=%s recipient=%s",
@@ -162,6 +196,7 @@ class CommunicationService:
             )
             return _log(
                 "FAILED",
+                channel=channel,
                 template_id=template.template_id,
                 rendered_body=rendered,
                 error_message=str(exc),
@@ -170,6 +205,7 @@ class CommunicationService:
         # 7. Log SENT
         return _log(
             "SENT",
+            channel=channel,
             template_id=template.template_id,
             rendered_body=rendered,
             sent_at=datetime.now(timezone.utc),
@@ -205,6 +241,68 @@ class CommunicationService:
             )
 
         evolution_client.send_text(conn.instance_name, phone, rendered_body)
+
+    def _send_email(
+        self,
+        comm_settings: CommunicationSetting,
+        context: dict,
+        rendered_body: str,
+        db: Session,
+    ) -> None:
+        """Envia via SMTP usando IntegrationCredential provider=SMTP ou fallback global."""
+        from app.core.config import settings as app_settings
+        from app.infrastructure.db.models.integration_credential import IntegrationCredential
+
+        recipient_email = context.get("recipient_email")
+        if not recipient_email:
+            raise ValueError("recipient_email ausente no context de dispatch")
+
+        # Resolve credencial SMTP do tenant (preferencial) ou usa globals de settings.
+        smtp_cred = None
+        if getattr(comm_settings, "smtp_credential_id", None):
+            smtp_cred = (
+                db.query(IntegrationCredential)
+                .filter(
+                    IntegrationCredential.credential_id == comm_settings.smtp_credential_id,
+                    IntegrationCredential.provider == "SMTP",
+                    IntegrationCredential.status == "ACTIVE",
+                )
+                .first()
+            )
+
+        if smtp_cred:
+            from app.core.encryption import decrypt_secret
+            cfg = smtp_cred.config or {}
+            host = cfg.get("host") or app_settings.SMTP_HOST
+            port = int(cfg.get("port") or app_settings.SMTP_PORT)
+            from_email = cfg.get("from_email") or app_settings.SMTP_FROM_EMAIL
+            use_tls = cfg.get("use_tls", app_settings.SMTP_USE_TLS)
+            smtp_user = cfg.get("user") or from_email
+            smtp_password = decrypt_secret(smtp_cred.secret_encrypted)
+        else:
+            host = app_settings.SMTP_HOST
+            port = app_settings.SMTP_PORT
+            from_email = app_settings.SMTP_FROM_EMAIL
+            use_tls = app_settings.SMTP_USE_TLS
+            smtp_user = app_settings.SMTP_USER
+            smtp_password = app_settings.SMTP_PASSWORD
+
+        if not host:
+            raise RuntimeError("SMTP não configurado: SMTP_HOST ausente")
+
+        subject = context.get("email_subject", "Mensagem Paladino")
+
+        msg = MIMEText(rendered_body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = from_email
+        msg["To"] = recipient_email
+
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            if use_tls:
+                server.starttls()
+            if smtp_user and smtp_password:
+                server.login(smtp_user, smtp_password)
+            server.sendmail(from_email, [recipient_email], msg.as_string())
 
     def drain_scheduled(self, db: Session) -> int:
         """

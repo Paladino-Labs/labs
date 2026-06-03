@@ -125,6 +125,17 @@ _DEFAULT_TEMPLATES: list[dict] = [
             "Válido por 15 minutos. Não compartilhe este código."
         ),
     },
+    {
+        "event_type": "auth.password_reset_requested",
+        "channel": "EMAIL",
+        "audience": "CLIENT",
+        "body_template": (
+            "Olá, {{user_name}}!\n\n"
+            "Seu código de redefinição de senha é: {{token}}\n\n"
+            "Válido por 15 minutos. Não compartilhe este código.\n\n"
+            "Se você não solicitou a redefinição, ignore este e-mail."
+        ),
+    },
 ]
 
 

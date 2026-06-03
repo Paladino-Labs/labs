@@ -1,5 +1,17 @@
 **Fase 2 concluída.** Sprint atual: Sprint 11 em andamento (Fase 3 — Catálogo opt-ins)
 
+## Canal EMAIL — CommunicationService (Sprint 11)
+- `_send_email()` em `modules/communication/service.py` via smtplib nativo (síncrono)
+- `dispatch()` tenta EMAIL primeiro (se email_enabled=True), fallback WHATSAPP
+  Usa `is True` para checar bool (seguro com MagicMock nos testes)
+- Credencial SMTP: IntegrationCredential provider=SMTP (decrypt_secret para senha);
+  config JSONB: {"host", "port", "from_email", "use_tls"} — fallback para SMTP_* de settings
+- SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM_EMAIL, SMTP_USE_TLS em config.py
+- Template auth.password_reset_requested channel=EMAIL audience=CLIENT adicionado em _DEFAULT_TEMPLATES
+- forgot_password(): recipient_type="CLIENT", context inclui recipient_email + token
+- recipient_email obrigatório no context para envio EMAIL
+- Testes: tests/test_smtp_email.py (14 testes — todos passando)
+
 ## Operations FSM + Agenda granular (Sprint 10 concluído)
 - Reservation SOFT/FIRME: EXCLUDE tstzrange WHERE status='ACTIVE'
 - promote_to_firme: PROMOTED + db.flush() + INSERT FIRME (atômico)
