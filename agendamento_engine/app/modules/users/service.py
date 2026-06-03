@@ -148,6 +148,47 @@ def invite_user(
     )
     db.commit()
     db.refresh(invitation)
+
+    # Envia email de convite (best-effort — falha não bloqueia a resposta).
+    try:
+        from app.core.config import settings as app_settings
+        from app.modules.communication.service import communication_service
+        from app.infrastructure.db.models.company import Company
+
+        company = db.query(Company).filter(
+            Company.id == actor.company_id
+        ).first()
+        company_name = company.name if company else "Paladino"
+
+        activation_link = (
+            f"{app_settings.FRONTEND_URL}/activate?token={invitation.token}"
+        )
+
+        # Mapeia role do convidado para audience válido no enum
+        _role_to_audience = {
+            "PROFESSIONAL": "PROFESSIONAL",
+            "OWNER": "OWNER",
+        }
+        audience = _role_to_audience.get(role, "CLIENT")
+
+        communication_service.dispatch(
+            event_type="user.invitation_sent",
+            company_id=actor.company_id,
+            context={
+                "recipient_email": email,
+                "email_subject": f"Você foi convidado para {company_name} — Paladino",
+                "activation_link": activation_link,
+                "invitation_token": invitation.token,
+                "company_name": company_name,
+                "role": role,
+            },
+            recipient_id=uuid.UUID(invitation.invitation_id),
+            recipient_type=audience,
+            db=db,
+        )
+    except Exception:
+        pass  # best-effort; convite já gravado
+
     return invitation
 
 
