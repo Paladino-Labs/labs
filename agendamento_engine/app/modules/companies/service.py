@@ -167,6 +167,12 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
                 detail=f"Slug '{data.slug}' já está em uso",
             )
 
+    # Valida CPF/CNPJ do owner antes de qualquer criação no banco (fail-fast)
+    _owner_cpf_cnpj_clean = ""
+    if data.owner_cpf_cnpj:
+        from app.modules.payments.service import validate_and_clean_cpf_cnpj
+        _owner_cpf_cnpj_clean = validate_and_clean_cpf_cnpj(data.owner_cpf_cnpj)
+
     company = Company(name=data.name, slug=data.slug)
     db.add(company)
     db.flush()  # gera company.id sem commit
@@ -252,10 +258,17 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
         )
         owner_email = owner.email if owner else f"{company.slug or str(company.id)}@paladino.app"
 
+        if not _owner_cpf_cnpj_clean or not data.owner_birth_date:
+            logger.warning(
+                "asaas_subaccount_missing_cpf_or_birthdate",
+                extra={"company_id": str(company.id)},
+            )
+
         result = provider.create_subaccount(
             name=company.name,
-            cpf_cnpj="",  # owner CPF não disponível neste fluxo — Asaas aceita vazio para MEI
+            cpf_cnpj=_owner_cpf_cnpj_clean,
             email=owner_email,
+            birth_date=data.owner_birth_date or "",
         )
         company.payment_provider = "asaas"
         company.external_account_id = result["accountId"]

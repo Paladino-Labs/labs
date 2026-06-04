@@ -48,3 +48,6 @@ class CompanyPatch(BaseModel):
 class CompanyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     slug: Optional[str] = Field(None, min_length=1, max_length=100)
+    # Campos para subconta Asaas (obrigatórios em produção para pessoa física / MEI)
+    owner_cpf_cnpj: Optional[str] = None    # apenas dígitos, e.g. "12345678901"
+    owner_birth_date: Optional[str] = None  # formato YYYY-MM-DD
