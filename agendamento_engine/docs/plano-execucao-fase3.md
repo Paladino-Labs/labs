@@ -48,11 +48,11 @@
 - Schemas Pydantic de resposta para `ServiceVariant` e `ServicePricingOverride` (o brief lista endpoints mas não schemas explícitos)
 - `booking/router.py` e `public/router.py` precisam ser atualizados para aceitar `professional_id` query param em `GET /booking/{slug}/services`
 
-**Colisões:** Nenhuma. Revision ID `e1f2g3h4i5j6` é único no repositório.
+**Colisões:** **SIM** — `e1f2g3h4i5j6` já está em uso por `add_asaas_customer_id_to_customers` (Sprint de Integrações, commitado em 2026-06-04). Sprint 11 passa a usar `e2f3g4h5i6j7`.
 
 ### Ordem de implementação
 
-1. **Migration** `e1f2g3h4i5j6_catalog_optins` (conforme brief — sem alteração)
+1. **Migration** `e2f3g4h5i6j7_catalog_optins` (conforme brief — sem alteração)
 2. **Modelos ORM:**
    - `app/infrastructure/db/models/service.py`: adicionar `preparation_minutes_before`, `preparation_minutes_after`
    - `app/infrastructure/db/models/service.py`: novas classes `ServicePricingOverride`, `ServiceVariant`
@@ -93,7 +93,7 @@ Ler antes de começar:
   8. agendamento_engine/app/modules/services/service.py
 
 Escopo:
-  DO: migration e1f2g3h4i5j6, modelos ServicePricingOverride + ServiceVariant,
+  DO: migration e2f3g4h5i6j7, modelos ServicePricingOverride + ServiceVariant,
       campos preparation_minutes_before/after em Service, business_hours_structured
       em CompanyProfile, get_effective_price, integração com availability,
       integração com booking/public services, fix FK AppointmentService,
@@ -132,7 +132,7 @@ Sinal de conclusão: pytest tests/test_sprint11_catalog.py -v → todos passando
 
 ### Estado de entrada verificado
 
-- **HEAD migration no início:** `e1f2g3h4i5j6` (após Sprint 11)
+- **HEAD migration no início:** `e2f3g4h5i6j7` (após Sprint 11)
 - **Modelos existentes usados:** `Appointment`, `Professional`, `Account`, `Movement`, `Entry`
 - **Serviços existentes modificados:** `app/modules/financial_core/service.py` (adicionar `handle_commission_paid`)
 - **Handlers existentes:** `agenda.soft_reservation.expired`, `payment.confirmed` (communication) — **nenhum** `operation.completed`
@@ -176,7 +176,7 @@ Sinal de conclusão: pytest tests/test_sprint11_catalog.py -v → todos passando
 ```
 Implementar Sprint 12 da Fase 3 (CommissionEngine).
 
-Pré-requisito: Sprint 11 concluído (migration e1f2g3h4i5j6 aplicada).
+Pré-requisito: Sprint 11 concluído (migration e2f3g4h5i6j7 aplicada).
 
 Ler antes de começar:
   1. agendamento_engine/CLAUDE.md
@@ -197,7 +197,7 @@ Escopo:
 
 Notas técnicas críticas:
   - Revision ID OBRIGATÓRIO: f3g4h5i6j7k8 (NÃO usar f1g2h3i4j5k6 — conflito).
-  - down_revision da migration Sprint 12 = "e1f2g3h4i5j6".
+  - down_revision da migration Sprint 12 = "e2f3g4h5i6j7".
   - handle_commission_paid: seguir padrão de handle_payment_confirmed —
     _record_movement OUTFLOW + _record_entry COMISSAO; category = COMISSAO_SERVICO.
   - commission_handler.py: abrir SessionLocal() própria (ver soft_reservation_handler.py).
@@ -733,7 +733,7 @@ testes do Sprint 17.
 
 | Sprint | Nome | Rev ID (CORRIGIDO) | Depende de | Novos arquivos (~) |
 |--------|------|-------------------|------------|-------------------|
-| 11 | Catálogo opt-ins | `e1f2g3h4i5j6` | HEAD atual | 8 |
+| 11 | Catálogo opt-ins | `e2f3g4h5i6j7` | HEAD atual | 8 |
 | 12 | CommissionEngine | `f3g4h5i6j7k8` | Sprint 11 | 9 |
 | 13 | CustomerCredit | `g3h4i5j6k7l8` | Sprint 12 | 7 |
 | 14 | Pacotes | `h3i4j5k6l7m8` | S12 + S13 | 7 |
@@ -746,7 +746,7 @@ testes do Sprint 17.
 
 | Sprint | ID original (brief) | ID corrigido (USAR ESTE) | Status |
 |--------|---------------------|--------------------------|--------|
-| 11 | `e1f2g3h4i5j6` | `e1f2g3h4i5j6` | ✅ Sem conflito |
+| 11 | `e1f2g3h4i5j6` | `e2f3g4h5i6j7` | 🔴 Conflito corrigido (Sprint Integrações) |
 | 12 | `f1g2h3i4j5k6` | `f3g4h5i6j7k8` | 🔴 Conflito corrigido |
 | 13 | `g1h2i3j4k5l6` | `g3h4i5j6k7l8` | 🔴 Conflito corrigido |
 | 14 | `h1i2j3k4l5m6` | `h3i4j5k6l7m8` | 🔴 Conflito corrigido |
