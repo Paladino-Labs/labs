@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, Column, String, Boolean, Text, Numeric, TIMESTAMP, JSON
+from sqlalchemy import types as sa_types
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import StaticPool
 
@@ -23,6 +24,18 @@ from app.core.security import hash_password, create_access_token
 
 SQLITE_URL = "sqlite://"
 TestBase = declarative_base()
+
+
+class _UUIDString(sa_types.TypeDecorator):
+    """Armazena UUID como String(36); aceita objetos UUID na comparação."""
+    impl = sa_types.String(36)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return str(value) if value is not None else None
+
+    def process_result_value(self, value, dialect):
+        return value
 
 
 class TCompany(TestBase):
@@ -38,7 +51,7 @@ class TCompany(TestBase):
 
 class TUser(TestBase):
     __tablename__ = "users"
-    id = Column(String(36), primary_key=True)
+    id = Column(_UUIDString(), primary_key=True)
     company_id = Column(String(36), nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
@@ -349,3 +362,39 @@ def test_list_users_includes_name(client, db_session):
     assert len(users) >= 3
     for u in users:
         assert "name" in u
+
+
+def test_patch_profile_updates_name(client, db_session):
+    """PATCH /auth/profile → name atualizado; resposta inclui novo name."""
+    company = make_company(db_session)
+    user = make_user(db_session, company.id, name="Nome Antigo")
+    db_session.commit()
+
+    resp = client.patch(
+        "/auth/profile",
+        json={"name": "Nome Novo"},
+        headers=auth_header(user),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "Nome Novo"
+
+    # GET /auth/me confirma persistência
+    me_resp = client.get("/auth/me", headers=auth_header(user))
+    assert me_resp.status_code == 200
+    assert me_resp.json()["name"] == "Nome Novo"
+
+
+def test_patch_profile_without_name_leaves_name_unchanged(client, db_session):
+    """PATCH /auth/profile sem name → name existente não é apagado."""
+    company = make_company(db_session)
+    user = make_user(db_session, company.id, name="Persistente")
+    db_session.commit()
+
+    resp = client.patch(
+        "/auth/profile",
+        json={},
+        headers=auth_header(user),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Persistente"
