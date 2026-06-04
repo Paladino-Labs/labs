@@ -40,9 +40,11 @@ from app.infrastructure.db.models.payment_source import PaymentSource
 from app.infrastructure.db.session import get_db
 from app.modules.payments import service as payment_service
 from app.modules.payments.schemas import (
+    ConfirmManualResponse,
     DepositPolicyCreate,
     DepositPolicyResponse,
     DepositPolicyUpdate,
+    FeeWarning,
     FinancialSettingsResponse,
     PaymentCreate,
     PaymentResponse,
@@ -155,17 +157,21 @@ def get_payment(
     )
 
 
-@router.post("/payments/{payment_id}/confirm-manual", response_model=PaymentResponse)
+@router.post("/payments/{payment_id}/confirm-manual", response_model=ConfirmManualResponse)
 def confirm_manual_payment(
     payment_id: UUID,
     user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
-    return payment_service.confirm_manual(
+    payment, fee_warning_data = payment_service.confirm_manual(
         payment_id=payment_id,
         company_id=user.company_id,
         db=db,
     )
+    response = ConfirmManualResponse.model_validate(payment)
+    if fee_warning_data:
+        response = response.model_copy(update={"fee_warning": FeeWarning(**fee_warning_data)})
+    return response
 
 
 @router.post("/payments/{payment_id}/refund", response_model=PaymentResponse)

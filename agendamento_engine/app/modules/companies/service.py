@@ -25,10 +25,15 @@ _DEFAULT_FEE_SOURCES = [
     "ASAAS_CARD",
     "MAQUININHA_DEBIT",
     "MAQUININHA_CREDIT",
+    "MAQUININHA_PIX",
     "ANTECIPACAO",
     "ESTORNO",
     "RECORRENTE_FEE",
 ]
+
+# fee_sources que partem com fee_percentage=NULL (taxa ainda não configurada).
+# Dispara aviso no confirm_manual até o operador configurar via PATCH /financial/fee-policies.
+_FEE_SOURCES_UNCONFIGURED_BY_DEFAULT = {"MAQUININHA_PIX"}
 
 
 _DEFAULT_CATEGORIES: dict = {
@@ -215,7 +220,8 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
         is_default_inflow=True,
     ))
 
-    # TenantFeeRoutingPolicy defaults — tenant_share=100% (sem repasse)
+    # TenantFeeRoutingPolicy defaults — tenant_share=100% (sem repasse).
+    # MAQUININHA_PIX parte com fee_percentage=NULL para disparar aviso até configuração.
     for fs in _DEFAULT_FEE_SOURCES:
         db.add(TenantFeeRoutingPolicy(
             company_id=company.id,
@@ -223,6 +229,7 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
             client_share=0,
             tenant_share=100,
             professional_share=0,
+            fee_percentage=None if fs in _FEE_SOURCES_UNCONFIGURED_BY_DEFAULT else 0,
         ))
 
     # ─────────────────────────────────────────────────────────────────────────

@@ -1,8 +1,11 @@
 """Testes de confirmação manual síncrona de pagamentos CASH e MAQUININHA.
 
+confirm_manual() retorna tuple (Payment, fee_warning_dict | None).
+fee_warning_dict não-None → taxa não configurada (code="fee_not_configured").
+
 Casos cobertos:
   1.  create_payment(method="CASH") → external_charge_id=None, status=PENDING
-  2.  confirm_manual() → Payment CONFIRMED, paid_at preenchido
+  2.  confirm_manual() → (Payment CONFIRMED, None), paid_at preenchido
   3.  Movement INFLOW criado em target_account após confirm_manual
   4.  confirm_manual em Payment PIX → 422 (método não-manual bloqueado)
   5.  confirm_manual em Payment CASH já CONFIRMED + is_processed=True → idempotente
@@ -12,9 +15,11 @@ Casos cobertos:
   9.  confirm_manual em Payment provider=manual → permitido
   10. webhook_data sintético usa net_charged_amount e fee="0" para CASH
   11. fee_source=None para CASH (sem routing de taxa)
-  12. confirm_manual MAQUININHA_CREDIT com política 3.99% → fee calculado
-  13. confirm_manual MAQUININHA sem política ativa → fee=0 (gracioso)
+  12. confirm_manual MAQUININHA_CREDIT com política 3.99% → fee calculado, sem warning
+  13. confirm_manual MAQUININHA sem política → fee=0 + fee_warning present
   14. confirm_manual MAQUININHA_DEBIT usa política MAQUININHA_DEBIT
+  15. confirm_manual MAQUININHA_PIX sem taxa configurada → CONFIRMED + fee_warning
+  16. confirm_manual MAQUININHA_PIX com taxa 0.99% → fee=0.99 + sem warning
 """
 import uuid
 from decimal import Decimal
@@ -118,7 +123,7 @@ def test_create_payment_cash_no_external_charge_id():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_confirm_manual_confirms_cash_payment():
-    """confirm_manual deve chamar confirm() e retornar Payment CONFIRMED."""
+    """confirm_manual deve chamar confirm() e retornar (Payment CONFIRMED, None)."""
     payment = _make_payment(status="PENDING", payment_method="CASH", provider="manual")
     db = _make_db()
 
@@ -138,14 +143,15 @@ def test_confirm_manual_confirms_cash_payment():
     ):
         from app.modules.payments.service import confirm_manual
 
-        result = confirm_manual(
+        confirmed, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=payment.company_id,
             db=db,
         )
 
-    assert result.status == "CONFIRMED"
-    assert result.paid_at is not None
+    assert confirmed.status == "CONFIRMED"
+    assert confirmed.paid_at is not None
+    assert fee_warning is None  # CASH nunca tem aviso
     mock_confirm.assert_called_once()
 
 
@@ -252,7 +258,7 @@ def test_confirm_manual_rejects_boleto():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_confirm_manual_idempotent_when_already_confirmed():
-    """Re-submit de confirm_manual em Payment CONFIRMED deve retornar payment sem erro."""
+    """Re-submit de confirm_manual em Payment CONFIRMED deve retornar (payment, None) sem erro."""
     payment = _make_payment(status="CONFIRMED", payment_method="CASH", provider="manual")
     db = _make_db()
 
@@ -263,14 +269,15 @@ def test_confirm_manual_idempotent_when_already_confirmed():
     ):
         from app.modules.payments.service import confirm_manual
 
-        result = confirm_manual(
+        confirmed, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=payment.company_id,
             db=db,
         )
 
-    assert result == payment
-    assert result.status == "CONFIRMED"
+    assert confirmed is payment
+    assert confirmed.status == "CONFIRMED"
+    assert fee_warning is None  # retorno idempotente não recalcula warning
     mock_confirm.assert_not_called()
     mock_is_proc.assert_called_once_with(
         key=f"manual-{payment.payment_id}",
@@ -406,13 +413,13 @@ def test_confirm_manual_allows_manual_provider():
     ):
         from app.modules.payments.service import confirm_manual
 
-        result = confirm_manual(
+        confirmed_payment, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=payment.company_id,
             db=db,
         )
 
-    assert result.status == "CONFIRMED"
+    assert confirmed_payment.status == "CONFIRMED"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,11 +467,101 @@ def test_fee_source_is_none_for_cash():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 15. confirm_manual MAQUININHA_PIX sem taxa configurada → CONFIRMED + fee_warning
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_pix_without_fee_configured_triggers_warning():
+    """MAQUININHA_PIX com fee_percentage=NULL → CONFIRMED com fee=0 e fee_warning."""
+    gross = Decimal("100.00")
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA_PIX",
+        provider="manual",
+        gross_catalog_amount=gross,
+        net_charged_amount=gross,
+    )
+    db = _make_db()
+
+    # Política existe (is_active=True) mas fee_percentage=NULL (não configurado)
+    policy = MagicMock()
+    policy.is_active = True
+    policy.fee_percentage = None
+    policy.fee_flat = Decimal("0")
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        confirmed_payment, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    # Pagamento é confirmado normalmente (fee=0)
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "0"
+
+    # Aviso presente com dados corretos
+    assert fee_warning is not None
+    assert fee_warning["code"] == "fee_not_configured"
+    assert fee_warning["fee_source"] == "MAQUININHA_PIX"
+    assert fee_warning["fee_applied"] == 0.0
+    assert "PIX na maquininha" in fee_warning["message"]
+    assert "Configurações" in fee_warning["message"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. confirm_manual MAQUININHA_PIX com taxa 0.99% → fee calculado + sem warning
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_pix_with_fee_configured():
+    """MAQUININHA_PIX com fee_percentage=0.99% → fee=0.99 e fee_warning=None."""
+    gross = Decimal("100.00")
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA_PIX",
+        provider="manual",
+        gross_catalog_amount=gross,
+        net_charged_amount=gross,
+    )
+    db = _make_db()
+
+    policy = MagicMock()
+    policy.is_active = True
+    policy.fee_percentage = Decimal("0.99")
+    policy.fee_flat = Decimal("0")
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        confirmed_payment, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    # fee = 100.00 * 0.99 / 100 = 0.99
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "0.99"
+    assert fee_warning is None  # taxa configurada → sem aviso
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 12. confirm_manual MAQUININHA_CREDIT com política 3.99% → fee calculado
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_confirm_manual_maquininha_credit_fee_calculated():
-    """confirm_manual MAQUININHA_CREDIT com política 3.99% → fee = gross * 0.0399."""
+    """confirm_manual MAQUININHA_CREDIT com política 3.99% → fee = gross * 0.0399, sem warning."""
     gross = Decimal("100.00")
     payment = _make_payment(
         status="PENDING",
@@ -488,7 +585,7 @@ def test_confirm_manual_maquininha_credit_fee_calculated():
     ):
         from app.modules.payments.service import confirm_manual
 
-        confirm_manual(
+        confirmed_payment, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=payment.company_id,
             db=db,
@@ -496,6 +593,7 @@ def test_confirm_manual_maquininha_credit_fee_calculated():
 
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "3.99"
+    assert fee_warning is None  # política configurada → sem aviso
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +601,7 @@ def test_confirm_manual_maquininha_credit_fee_calculated():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
-    """confirm_manual MAQUININHA sem política ativa → fee=0, não bloqueia fluxo."""
+    """confirm_manual MAQUININHA sem política → fee=0 + fee_warning presente."""
     payment = _make_payment(
         status="PENDING",
         payment_method="MAQUININHA",
@@ -512,7 +610,7 @@ def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
     )
     db = _make_db()
     # _make_db() retorna None para qualquer db.query().filter().first()
-    # → política não encontrada → fee deve ser 0
+    # → política não encontrada → fee=0 + warning
 
     with (
         patch("app.modules.payments.service._get_payment", return_value=payment),
@@ -521,7 +619,7 @@ def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
     ):
         from app.modules.payments.service import confirm_manual
 
-        result = confirm_manual(
+        confirmed_payment, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=payment.company_id,
             db=db,
@@ -529,6 +627,9 @@ def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
 
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "0"
+    assert fee_warning is not None
+    assert fee_warning["code"] == "fee_not_configured"
+    assert fee_warning["fee_source"] == "MAQUININHA_CREDIT"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

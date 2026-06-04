@@ -376,13 +376,13 @@ class TestAggregateDre:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. create_company — Account CAIXA + 7 TenantFeeRoutingPolicies
+# 6. create_company — Account CAIXA + 8 TenantFeeRoutingPolicies
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestCreateCompanyHook:
 
     def test_create_company_creates_caixa_and_fee_policies(self):
-        """create_company adiciona Account CAIXA + 7 TenantFeeRoutingPolicies na transação."""
+        """create_company adiciona Account CAIXA + 8 TenantFeeRoutingPolicies na transação."""
         from app.modules.companies.service import create_company
         from app.modules.companies.schemas import CompanyCreate
         from app.infrastructure.db.models.account import Account
@@ -425,16 +425,20 @@ class TestCreateCompanyHook:
         assert caixa.is_default_inflow is True
         assert caixa.name == "Caixa principal"
 
-        # Verifica 7 TenantFeeRoutingPolicies
+        # Verifica 8 TenantFeeRoutingPolicies (incluindo MAQUININHA_PIX)
         policy_objs = [o for o in added_objects if isinstance(o, TenantFeeRoutingPolicy)]
-        assert len(policy_objs) == 7, f"Esperado 7 TenantFeeRoutingPolicies, encontrado {len(policy_objs)}"
+        assert len(policy_objs) == 8, f"Esperado 8 TenantFeeRoutingPolicies, encontrado {len(policy_objs)}"
 
         fee_sources = {p.fee_source for p in policy_objs}
         expected = {
             "ASAAS_PIX", "ASAAS_CARD", "MAQUININHA_DEBIT",
-            "MAQUININHA_CREDIT", "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
+            "MAQUININHA_CREDIT", "MAQUININHA_PIX", "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
         }
         assert fee_sources == expected
+
+        # MAQUININHA_PIX deve partir com fee_percentage=None (aviso até configuração)
+        pix_policy = next(p for p in policy_objs if p.fee_source == "MAQUININHA_PIX")
+        assert pix_policy.fee_percentage is None
 
         for p in policy_objs:
             assert p.tenant_share == 100

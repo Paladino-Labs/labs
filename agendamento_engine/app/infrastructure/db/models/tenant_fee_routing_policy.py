@@ -38,8 +38,10 @@ class TenantFeeRoutingPolicy(Base):
     tenant_share = Column(Numeric(5, 2), nullable=False, default=100)
     professional_share = Column(Numeric(5, 2), nullable=False, default=0)
 
-    # Cálculo de taxa (MDR) para pagamentos manuais (maquininha)
-    fee_percentage = Column(Numeric(7, 4), nullable=False, default=0)
+    # Cálculo de taxa (MDR) para pagamentos manuais (maquininha).
+    # fee_percentage=NULL significa "não configurado" → confirm_manual emite fee_warning.
+    # fee_percentage=0 significa "configurado sem cobrança" → sem aviso.
+    fee_percentage = Column(Numeric(7, 4), nullable=True, default=None)
     fee_flat = Column(Numeric(10, 2), nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
 

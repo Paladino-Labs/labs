@@ -72,6 +72,28 @@ class PaymentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class FeeWarning(BaseModel):
+    """Aviso retornado quando confirm_manual processa pagamento sem taxa configurada.
+
+    O pagamento é CONFIRMADO normalmente; este campo apenas informa que
+    nenhuma taxa MDR foi registrada e orienta o operador a configurar.
+    """
+    code: str       # sempre "fee_not_configured"
+    fee_source: str  # ex: "MAQUININHA_PIX"
+    fee_applied: float  # sempre 0.0 quando warning está presente
+    message: str    # instrução legível para o operador
+
+
+class ConfirmManualResponse(PaymentResponse):
+    """Response de POST /payments/{id}/confirm-manual.
+
+    Herda todos os campos de PaymentResponse e adiciona fee_warning opcional.
+    fee_warning=null quando taxa está configurada (ou pagamento é CASH).
+    fee_warning preenchido quando taxa MDR não foi configurada para o método.
+    """
+    fee_warning: Optional[FeeWarning] = None
+
+
 class RefundRequest(BaseModel):
     reason: RefundReason
 

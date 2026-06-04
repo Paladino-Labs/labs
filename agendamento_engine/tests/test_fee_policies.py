@@ -1,11 +1,13 @@
 """Testes do endpoint e serviço de políticas de taxa MDR (fee-policies).
 
 Casos cobertos:
-  1.  list_fee_routing_policies → retorna lista com 7 políticas
+  1.  list_fee_routing_policies → retorna lista com 8 políticas (inclui MAQUININHA_PIX)
   2.  update_fee_policy_calculation → atualiza fee_percentage e retorna policy
   3.  FeePolicyUpdate rejeita fee_percentage > 100.0 (ValidationError Pydantic)
   4.  update_fee_policy_calculation → 404 para fee_source desconhecido
   5.  confirm_manual usa o percentual atualizado via política
+  6.  PATCH /financial/fee-policies/MAQUININHA_PIX → atualiza percentual
+  7.  Após PATCH, confirm_manual MAQUININHA_PIX usa novo percentual (sem warning)
 
 Abordagem: unit tests com mocks (sem PostgreSQL real).
 """
@@ -44,7 +46,8 @@ def _make_policy(
     p.policy_id = uuid.uuid4()
     p.company_id = company_id or uuid.uuid4()
     p.fee_source = fee_source
-    p.fee_percentage = Decimal(str(fee_percentage))
+    # fee_percentage=None = "não configurado" (dispara fee_warning)
+    p.fee_percentage = None if fee_percentage is None else Decimal(str(fee_percentage))
     p.fee_flat = Decimal(str(fee_flat))
     p.is_active = is_active
     p.client_share = Decimal("0")
@@ -53,20 +56,20 @@ def _make_policy(
     return p
 
 
-FEE_SOURCES_7 = [
+FEE_SOURCES_8 = [
     "ASAAS_PIX", "ASAAS_CARD", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT",
-    "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
+    "MAQUININHA_PIX", "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
 ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. list_fee_routing_policies → retorna lista com 7 políticas
+# 1. list_fee_routing_policies → retorna lista com 8 políticas (inclui MAQUININHA_PIX)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_list_fee_policies_returns_seven_policies():
-    """list_fee_routing_policies deve retornar as 7 políticas do tenant."""
+def test_list_fee_policies_returns_eight_policies():
+    """list_fee_routing_policies deve retornar as 8 políticas do tenant (incluindo MAQUININHA_PIX)."""
     company_id = uuid.uuid4()
-    policies = [_make_policy(fee_source=fs, company_id=company_id) for fs in FEE_SOURCES_7]
+    policies = [_make_policy(fee_source=fs, company_id=company_id) for fs in FEE_SOURCES_8]
     db = _make_db()
     db.query.return_value.filter.return_value.order_by.return_value.all.return_value = policies
 
@@ -74,9 +77,10 @@ def test_list_fee_policies_returns_seven_policies():
 
     result = list_fee_routing_policies(company_id=company_id, db=db)
 
-    assert len(result) == 7
+    assert len(result) == 8
     returned_sources = {p.fee_source for p in result}
-    assert returned_sources == set(FEE_SOURCES_7)
+    assert returned_sources == set(FEE_SOURCES_8)
+    assert "MAQUININHA_PIX" in returned_sources
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,7 +195,7 @@ def test_confirm_manual_uses_updated_fee_percentage():
     ):
         from app.modules.payments.service import confirm_manual
 
-        confirm_manual(
+        _confirmed, fee_warning = confirm_manual(
             payment_id=payment.payment_id,
             company_id=company_id,
             db=db,
@@ -200,3 +204,81 @@ def test_confirm_manual_uses_updated_fee_percentage():
     # fee = 100.00 * 5.0 / 100 = 5.00
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "5.00"
+    assert fee_warning is None  # política configurada → sem aviso
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. PATCH /financial/fee-policies/MAQUININHA_PIX → atualiza percentual
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_update_maquininha_pix_policy():
+    """update_fee_policy_calculation deve atualizar MAQUININHA_PIX de NULL para 0.99."""
+    company_id = uuid.uuid4()
+    policy = _make_policy(
+        fee_source="MAQUININHA_PIX",
+        fee_percentage=None,   # inicia não configurado
+        company_id=company_id,
+    )
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    from app.modules.financial_core.service import update_fee_policy_calculation
+
+    update_fee_policy_calculation(
+        fee_source="MAQUININHA_PIX",
+        company_id=company_id,
+        db=db,
+        fee_percentage=Decimal("0.99"),
+    )
+
+    assert policy.fee_percentage == Decimal("0.99")
+    db.commit.assert_called_once()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Após PATCH MAQUININHA_PIX, confirm_manual usa novo percentual (sem warning)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_pix_after_patch_no_warning():
+    """Após configurar MAQUININHA_PIX com 0.99%, confirm_manual calcula fee e não avisa."""
+    gross = Decimal("100.00")
+    company_id = uuid.uuid4()
+
+    # Política com fee_percentage configurado (após PATCH)
+    policy = _make_policy(
+        fee_source="MAQUININHA_PIX",
+        fee_percentage=Decimal("0.99"),
+        company_id=company_id,
+    )
+
+    payment = MagicMock()
+    payment.payment_id = uuid.uuid4()
+    payment.company_id = company_id
+    payment.status = "PENDING"
+    payment.payment_method = "MAQUININHA_PIX"
+    payment.provider = "manual"
+    payment.net_charged_amount = gross
+    payment.gross_catalog_amount = gross
+    payment._sa_instance_state = MagicMock()
+    payment._sa_instance_state.has_identity = False
+
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=company_id,
+            db=db,
+        )
+
+    # fee = 100.00 * 0.99 / 100 = 0.99
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "0.99"
+    assert fee_warning is None  # taxa configurada → sem aviso

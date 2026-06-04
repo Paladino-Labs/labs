@@ -51,7 +51,20 @@ _PAYMENT_METHOD_TO_FEE_SOURCE: dict[str, Optional[str]] = {
     "CARD_CREDIT": "ASAAS_CARD",
     "CARD_DEBIT": "ASAAS_CARD",
     "MAQUININHA": "MAQUININHA_CREDIT",
+    "MAQUININHA_CREDIT": "MAQUININHA_CREDIT",
+    "MAQUININHA_DEBIT": "MAQUININHA_DEBIT",
+    "MAQUININHA_PIX": "MAQUININHA_PIX",
     "CASH": None,  # sem taxa de provider em pagamento em dinheiro
+}
+
+# Métodos de maquininha que têm política de taxa MDR configurável.
+_MAQUININHA_METHODS = frozenset({"MAQUININHA", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT", "MAQUININHA_PIX"})
+
+# Labels legíveis para mensagens de aviso exibidas ao operador.
+_FEE_SOURCE_LABELS: dict[str, str] = {
+    "MAQUININHA_CREDIT": "crédito na maquininha",
+    "MAQUININHA_DEBIT": "débito na maquininha",
+    "MAQUININHA_PIX": "PIX na maquininha",
 }
 
 _CONSUMER = "payment_confirmed"
@@ -59,6 +72,14 @@ _CONSUMER = "payment_confirmed"
 
 def _fee_source_for(payment_method: str) -> Optional[str]:
     return _PAYMENT_METHOD_TO_FEE_SOURCE.get(payment_method.upper(), "ASAAS_PIX")
+
+
+def _fee_warning_message(fee_source: str) -> str:
+    label = _FEE_SOURCE_LABELS.get(fee_source, fee_source)
+    return (
+        f"Nenhuma taxa configurada para {label}. "
+        "Configure em Configurações → Financeiro → Taxas."
+    )
 
 
 def _get_payment(payment_id: UUID, company_id: UUID, db: Session) -> Payment:
@@ -342,13 +363,20 @@ def confirm(
     return payment
 
 
-def _calc_manual_fee(payment: Payment, db: Session) -> Decimal:
-    """Calcula taxa MDR para pagamento manual (maquininha).
+def _calc_manual_fee(
+    payment: Payment, db: Session
+) -> tuple[Decimal, Optional[str]]:
+    """Calcula taxa MDR para pagamento manual. Retorna (fee, warning_fee_source).
 
-    CASH → sempre Decimal("0") sem consulta ao banco.
-    MAQUININHA / MAQUININHA_CREDIT → busca política MAQUININHA_CREDIT.
-    MAQUININHA_DEBIT → busca política MAQUININHA_DEBIT.
-    Outros métodos ou política inativa/ausente → Decimal("0") com aviso.
+    warning_fee_source não-None indica que a taxa não está configurada:
+      - Política não encontrada ou inativa.
+      - Política ativa mas fee_percentage IS NULL (não configurado pelo operador).
+
+    CASH → (Decimal("0"), None) — sem consulta ao banco.
+    MAQUININHA / MAQUININHA_CREDIT → consulta política MAQUININHA_CREDIT.
+    MAQUININHA_DEBIT → consulta política MAQUININHA_DEBIT.
+    MAQUININHA_PIX   → consulta política MAQUININHA_PIX.
+    Outros métodos   → (Decimal("0"), None) sem consulta.
 
     # TODO: usar payment_submethod ("CREDIT"/"DEBIT") para distinguir
     #        MAQUININHA_CREDIT vs MAQUININHA_DEBIT quando o campo for
@@ -357,14 +385,13 @@ def _calc_manual_fee(payment: Payment, db: Session) -> Decimal:
     method = payment.payment_method.upper()
 
     if method == "CASH":
-        return Decimal("0")
+        return Decimal("0"), None
 
-    if method == "MAQUININHA_DEBIT":
-        fee_source = "MAQUININHA_DEBIT"
-    elif method in ("MAQUININHA", "MAQUININHA_CREDIT"):
-        fee_source = "MAQUININHA_CREDIT"
-    else:
-        return Decimal("0")
+    if method not in _MAQUININHA_METHODS:
+        return Decimal("0"), None
+
+    # _PAYMENT_METHOD_TO_FEE_SOURCE contém todos os _MAQUININHA_METHODS
+    fee_source = _PAYMENT_METHOD_TO_FEE_SOURCE[method]
 
     policy = (
         db.query(TenantFeeRoutingPolicy)
@@ -377,36 +404,44 @@ def _calc_manual_fee(payment: Payment, db: Session) -> Decimal:
 
     if not policy or not policy.is_active:
         logger.warning(
-            "manual_fee_policy_not_found fee_source=%s company_id=%s — usando fee=0",
+            "manual_fee_policy_not_found fee_source=%s company_id=%s",
             fee_source,
             payment.company_id,
         )
-        return Decimal("0")
+        return Decimal("0"), fee_source
+
+    if policy.fee_percentage is None:
+        return Decimal("0"), fee_source
 
     gross = Decimal(str(payment.gross_catalog_amount))
     fee_pct = Decimal(str(policy.fee_percentage))
     fee = round(gross * fee_pct / Decimal("100"), 2)
-    fee_flat = Decimal(str(policy.fee_flat))
+    fee_flat = Decimal(str(policy.fee_flat)) if policy.fee_flat is not None else Decimal("0")
     if fee_flat > Decimal("0"):
         fee += fee_flat
-    return fee
+    return fee, None
 
 
 def confirm_manual(
     payment_id: UUID,
     company_id: UUID,
     db: Session,
-) -> Payment:
+) -> tuple[Payment, Optional[dict]]:
     """Confirma pagamento CASH ou provider=manual de forma síncrona e idempotente.
 
     Wrapper de confirm() com event_id sintético determinístico:
         event_id = f"manual-{payment.payment_id}"
 
-    Para MAQUININHA (provider=manual): calcula taxa MDR via TenantFeeRoutingPolicy.
-    Para CASH: fee sempre zero.
+    Para MAQUININHA/MAQUININHA_PIX (provider=manual): calcula taxa MDR via
+    TenantFeeRoutingPolicy. Quando taxa não está configurada (fee_percentage=NULL),
+    confirma normalmente e retorna fee_warning no segundo elemento da tupla.
+    Para CASH: fee sempre zero, sem warning.
 
-    Idempotência: re-submit no mesmo payment já CONFIRMED retorna o payment
-    sem reprocessar (is_processed=True dentro de confirm()).
+    Retorna:
+        (Payment, None)       — confirmado, sem aviso.
+        (Payment, dict)       — confirmado, mas taxa não configurada (ver dict).
+
+    Idempotência: re-submit em payment já CONFIRMED retorna (payment, None).
     """
     payment = _get_payment(payment_id, company_id, db)
 
@@ -428,25 +463,35 @@ def confirm_manual(
     # Status != PENDING: só é permitido se já foi processado (idempotência)
     if payment.status != "PENDING":
         if is_processed(key=event_id, consumer=_CONSUMER, db=db):
-            return payment
+            return payment, None
         raise HTTPException(
             status_code=422,
             detail=f"Pagamento deve estar PENDING para confirmação manual. Status atual: {payment.status}",
         )
 
-    fee = _calc_manual_fee(payment, db)
+    fee, warning_fee_source = _calc_manual_fee(payment, db)
+
+    fee_warning: Optional[dict] = None
+    if warning_fee_source:
+        fee_warning = {
+            "code": "fee_not_configured",
+            "fee_source": warning_fee_source,
+            "fee_applied": float(fee),
+            "message": _fee_warning_message(warning_fee_source),
+        }
 
     webhook_data = {
         "value": str(payment.net_charged_amount),
         "fee": str(fee),
     }
-    return confirm(
+    confirmed = confirm(
         payment_id=payment_id,
         event_id=event_id,
         webhook_data=webhook_data,
         company_id=company_id,
         db=db,
     )
+    return confirmed, fee_warning
 
 
 def refund(

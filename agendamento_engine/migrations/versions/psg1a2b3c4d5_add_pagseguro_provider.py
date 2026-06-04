@@ -1,7 +1,7 @@
 """add_pagseguro_credential_provider
 
 Revision ID: psg1a2b3c4d5
-Revises: z1a2b3c4d5e6
+Revises: e1f2g3h4i5j6
 Create Date: 2026-06-03
 
 Adiciona 'PAGSEGURO' ao enum credentialprovider no PostgreSQL.
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "psg1a2b3c4d5"
-down_revision: Union[str, Sequence[str], None] = "z1a2b3c4d5e6"
+down_revision: Union[str, Sequence[str], None] = "e1f2g3h4i5j6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

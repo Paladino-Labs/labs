@@ -1,7 +1,7 @@
 """add_fee_calc_fields_to_tenant_fee_routing_policies
 
 Revision ID: f2g3h4i5j6k7
-Revises: e1f2g3h4i5j6
+Revises: psg1a2b3c4d5
 Create Date: 2026-06-04
 
 Adiciona fee_percentage, fee_flat e is_active à tabela
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f2g3h4i5j6k7"
-down_revision: Union[str, Sequence[str], None] = "e1f2g3h4i5j6"
+down_revision: Union[str, Sequence[str], None] = "psg1a2b3c4d5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
