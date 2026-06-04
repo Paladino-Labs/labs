@@ -111,6 +111,7 @@ def invite_user(
     role: str,
     request_ip: Optional[str] = None,
     request_ua: Optional[str] = None,
+    name: Optional[str] = None,
 ) -> UserInvitation:
     _assert_not_schema_only(role)
     _assert_not_platform_owner_by_tenant(actor, role)

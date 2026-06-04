@@ -67,14 +67,11 @@ class User(Base, TimestampMixin):
         default="ADMIN",
     )
     active = Column(Boolean, default=True, nullable=False)
+    name = Column(String(100), nullable=True)
     # Preenchido sempre que a senha é alterada; usado para invalidar JWTs antigos.
     last_password_change_at = Column(sa.TIMESTAMP(timezone=True), nullable=True)
 
     company = relationship("Company", back_populates="users")
-
-    @property
-    def name(self) -> str:
-        return self.email.split("@")[0].replace(".", " ").title()
 
     @property
     def is_admin(self) -> bool:

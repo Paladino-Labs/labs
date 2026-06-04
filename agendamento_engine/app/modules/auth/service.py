@@ -119,9 +119,10 @@ def forgot_password(db: Session, email: str) -> None:
     # Envia via CommunicationService (tenant) ou direto (PLATFORM_OWNER sem company).
     # Falha de envio não deve bloquear a resposta ao usuário.
     try:
+        display_name = user.name or user.email.split("@")[0]
         if user.company_id is None:
             # PLATFORM_OWNER: sem tenant, sem CommunicationSetting — envia diretamente.
-            _send_reset_email_direct(user.email, user.name, raw_token)
+            _send_reset_email_direct(user.email, display_name, raw_token)
         else:
             from app.modules.communication.service import communication_service
             communication_service.dispatch(
@@ -132,7 +133,7 @@ def forgot_password(db: Session, email: str) -> None:
                     "recipient_email": user.email,
                     "email_subject": "Seu código de redefinição de senha — Paladino",
                     "token": raw_token,
-                    "user_name": user.name,
+                    "user_name": display_name,
                     "email": user.email,
                 },
                 recipient_id=user.id,

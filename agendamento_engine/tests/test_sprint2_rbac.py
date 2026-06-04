@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, Column, String, Boolean, Text, Numeric, TIMESTAMP, JSON
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.sqlite import TEXT as SQLITE_TEXT
 
 from app.infrastructure.db.session import get_db
@@ -50,13 +51,11 @@ class TUser(TestBase):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False, default="ADMIN")
     active = Column(Boolean, default=True, nullable=False)
+    # Coluna name adicionada em h2i3j4k5l6m7 — nullable para compatibilidade
+    name = Column(String(100), nullable=True)
+    last_password_change_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow)
-
-    # Propriedades espelhadas do modelo real
-    @property
-    def name(self):
-        return self.email.split("@")[0]
 
     @property
     def is_admin(self):
@@ -100,7 +99,11 @@ class TAuditLog(TestBase):
 
 @pytest.fixture(scope="function")
 def engine():
-    e = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+    e = create_engine(
+        SQLITE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     TestBase.metadata.create_all(bind=e)
     yield e
     TestBase.metadata.drop_all(bind=e)

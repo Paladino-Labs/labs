@@ -1,6 +1,7 @@
 """Serviço de ativação de conta via token de convite."""
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ def activate_account(
     token: UUID,
     password: str,
     password_confirm: str,
+    name: Optional[str] = None,
 ) -> dict:
     if password != password_confirm:
         raise HTTPException(status_code=422, detail="As senhas não coincidem.")
@@ -59,6 +61,7 @@ def activate_account(
         password_hash=hash_password(password),
         role=invitation.role,
         active=True,
+        name=name,
     )
     db.add(user)
 

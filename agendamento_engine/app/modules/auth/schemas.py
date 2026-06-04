@@ -31,6 +31,7 @@ class ActivateRequest(BaseModel):
     token: UUID
     password: str = Field(min_length=6)
     password_confirm: str
+    name: Optional[str] = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -57,6 +58,11 @@ class ChangePasswordRequest(BaseModel):
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         return _validate_strong_password(v)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    # Expansão futura: outros campos de perfil do próprio usuário
 
 
 class MessageResponse(BaseModel):

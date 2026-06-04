@@ -25,6 +25,7 @@ class UserResponse(BaseModel):
     id: UUID
     company_id: Optional[UUID] = None
     email: str
+    name: Optional[str] = None
     role: str
     active: bool
 
@@ -34,6 +35,7 @@ class UserResponse(BaseModel):
 class InviteUserRequest(BaseModel):
     email: EmailStr
     role: str
+    name: Optional[str] = None
 
 
 class InviteUserResponse(BaseModel):
