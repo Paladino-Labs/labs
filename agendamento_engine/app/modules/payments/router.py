@@ -1,4 +1,4 @@
-"""Routers do módulo Payments — Sprints 8 + 9 + 11.
+"""Routers do módulo Payments — Sprints 8 + 9 + 11 + PagSeguro Point.
 
 Endpoints Sprint 8:
     GET    /payment-sources
@@ -19,6 +19,12 @@ Endpoints Sprint 9:
 
 Endpoints Sprint 11:
     POST   /payments/{id}/confirm-manual   OWNER/ADMIN — CASH/manual apenas
+
+Endpoints PagSeguro Point:
+    GET    /payments/terminals         OWNER/ADMIN
+      Retorna lista de terminais Point disponíveis para o tenant.
+      Requer IntegrationCredential provider=PAGSEGURO ativa.
+      Retorna [] se o provider ativo não for PagSeguroProvider.
 """
 import logging
 from uuid import UUID
@@ -324,6 +330,47 @@ def update_deposit_policy(
         db=db,
         **body.model_dump(exclude_none=True),
     )
+
+
+# ── PagSeguro Point — Terminais ──────────────────────────────────────────────
+
+@router.get("/payments/terminals")
+def list_payment_terminals(
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Lista terminais Point disponíveis para o tenant.
+
+    Retorna [] se o provider ativo não for PagSeguroProvider (ex: Asaas).
+    Requer IntegrationCredential provider=PAGSEGURO com status=ACTIVE.
+
+    ⚠ NOTA: list_terminals() é um stub — o endpoint REST de listagem de
+      terminais PagBank não foi confirmado pela documentação pública.
+      Ver comentários em providers/pagseguro.py.
+    """
+    from app.modules.payments.provider_factory import get_payment_provider
+    from app.modules.payments.providers.pagseguro import (
+        PagSeguroError,
+        PagSeguroProvider,
+    )
+
+    try:
+        provider = get_payment_provider(company_id=user.company_id, db=db)
+    except Exception as exc:
+        logger.warning("list_terminals_provider_error", extra={"error": str(exc)})
+        return []
+
+    if not isinstance(provider, PagSeguroProvider):
+        return []
+
+    try:
+        return provider.list_terminals(company_id=user.company_id, db=db)
+    except PagSeguroError as exc:
+        logger.warning(
+            "list_terminals_error",
+            extra={"company_id": str(user.company_id), "error": str(exc)},
+        )
+        return []
 
 
 # ── Financial Settings ────────────────────────────────────────────────────────

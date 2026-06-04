@@ -24,6 +24,7 @@ class IntegrationCredential(Base):
             "WHATSAPP_META",
             "SMTP",
             "ASAAS",
+            "PAGSEGURO",
             name="credentialprovider",
             create_type=False,
         ),
