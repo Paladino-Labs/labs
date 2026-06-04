@@ -107,16 +107,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     # Normaliza evento para lowercase com ponto (ex: MESSAGES_UPSERT → messages.upsert)
     event_normalized = event.lower().replace("_", ".")
 
-    # LOG DE DIAGNÓSTICO — remover após confirmar funcionamento
-    import json as _json
-    logger.info(
-        "WEBHOOK RECEBIDO event=%s event_normalized=%s instance=%s data_keys=%s",
-        event, event_normalized, instance_name,
-        list(data.keys()) if isinstance(data, dict) else type(data).__name__,
-    )
-    if event_normalized == "messages.upsert":
-        logger.info("WEBHOOK DATA COMPLETO: %s", _json.dumps(data, default=str)[:1000])
-
     try:
         if event_normalized == "connection.update":
             connection_service.handle_connection_update(db, instance_name, data)
@@ -133,9 +123,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             # Votos de enquete (sendPoll) chegam como MESSAGES_UPDATE.
             # Extrai o voto e roteia como se fosse uma mensagem de texto normal.
             from app.modules.whatsapp.bot_service import handle_inbound_message
-            import json as _json
-            logger.info("MESSAGES_UPDATE DATA: %s", _json.dumps(data, default=str)[:1000])
-
             updates = data if isinstance(data, list) else [data]
             for update in updates:
                 key = update.get("key", {})
