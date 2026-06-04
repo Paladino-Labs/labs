@@ -503,10 +503,14 @@ def refund(
 ) -> Payment:
     """Estorna pagamento confirmado.
 
-    Na mesma transação:
-      Movement OUTFLOW + Entry ESTORNO via FinancialCoreEngine.
-      record_sensitive_action com reason obrigatório.
+    Ordem garantida:
+      1. provider.refund() para pagamentos não-manual com external_charge_id.
+         Se falhar: exceção propagada, banco não alterado.
+      2. FinancialCoreEngine.handle_payment_refunded (Movement OUTFLOW + Entry ESTORNO).
+      3. payment.status = REFUNDED, record_sensitive_action, commit.
     Após commit: EventBus.publish("payment.refunded") best-effort.
+
+    Pagamentos CASH/manual (provider="manual"): sem chamada ao provider.
     """
     payment = _get_payment(payment_id, company_id, db)
 
@@ -514,6 +518,14 @@ def refund(
         raise HTTPException(
             status_code=422,
             detail=f"Pagamento deve estar CONFIRMED para estorno. Status atual: {payment.status}",
+        )
+
+    _is_manual = payment.provider == "manual"
+    if not _is_manual and payment.external_charge_id:
+        prov = get_payment_provider(company_id=company_id, db=db)
+        prov.refund(
+            payment.external_charge_id,
+            reason.value if isinstance(reason, RefundReason) else str(reason),
         )
 
     # Movement OUTFLOW + Entry ESTORNO (mesma transação)

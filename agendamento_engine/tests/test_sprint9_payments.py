@@ -451,10 +451,12 @@ def test_refund_creates_outflow_and_estorno():
 
     with (
         patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider") as mock_provider_factory,
         patch("app.modules.payments.service.financial_core") as mock_fc,
         patch("app.modules.payments.service.record_sensitive_action") as mock_audit,
         patch("app.modules.payments.service.event_bus"),
     ):
+        mock_provider_factory.return_value = MagicMock()
         mock_fc.handle_payment_refunded.return_value = {
             "outflow_movement_id": uuid.uuid4(),
             "estorno_entry_id": uuid.uuid4(),
@@ -526,10 +528,12 @@ def test_refund_event_bus_published_after_commit():
 
     with (
         patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider") as mock_provider_factory,
         patch("app.modules.payments.service.financial_core") as mock_fc,
         patch("app.modules.payments.service.record_sensitive_action"),
         patch("app.modules.payments.service.event_bus") as mock_bus,
     ):
+        mock_provider_factory.return_value = MagicMock()
         mock_fc.handle_payment_refunded.return_value = {}
         published = []
 
