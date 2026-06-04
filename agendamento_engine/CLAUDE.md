@@ -64,8 +64,7 @@
 - Tabelas: `tenant_configs`, `module_activations`, `tenant_brandings`, `categories`
 - Onboarding: `create_company` cria TenantConfig + 10 ModuleActivations +
   TenantBranding + 16 categories default na mesma transação
-- Workers: Celery + Redis em coexistência com asyncio
-  → flip definitivo (remover asyncio.create_task) após 24h sem erros em produção
+- Workers: Celery + Redis (session_cleanup e reminder exclusivamente via Celery Beat)
 - EventBus ativo em `app/infrastructure/event_bus.py` (best-effort, fluxos tolerantes)
 - Idempotência: `processed_idempotency_keys` (PK composta key+consumer; company_id como auditoria)
 - Beat: worker usa `-A app.infrastructure.celery_app:celery_app`
@@ -154,8 +153,6 @@
 - Não implementar `accounting_mode=ACCRUAL` — bloqueado por trigger no Estágio 0
 - Não adicionar workers via asyncio.create_task no lifespan — usar Celery Beat
 - Não publicar eventos sem idempotency_key
-- asyncio.create_task ainda ATIVO no lifespan (coexistência) — remover somente
-  após 24h sem erros em produção; atualizar CLAUDE.md após o flip
 - Não chamar `evolution_client.send_text()` diretamente em código novo
   → usar CommunicationService.dispatch após remoção das chamadas diretas
 - Não criar `integration_credentials` com `provider=WHATSAPP_EVOLUTION` no Estágio 0

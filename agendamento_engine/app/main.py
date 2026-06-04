@@ -1,4 +1,3 @@
-import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -129,27 +128,7 @@ async def lifespan(app: FastAPI):
     register_communication_handlers()
     register_soft_reservation_handlers()
 
-    # Coexistência Sprint 4: asyncio workers rodando em paralelo ao Celery durante validação.
-    # REMOVER estes create_task após 24h de coexistência sem erros no Sentry (ver plano-fase1-v3.md).
-    from app.workers.session_cleanup_worker import run_session_cleanup_worker
-    from app.workers.reminder_worker import run_reminder_worker
-
-    tasks = [
-        asyncio.create_task(run_session_cleanup_worker(), name="session_cleanup_worker"),
-        asyncio.create_task(run_reminder_worker(), name="reminder_worker"),
-    ]
-    logger.info("Background workers iniciados: session_cleanup, reminder (coexistência asyncio+Celery)")
-
     yield  # aplicação em execução
-
-    # Shutdown: cancela os workers ao desligar
-    for task in tasks:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-    logger.info("Background workers encerrados")
 
 
 app = FastAPI(
