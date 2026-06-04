@@ -283,3 +283,73 @@ def test_refund_asaas_without_external_charge_id_skips_provider():
         )
 
     mock_factory.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. refund() PagSeguro → 422 com mensagem de ação manual
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_refund_pagseguro_raises_422():
+    """refund() em pagamento PagSeguro deve levantar HTTP 422 e não chamar provider."""
+    from fastapi import HTTPException
+
+    payment = _make_payment(
+        provider="pagseguro",
+        payment_method="MAQUININHA",
+        external_charge_id="psg_abc123",
+    )
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider") as mock_factory,
+    ):
+        from app.modules.payments.service import refund
+
+        with pytest.raises(HTTPException) as exc_info:
+            refund(
+                payment_id=payment.payment_id,
+                reason=RefundReason.SERVICE_FAILURE,
+                actor_id=uuid.uuid4(),
+                company_id=payment.company_id,
+                db=db,
+            )
+
+    assert exc_info.value.status_code == 422
+    assert "PagSeguro" in exc_info.value.detail
+    assert "painel PagSeguro" in exc_info.value.detail
+    mock_factory.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. refund() Asaas → provider.refund() chamado normalmente (regressão)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_refund_asaas_not_affected_by_pagseguro_guard():
+    """Guard PagSeguro não deve afetar estorno via Asaas."""
+    payment = _make_payment(provider="asaas", external_charge_id="cha_ok123")
+    db = _make_db()
+
+    mock_provider = MagicMock()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider", return_value=mock_provider),
+        patch("app.modules.payments.service.financial_core"),
+        patch("app.modules.payments.service.record_sensitive_action"),
+        patch("app.modules.payments.service.event_bus"),
+    ):
+        from app.modules.payments.service import refund
+
+        refund(
+            payment_id=payment.payment_id,
+            reason=RefundReason.SERVICE_FAILURE,
+            actor_id=uuid.uuid4(),
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    mock_provider.refund.assert_called_once_with(
+        "cha_ok123",
+        RefundReason.SERVICE_FAILURE.value,
+    )

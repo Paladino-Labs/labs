@@ -522,6 +522,21 @@ def refund(
 
     _is_manual = payment.provider == "manual"
     if not _is_manual and payment.external_charge_id:
+        if payment.provider == "pagseguro":
+            logger.warning(
+                "pagseguro_refund_blocked",
+                extra={
+                    "payment_id": str(payment.payment_id),
+                    "reason": "PagSeguro refund endpoint not confirmed — manual action required in PagSeguro dashboard",
+                },
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Estorno via PagSeguro não disponível — endpoint não confirmado. "
+                    "Realize o estorno manualmente no painel PagSeguro e registre via PATCH /payments/{id}/status."
+                ),
+            )
         prov = get_payment_provider(company_id=company_id, db=db)
         prov.refund(
             payment.external_charge_id,
