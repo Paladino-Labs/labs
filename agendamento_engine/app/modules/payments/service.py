@@ -12,6 +12,7 @@ ATOMICIDADE CRÍTICA em confirm():
 """
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -29,9 +30,12 @@ from app.core.idempotency import is_processed, mark_processed
 from app.infrastructure.db.models.deposit_policy import DepositPolicy
 from app.infrastructure.db.models.payment import Payment
 from app.infrastructure.db.models.payment_transaction import PaymentTransaction
+from app.infrastructure.db.models.tenant_fee_routing_policy import TenantFeeRoutingPolicy
 from app.infrastructure.event_bus import DomainEvent, event_bus
 from app.modules.financial_core import service as financial_core
 from app.modules.payments.provider_factory import get_payment_provider
+
+logger = logging.getLogger(__name__)
 
 
 class RefundReason(str, Enum):
@@ -338,6 +342,56 @@ def confirm(
     return payment
 
 
+def _calc_manual_fee(payment: Payment, db: Session) -> Decimal:
+    """Calcula taxa MDR para pagamento manual (maquininha).
+
+    CASH → sempre Decimal("0") sem consulta ao banco.
+    MAQUININHA / MAQUININHA_CREDIT → busca política MAQUININHA_CREDIT.
+    MAQUININHA_DEBIT → busca política MAQUININHA_DEBIT.
+    Outros métodos ou política inativa/ausente → Decimal("0") com aviso.
+
+    # TODO: usar payment_submethod ("CREDIT"/"DEBIT") para distinguir
+    #        MAQUININHA_CREDIT vs MAQUININHA_DEBIT quando o campo for
+    #        implementado em PaymentCreate e salvo no Payment.
+    """
+    method = payment.payment_method.upper()
+
+    if method == "CASH":
+        return Decimal("0")
+
+    if method == "MAQUININHA_DEBIT":
+        fee_source = "MAQUININHA_DEBIT"
+    elif method in ("MAQUININHA", "MAQUININHA_CREDIT"):
+        fee_source = "MAQUININHA_CREDIT"
+    else:
+        return Decimal("0")
+
+    policy = (
+        db.query(TenantFeeRoutingPolicy)
+        .filter(
+            TenantFeeRoutingPolicy.company_id == payment.company_id,
+            TenantFeeRoutingPolicy.fee_source == fee_source,
+        )
+        .first()
+    )
+
+    if not policy or not policy.is_active:
+        logger.warning(
+            "manual_fee_policy_not_found fee_source=%s company_id=%s — usando fee=0",
+            fee_source,
+            payment.company_id,
+        )
+        return Decimal("0")
+
+    gross = Decimal(str(payment.gross_catalog_amount))
+    fee_pct = Decimal(str(policy.fee_percentage))
+    fee = round(gross * fee_pct / Decimal("100"), 2)
+    fee_flat = Decimal(str(policy.fee_flat))
+    if fee_flat > Decimal("0"):
+        fee += fee_flat
+    return fee
+
+
 def confirm_manual(
     payment_id: UUID,
     company_id: UUID,
@@ -347,6 +401,9 @@ def confirm_manual(
 
     Wrapper de confirm() com event_id sintético determinístico:
         event_id = f"manual-{payment.payment_id}"
+
+    Para MAQUININHA (provider=manual): calcula taxa MDR via TenantFeeRoutingPolicy.
+    Para CASH: fee sempre zero.
 
     Idempotência: re-submit no mesmo payment já CONFIRMED retorna o payment
     sem reprocessar (is_processed=True dentro de confirm()).
@@ -377,9 +434,11 @@ def confirm_manual(
             detail=f"Pagamento deve estar PENDING para confirmação manual. Status atual: {payment.status}",
         )
 
+    fee = _calc_manual_fee(payment, db)
+
     webhook_data = {
         "value": str(payment.net_charged_amount),
-        "fee": "0",
+        "fee": str(fee),
     }
     return confirm(
         payment_id=payment_id,

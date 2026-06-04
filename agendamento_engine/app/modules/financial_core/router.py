@@ -41,6 +41,8 @@ from app.modules.financial_core.schemas import (
     EntryFilters,
     EntryResponse,
     DreResponse,
+    FeePolicyResponse,
+    FeePolicyUpdate,
     ManualAdjustmentCreate,
     TransferCreate,
     TransferResponse,
@@ -315,4 +317,39 @@ def record_cash_count(
         actor_id=actor.id,
         company_id=company_id,
         db=db,
+    )
+
+
+# ── Fee Policies (Sprint 11) ──────────────────────────────────────────────────
+
+@router.get("/fee-policies", response_model=List[FeePolicyResponse])
+def list_fee_policies(
+    company_id: UUID = Depends(get_current_company_id),
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Lista todas as políticas de taxa MDR do tenant (7 registros por tenant)."""
+    return service.list_fee_routing_policies(company_id, db)
+
+
+@router.patch("/fee-policies/{fee_source}", response_model=FeePolicyResponse)
+def update_fee_policy(
+    fee_source: str,
+    body: FeePolicyUpdate,
+    company_id: UUID = Depends(get_current_company_id),
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Atualiza taxa MDR de um fee_source do tenant.
+
+    fee_source deve existir nas políticas do tenant (criadas em create_company).
+    Retorna HTTP 404 se não encontrado.
+    """
+    return service.update_fee_policy_calculation(
+        fee_source=fee_source,
+        company_id=company_id,
+        db=db,
+        fee_percentage=body.fee_percentage,
+        fee_flat=body.fee_flat,
+        is_active=body.is_active,
     )

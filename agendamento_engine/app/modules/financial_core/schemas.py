@@ -40,6 +40,38 @@ class FeeRoutingUpdate(BaseModel):
         return self
 
 
+class FeePolicyResponse(BaseModel):
+    """Política de cálculo de taxa MDR por fee_source.
+
+    Exposta em GET/PATCH /financial/fee-policies.
+    """
+    policy_id: UUID
+    company_id: UUID
+    fee_source: str
+    fee_percentage: Decimal
+    fee_flat: Decimal
+    is_active: bool
+    client_share: Decimal
+    tenant_share: Decimal
+    professional_share: Decimal
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class FeePolicyUpdate(BaseModel):
+    """Atualização parcial de política de taxa MDR.
+
+    fee_percentage: 0.0 a 100.0 (ex: 3.99 = 3,99%).
+    fee_flat: valor fixo adicional por transação (>= 0).
+    is_active: desativar impede cálculo de taxa neste fee_source.
+    """
+    fee_percentage: Optional[Decimal] = Field(None, ge=0, le=100)
+    fee_flat: Optional[Decimal] = Field(None, ge=0)
+    is_active: Optional[bool] = None
+
+
 # ── Account ───────────────────────────────────────────────────────────────────
 
 class AccountCreate(BaseModel):

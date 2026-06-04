@@ -606,3 +606,31 @@ def update_fee_routing_policy(
     db.commit()
     db.refresh(policy)
     return policy
+
+
+def update_fee_policy_calculation(
+    fee_source: str,
+    company_id: UUID,
+    db: Session,
+    fee_percentage: Optional[Decimal] = None,
+    fee_flat: Optional[Decimal] = None,
+    is_active: Optional[bool] = None,
+) -> TenantFeeRoutingPolicy:
+    """Atualiza taxa MDR de cálculo (fee_percentage, fee_flat, is_active).
+
+    Levanta HTTP 404 se o fee_source não existir para o tenant.
+    Validação de range (0-100) é responsabilidade do schema Pydantic chamador.
+    """
+    policy = get_fee_routing_policy_or_404(fee_source, company_id, db)
+
+    if fee_percentage is not None:
+        policy.fee_percentage = fee_percentage
+    if fee_flat is not None:
+        policy.fee_flat = fee_flat
+    if is_active is not None:
+        policy.is_active = is_active
+
+    policy.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(policy)
+    return policy

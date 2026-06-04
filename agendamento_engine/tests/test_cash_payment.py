@@ -1,4 +1,4 @@
-"""Testes de confirmação manual síncrona de pagamentos CASH.
+"""Testes de confirmação manual síncrona de pagamentos CASH e MAQUININHA.
 
 Casos cobertos:
   1.  create_payment(method="CASH") → external_charge_id=None, status=PENDING
@@ -10,7 +10,11 @@ Casos cobertos:
   7.  EventBus payment.confirmed emitido após confirm_manual
   8.  confirm_manual chama confirm() com event_id determinístico (f"manual-{id}")
   9.  confirm_manual em Payment provider=manual → permitido
-  10. webhook_data sintético usa net_charged_amount e fee="0"
+  10. webhook_data sintético usa net_charged_amount e fee="0" para CASH
+  11. fee_source=None para CASH (sem routing de taxa)
+  12. confirm_manual MAQUININHA_CREDIT com política 3.99% → fee calculado
+  13. confirm_manual MAQUININHA sem política ativa → fee=0 (gracioso)
+  14. confirm_manual MAQUININHA_DEBIT usa política MAQUININHA_DEBIT
 """
 import uuid
 from decimal import Decimal
@@ -31,6 +35,7 @@ def _make_payment(
     payment_method="CASH",
     provider="manual",
     net_charged_amount=Decimal("100.00"),
+    gross_catalog_amount=None,
     provider_fee=Decimal("0.00"),
     target_account_id=None,
     external_charge_id=None,
@@ -42,6 +47,11 @@ def _make_payment(
     p.payment_method = payment_method
     p.provider = provider
     p.net_charged_amount = Decimal(str(net_charged_amount))
+    # gross_catalog_amount defaults to net_charged_amount (sem desconto)
+    p.gross_catalog_amount = (
+        Decimal(str(gross_catalog_amount)) if gross_catalog_amount is not None
+        else Decimal(str(net_charged_amount))
+    )
     p.provider_fee = Decimal(str(provider_fee))
     p.target_account_id = target_account_id or uuid.uuid4()
     p.external_charge_id = external_charge_id
@@ -447,3 +457,115 @@ def test_fee_source_is_none_for_cash():
 
     assert _fee_source_for("CASH") is None
     assert _fee_source_for("cash") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. confirm_manual MAQUININHA_CREDIT com política 3.99% → fee calculado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_credit_fee_calculated():
+    """confirm_manual MAQUININHA_CREDIT com política 3.99% → fee = gross * 0.0399."""
+    gross = Decimal("100.00")
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        provider="manual",
+        net_charged_amount=gross,
+        gross_catalog_amount=gross,
+    )
+    db = _make_db()
+
+    policy = MagicMock()
+    policy.is_active = True
+    policy.fee_percentage = Decimal("3.99")
+    policy.fee_flat = Decimal("0")
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "3.99"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. confirm_manual MAQUININHA sem política ativa → fee=0 (gracioso)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
+    """confirm_manual MAQUININHA sem política ativa → fee=0, não bloqueia fluxo."""
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        provider="manual",
+        gross_catalog_amount=Decimal("100.00"),
+    )
+    db = _make_db()
+    # _make_db() retorna None para qualquer db.query().filter().first()
+    # → política não encontrada → fee deve ser 0
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        result = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "0"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. confirm_manual MAQUININHA_DEBIT usa política MAQUININHA_DEBIT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_maquininha_debit_uses_debit_policy():
+    """confirm_manual MAQUININHA_DEBIT calcula fee com política MAQUININHA_DEBIT (1.5%)."""
+    gross = Decimal("200.00")
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA_DEBIT",
+        provider="manual",
+        gross_catalog_amount=gross,
+        net_charged_amount=gross,
+    )
+    db = _make_db()
+
+    policy = MagicMock()
+    policy.is_active = True
+    policy.fee_percentage = Decimal("1.5")
+    policy.fee_flat = Decimal("0")
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    # fee = 200 * 1.5 / 100 = 3.00
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "3.00"
