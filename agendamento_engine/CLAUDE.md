@@ -21,8 +21,8 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** d1e2f3g4h5i6 (align_orm_schema_gaps)
-**Total migrations Fase 2 + alinhamento:** 20 (k1→d1)
+**HEAD migration:** g3h4i5j6k7l8 (add_maquininha_pix_fee_source)
+**Total migrations Fase 2 + alinhamento + Sprint Integrações:** 24 (k1→d1→e1→psg→f2→g3)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
@@ -35,6 +35,56 @@
 - DepositPolicy por serviço ou global
 
 **HEAD migration:** y1z2a3b4c5d6 (add_deposit_policies)
+
+## Sprint de Integrações (pós-Fase 2)
+
+### Email / CommunicationService
+- Canal EMAIL em `dispatch()` via Mailtrap HTTP API (fallback: smtplib se SMTP_HOST configurado)
+- `_send_email()` em `modules/communication/service.py`
+- `forgot_password()` e `send_invite()` passam `recipient_email` no context
+- MAILTRAP_API_TOKEN + MAILTRAP_SANDBOX_INBOX_ID em config.py
+- Nota: Railway bloqueia SMTP (25/465/587/2525); usar Mailtrap HTTP API ou SendGrid em produção
+- Templates `auth.password_reset_requested` e `user.invitation_sent` channel=EMAIL em `_DEFAULT_TEMPLATES`
+
+### Asaas — correções críticas
+- `create_payment()` chama `provider.create_charge()` antes do commit → `payment.external_charge_id` preenchido
+- `confirm()` extrai value/fee do payload aninhado: `webhook_data.get("payment", {}).get("value")`
+- Lazy registration de customer Asaas: `ensure_customer()` na primeira cobrança → `Customer.asaas_customer_id`
+- `validate_and_clean_cpf_cnpj()` em `payments/service.py` — valida dígitos verificadores antes do Asaas
+- **Dívida**: `create_subaccount()` sem `birthDate` — bloqueia produção Asaas com CPF
+
+### PagSeguro (novo provider)
+- `providers/pagseguro.py` — PagSeguroProvider(PaymentProvider) para terminais físicos
+- OAuth2 client_credentials via `_authenticate()` — token descartado após uso
+- `create_charge()`, `handle_webhook()`, `get_status()` implementados para terminal físico
+- `refund()` — **STUB, endpoint `/charges/{id}/cancel` NÃO confirmado pela documentação PagBank (2026-06-03)**
+- `list_terminals()` — **STUB, endpoint REST de listagem não encontrado na documentação pública**
+- Decisão arquitetural: PagSeguro Point não tem REST API pública para push de cobranças
+  → SmartPOS/PlugPag usam SDK Android; TEF usa middleware de parceiros — sem REST direto
+- Migration `psg1a2b3c4d5`: `credentialprovider` enum recebeu valor 'PAGSEGURO'
+- Factory em `provider_factory.py`: PAGSEGURO credential → PagSeguroProvider; fallback → AsaasProvider
+
+### Pagamento manual / MAQUININHA
+- `POST /payments/{id}/confirm-manual` — OWNER/ADMIN; CASH e provider=manual
+- `confirm_manual()` retorna `tuple[Payment, Optional[dict]]` — segundo elemento é `fee_warning`
+- `_calc_manual_fee()` consulta `TenantFeeRoutingPolicy` pelo `fee_source` do payment_method
+- `fee_percentage=NULL` → fee=0 + `fee_warning` no response (taxa não configurada)
+- `fee_percentage=0` → fee=0 sem warning (zero configurado explicitamente)
+- `event_id` sintético determinístico: `f"manual-{payment.payment_id}"` — garante idempotência
+- `MAQUININHA` (genérico) + `payment_submethod`: DEBIT → MAQUININHA_DEBIT; CREDIT/None → MAQUININHA_CREDIT
+
+### Taxa MDR — fee-policies
+- `GET  /financial/fee-policies` — OWNER/ADMIN; lista 8 políticas por tenant
+- `PATCH /financial/fee-policies/{fee_source}` — OWNER/ADMIN; atualiza fee_percentage / fee_flat
+- `fee_source` válidos agora incluem: `MAQUININHA_PIX` (adicionado neste sprint)
+- Novos tenants: MAQUININHA_PIX criado com fee_percentage=NULL; demais com fee_percentage=0
+- Migration `f2g3h4i5j6k7`: ADD COLUMN fee_percentage (nullable), fee_flat, is_active
+- Migration `g3h4i5j6k7l8`: DROP NOT NULL fee_percentage + seed MAQUININHA_PIX para tenants existentes
+
+### Evolution API — hardening
+- Webhook `POST /whatsapp/webhook` valida `EVOLUTION_WEBHOOK_SECRET` se configurado
+- Header validado: `x-evolution-global-apikey`; sem segredo configurado → sem validação
+- `EVOLUTION_WEBHOOK_SECRET: str = ""` em config.py (default = sem validação)
 
 ## Transfer + Reconciliação + CashCount (Sprint 7 concluído)
 - Transfer: 2 Movements atômicos; sem Entry
@@ -163,6 +213,8 @@
 - Não enviar ação SELECT_SHIFT pelo FSM — AWAITING_SHIFT foi removido
   do fluxo principal. O endpoint stateless GET /booking/{slug}/slots?shift=
   ainda funciona; apenas o step do FSM foi eliminado.
+- Não chamar `provider.refund()` para PagSeguro em produção — endpoint não confirmado (stub retorna 500)
+- Não usar revision ID `e1f2g3h4i5j6` para Sprint 11 — já em uso por add_asaas_customer_id
 
 ## Decisões registradas
 
@@ -170,6 +222,14 @@
 - Evolution API permanece global no Estágio 0 (Opção A — confirmada no Sprint 5):
   WHATSAPP_EVOLUTION no enum provider é schema-only; migração whatsapp_connection
   não aplicável no Estágio 0
+- PagSeguro Point: documentação pública não expõe REST API para push de cobranças a terminais físicos.
+  Soluções físicas (SmartPOS, PlugPag, TEF, Tap On) usam SDK Android, Bluetooth ou Intent local.
+  PagSeguroProvider.create_charge() usa endpoint /orders como proxy — não confirmado para Point.
+  Decisão: não ativar PagSeguro Point em produção até confirmar endpoint com time comercial PagBank.
+
+- fee_percentage NULL vs. zero: NULL = "não configurado" → dispara fee_warning em confirm_manual.
+  Zero = "0% configurado" → sem aviso, sem taxa. Semântica intencional para MAQUININHA_PIX.
+  Tenants pré-sprint têm MAQUININHA_CREDIT/DEBIT com fee_percentage=0 (DEFAULT da migration) — sem warning.
 
 ## Bugs conhecidos / corrigidos
 
@@ -202,6 +262,10 @@
 - Asaas create_subaccount: campo birthDate obrigatório para CPF;
   onboarding atual não coleta o campo; novos tenants ficam sem
   external_account_id até ser corrigido
+- Asaas refund: payment_service.refund() não chama provider.refund() — estorno apenas
+  contábil local; gateway externo não processa o estorno automaticamente
+- PagSeguro Point: REST API para push de cobranças não documentada publicamente;
+  create_charge() e list_terminals() são stubs aguardando confirmação do time comercial PagBank
 - Email em produção: Railway bloqueia SMTP (portas 25/465/587/2525);
   implementação atual usa Mailtrap HTTP API (sandbox only);
   substituir por SendGrid/Mailgun/Mailtrap Email API antes de ir a produção
