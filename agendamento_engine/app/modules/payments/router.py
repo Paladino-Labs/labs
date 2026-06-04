@@ -27,6 +27,7 @@ Endpoints PagSeguro Point:
       Retorna [] se o provider ativo não for PagSeguroProvider.
 """
 import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -40,6 +41,7 @@ from app.infrastructure.db.models.payment_source import PaymentSource
 from app.infrastructure.db.session import get_db
 from app.modules.payments import service as payment_service
 from app.modules.payments.schemas import (
+    ConfirmManualRequest,
     ConfirmManualResponse,
     DepositPolicyCreate,
     DepositPolicyResponse,
@@ -160,6 +162,7 @@ def get_payment(
 @router.post("/payments/{payment_id}/confirm-manual", response_model=ConfirmManualResponse)
 def confirm_manual_payment(
     payment_id: UUID,
+    body: Optional[ConfirmManualRequest] = None,
     user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
@@ -167,6 +170,7 @@ def confirm_manual_payment(
         payment_id=payment_id,
         company_id=user.company_id,
         db=db,
+        payment_submethod=body.payment_submethod if body else None,
     )
     response = ConfirmManualResponse.model_validate(payment)
     if fee_warning_data:

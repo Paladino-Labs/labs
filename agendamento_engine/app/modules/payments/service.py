@@ -364,7 +364,7 @@ def confirm(
 
 
 def _calc_manual_fee(
-    payment: Payment, db: Session
+    payment: Payment, db: Session, payment_submethod: Optional[str] = None
 ) -> tuple[Decimal, Optional[str]]:
     """Calcula taxa MDR para pagamento manual. Retorna (fee, warning_fee_source).
 
@@ -373,14 +373,12 @@ def _calc_manual_fee(
       - Política ativa mas fee_percentage IS NULL (não configurado pelo operador).
 
     CASH → (Decimal("0"), None) — sem consulta ao banco.
-    MAQUININHA / MAQUININHA_CREDIT → consulta política MAQUININHA_CREDIT.
+    MAQUININHA (genérico) + payment_submethod="DEBIT" → consulta MAQUININHA_DEBIT.
+    MAQUININHA (genérico) + payment_submethod="CREDIT" ou None → consulta MAQUININHA_CREDIT.
+    MAQUININHA_CREDIT → consulta política MAQUININHA_CREDIT.
     MAQUININHA_DEBIT → consulta política MAQUININHA_DEBIT.
     MAQUININHA_PIX   → consulta política MAQUININHA_PIX.
     Outros métodos   → (Decimal("0"), None) sem consulta.
-
-    # TODO: usar payment_submethod ("CREDIT"/"DEBIT") para distinguir
-    #        MAQUININHA_CREDIT vs MAQUININHA_DEBIT quando o campo for
-    #        implementado em PaymentCreate e salvo no Payment.
     """
     method = payment.payment_method.upper()
 
@@ -390,8 +388,14 @@ def _calc_manual_fee(
     if method not in _MAQUININHA_METHODS:
         return Decimal("0"), None
 
-    # _PAYMENT_METHOD_TO_FEE_SOURCE contém todos os _MAQUININHA_METHODS
     fee_source = _PAYMENT_METHOD_TO_FEE_SOURCE[method]
+    # Quando method é "MAQUININHA" (genérico), payment_submethod determina crédito vs débito
+    if method == "MAQUININHA" and payment_submethod:
+        submethod = payment_submethod.upper()
+        if submethod == "DEBIT":
+            fee_source = "MAQUININHA_DEBIT"
+        elif submethod == "CREDIT":
+            fee_source = "MAQUININHA_CREDIT"
 
     policy = (
         db.query(TenantFeeRoutingPolicy)
@@ -426,6 +430,7 @@ def confirm_manual(
     payment_id: UUID,
     company_id: UUID,
     db: Session,
+    payment_submethod: Optional[str] = None,
 ) -> tuple[Payment, Optional[dict]]:
     """Confirma pagamento CASH ou provider=manual de forma síncrona e idempotente.
 
@@ -469,7 +474,7 @@ def confirm_manual(
             detail=f"Pagamento deve estar PENDING para confirmação manual. Status atual: {payment.status}",
         )
 
-    fee, warning_fee_source = _calc_manual_fee(payment, db)
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=payment_submethod)
 
     fee_warning: Optional[dict] = None
     if warning_fee_source:

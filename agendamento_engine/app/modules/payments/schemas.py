@@ -46,6 +46,15 @@ class PaymentCreate(BaseModel):
     # Campos usados para registro no Asaas (obrigatórios para PIX/BOLETO)
     customer_cpf_cnpj: Optional[str] = None   # apenas dígitos, e.g. "12345678901"
     due_date: Optional[date] = None            # padrão: hoje
+    # Submethod para MAQUININHA genérico: "CREDIT" | "DEBIT" | None
+    # Determina fee_source correto em _calc_manual_fee (MAQUININHA_CREDIT vs MAQUININHA_DEBIT)
+    payment_submethod: Optional[str] = None
+
+
+class ConfirmManualRequest(BaseModel):
+    # Aceita: "CREDIT" | "DEBIT" | None
+    # Usado quando payment_method="MAQUININHA" para determinar fee_source correto
+    payment_submethod: Optional[str] = None
 
 
 class PaymentResponse(BaseModel):

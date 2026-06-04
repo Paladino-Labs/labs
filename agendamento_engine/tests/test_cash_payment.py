@@ -670,3 +670,52 @@ def test_confirm_manual_maquininha_debit_uses_debit_policy():
     # fee = 200 * 1.5 / 100 = 3.00
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "3.00"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# payment_submethod: MAQUININHA genérico usa submethod para selecionar fee_source
+# Testado via _calc_manual_fee com política ausente → warning_fee_source revela
+# qual fee_source foi consultado.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_calc_manual_fee_maquininha_submethod_debit_uses_debit_source():
+    """MAQUININHA + payment_submethod='DEBIT' deve consultar MAQUININHA_DEBIT."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="MAQUININHA", provider="manual")
+    db = _make_db()
+    # Nenhuma política cadastrada → warning_fee_source retorna o fee_source consultado
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod="DEBIT")
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == "MAQUININHA_DEBIT"
+
+
+def test_calc_manual_fee_maquininha_submethod_credit_uses_credit_source():
+    """MAQUININHA + payment_submethod='CREDIT' deve consultar MAQUININHA_CREDIT."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="MAQUININHA", provider="manual")
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod="CREDIT")
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == "MAQUININHA_CREDIT"
+
+
+def test_calc_manual_fee_maquininha_submethod_none_defaults_to_credit():
+    """MAQUININHA + payment_submethod=None deve consultar MAQUININHA_CREDIT (default)."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="MAQUININHA", provider="manual")
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=None)
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == "MAQUININHA_CREDIT"
