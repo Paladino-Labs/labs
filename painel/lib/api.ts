@@ -1,5 +1,13 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL!
 
+function parseDetailMessage(detail: unknown): string {
+  if (Array.isArray(detail)) {
+    return detail.map((d: { msg?: string }) => d.msg ?? "Erro de validação").join("; ")
+  }
+  if (typeof detail === "string") return detail
+  return "Erro desconhecido"
+}
+
 function getToken(): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem("token")
@@ -33,7 +41,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    const err = Object.assign(new Error(body.detail ?? "Erro desconhecido"), {
+    const err = Object.assign(new Error(parseDetailMessage(body.detail)), {
       status: res.status,
     }) as ApiError
 
@@ -64,7 +72,7 @@ async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    const err = Object.assign(new Error(body.detail ?? "Erro desconhecido"), {
+    const err = Object.assign(new Error(parseDetailMessage(body.detail)), {
       status: res.status,
     }) as ApiError
 
@@ -91,7 +99,7 @@ export async function publicFetch<T>(path: string, options?: RequestInit): Promi
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? "Erro desconhecido")
+    throw new Error(parseDetailMessage(body.detail))
   }
 
   if (res.status === 204) return undefined as T
