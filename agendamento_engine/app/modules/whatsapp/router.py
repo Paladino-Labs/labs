@@ -85,12 +85,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     Recebe eventos da Evolution API (messages.upsert, connection.update, qrcode.updated).
 
     Segurança: se EVOLUTION_WEBHOOK_SECRET estiver configurado, o header
-    "x-evolution-global-apikey" deve corresponder; caso contrário retorna 401.
-    Configure IGNORE_WEBHOOK_ERRORS na Evolution API para que o 401 não desabilite
-    a instância. Sem segredo configurado, qualquer request é aceito (modo legado).
+    "apikey" enviado pela Evolution API deve corresponder ao segredo; caso
+    contrário retorna 401. Sem segredo configurado, qualquer request é aceito.
     """
     if settings.EVOLUTION_WEBHOOK_SECRET:
-        incoming_key = request.headers.get("x-evolution-global-apikey", "")
+        incoming_key = request.headers.get("apikey", "")
         if incoming_key != settings.EVOLUTION_WEBHOOK_SECRET:
             logger.warning("webhook: segredo inválido, request rejeitado")
             return JSONResponse(status_code=401, content={"status": "rejected"})
