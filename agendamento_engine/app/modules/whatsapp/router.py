@@ -88,19 +88,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     "apikey" enviado pela Evolution API deve corresponder ao segredo; caso
     contrário retorna 401. Sem segredo configurado, qualquer request é aceito.
     """
+    # Nota: Evolution API v2 (axios/1.x) NÃO envia header de autenticação
+    # nos webhooks. EVOLUTION_WEBHOOK_SECRET deve ficar vazio/não configurado.
+    # A segurança é garantida pela URL privada do webhook.
     if settings.EVOLUTION_WEBHOOK_SECRET:
-        # Tenta os dois nomes de header conhecidos da Evolution API
         incoming_key = (
             request.headers.get("apikey")
             or request.headers.get("x-evolution-global-apikey")
             or ""
         )
         if incoming_key != settings.EVOLUTION_WEBHOOK_SECRET:
-            # Log temporário de diagnóstico — remover após identificar o header correto
-            logger.warning(
-                "webhook: segredo inválido | headers recebidos: %s",
-                dict(request.headers),
-            )
+            logger.warning("webhook: segredo inválido, request rejeitado")
             return JSONResponse(status_code=401, content={"status": "rejected"})
 
     try:
