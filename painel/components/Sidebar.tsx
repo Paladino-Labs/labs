@@ -7,15 +7,12 @@ import { useAuth } from "@/hooks/useAuth"
 import { cn } from "@/lib/utils"
 import {
   LayoutDashboard,
-  CalendarDays,
   Users,
   Scissors,
   UserCircle,
   Package,
-  CreditCard,
   Settings,
-  Link2,
-  UserCog,
+  Wallet,
   LogOut,
   Sun,
   Moon,
@@ -23,16 +20,18 @@ import {
 import Image from "next/image"
 import { useTheme } from "@/lib/theme"
 
-const NAV_LINKS = [
-  { href: "/dashboard",        label: "Início",            icon: LayoutDashboard, roles: null },
-  { href: "/appointments",     label: "Agendamentos",      icon: CalendarDays,    roles: null },
+const NAV_LINKS: Array<{
+  href: string
+  label: string
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
+  roles: string[] | null
+}> = [
+  { href: "/dashboard",        label: "Painel",            icon: LayoutDashboard, roles: null },
   { href: "/customers",        label: "Clientes",          icon: Users,           roles: null },
   { href: "/services",         label: "Serviços",          icon: Scissors,        roles: null },
   { href: "/professionals",    label: "Barbeiros",         icon: UserCircle,      roles: null },
   { href: "/products",         label: "Produtos",          icon: Package,         roles: null },
-  { href: "/payments",         label: "Pagamentos",        icon: CreditCard,      roles: null },
-  { href: "/integrations",     label: "Integrações",       icon: Link2,           roles: null },
-  { href: "/users",            label: "Usuários",          icon: UserCog,         roles: ["OWNER", "ADMIN", "PLATFORM_OWNER"] },
+  { href: "/financeiro",       label: "Financeiro",        icon: Wallet,          roles: null },
   { href: "/settings",         label: "Configurações",     icon: Settings,        roles: null },
 ]
 
@@ -51,16 +50,20 @@ function SidebarContent({
   email,
   role,
   logout,
+  name,
   onNavigate,
 }: {
   pathname: string
   email: string | null
   role: string | null
   logout: () => void
+  name: string | null
   onNavigate?: () => void
 }) {
   const initials = getInitials(email)
-  const displayName = email?.split("@")[0]?.replace(/[._]/g, " ") ?? "Usuário"
+  const displayName = name
+    ?? email?.split("@")[0]?.replace(/[._]/g, " ")
+    ?? "Usuário"
   const { theme, toggle } = useTheme()
 
   return (
@@ -71,9 +74,9 @@ function SidebarContent({
         <Image
           src="/paladino-wordmark.png"
           alt="Paladino"
-          width={120}
-          height={32}
-          className="h-8 w-auto object-contain"
+          width={160}
+          height={40}
+          className="h-10 w-auto object-contain"
           priority
         />
       </div>
@@ -81,7 +84,7 @@ function SidebarContent({
       {/* Nav */}
       <nav className="flex-1 px-4 py-5 overflow-y-auto">
         <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-3 px-2">
-          Navegação
+          MENU
         </p>
         <div className="space-y-0.5">
           {NAV_LINKS.filter(({ roles }) => !roles || roles.includes(role ?? "")).map(({ href, label, icon: Icon }) => {
@@ -171,7 +174,7 @@ function SidebarContent({
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { email, role, logout } = useAuth()
+  const { email, role, logout, name } = useAuth()
   const [open, setOpen] = useState(false)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -182,7 +185,7 @@ export default function Sidebar() {
     return () => { document.body.style.overflow = "" }
   }, [open])
 
-  const contentProps = { pathname, email, role, logout }
+  const contentProps = { pathname, email, role, logout, name }
 
   return (
     <>

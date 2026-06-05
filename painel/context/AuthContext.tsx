@@ -9,6 +9,7 @@ interface AuthContextValue {
   userId: string | null
   email: string | null
   companyId: string | null
+  name: string | null
   isAdmin: boolean
   hydrated: boolean   // true após validação do token (localStorage + servidor)
   login: (token: string) => void
@@ -21,6 +22,7 @@ export const AuthContext = createContext<AuthContextValue>({
   userId: null,
   email: null,
   companyId: null,
+  name: null,
   isAdmin: false,
   hydrated: false,
   login: () => {},
@@ -66,6 +68,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [name, setName] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
 
   function applyUserData(t: string, payload: JwtPayload) {
@@ -85,6 +88,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     setUserId(null)
     setEmail(null)
     setCompanyId(null)
+    setName(null)
     window.location.replace("/")
   }, [])
 
@@ -130,6 +134,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         if (data === null) return
         // Token válido — aplica dados do payload (evita round-trip extra)
         applyUserData(stored, payload)
+        if (data?.name) setName(data.name)
         setHydrated(true)
       })
       .catch(() => {
@@ -156,6 +161,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         userId,
         email,
         companyId,
+        name,
         isAdmin: role === "ADMIN",
         hydrated,
         login,
