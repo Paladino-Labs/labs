@@ -41,7 +41,7 @@ function AccessRestricted() {
 }
 
 export default function TaxasPage() {
-  const { role } = useAuth()
+  const { role, hydrated } = useAuth()
   const [policies, setPolicies] = useState<FeePolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +54,7 @@ export default function TaxasPage() {
   const canAccess = role === "OWNER" || role === "ADMIN"
 
   useEffect(() => {
+    if (!hydrated) return
     if (!canAccess) return
     api
       .get<FeePolicy[]>("/financial/fee-policies")
@@ -70,7 +71,7 @@ export default function TaxasPage() {
       })
       .catch((e: unknown) => setError((e as Error).message ?? "Erro ao carregar taxas"))
       .finally(() => setLoading(false))
-  }, [canAccess])
+  }, [canAccess, hydrated])
 
   if (!canAccess) return <AccessRestricted />
   if (loading) return <p className="text-muted-foreground">Carregando…</p>
