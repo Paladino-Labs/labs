@@ -48,7 +48,7 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
   return <Badge variant={variant}>{label}</Badge>
 }
 
-// ─── Aba WhatsApp + Agendamento Online ───────────────────────────────────────
+// ─── Aba WhatsApp ─────────────────────────────────────────────────────────────
 
 function TabWhatsApp() {
   const [conn, setConn] = useState<ConnectionState>({ status: "DISCONNECTED" })
