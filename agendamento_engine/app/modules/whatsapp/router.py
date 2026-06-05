@@ -89,9 +89,18 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     contrário retorna 401. Sem segredo configurado, qualquer request é aceito.
     """
     if settings.EVOLUTION_WEBHOOK_SECRET:
-        incoming_key = request.headers.get("apikey", "")
+        # Tenta os dois nomes de header conhecidos da Evolution API
+        incoming_key = (
+            request.headers.get("apikey")
+            or request.headers.get("x-evolution-global-apikey")
+            or ""
+        )
         if incoming_key != settings.EVOLUTION_WEBHOOK_SECRET:
-            logger.warning("webhook: segredo inválido, request rejeitado")
+            # Log temporário de diagnóstico — remover após identificar o header correto
+            logger.warning(
+                "webhook: segredo inválido | headers recebidos: %s",
+                dict(request.headers),
+            )
             return JSONResponse(status_code=401, content={"status": "rejected"})
 
     try:
