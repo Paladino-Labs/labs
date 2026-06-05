@@ -629,7 +629,9 @@ export default function IntegracoesPage() {
         <TabsList>
           <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
           <TabsTrigger value="asaas">Asaas</TabsTrigger>
+          {/* TabPagSeguro — desabilitado até sandbox PagBank ser validado
           <TabsTrigger value="pagseguro">PagSeguro</TabsTrigger>
+          */}
         </TabsList>
 
         <TabsContent value="whatsapp">
@@ -640,9 +642,9 @@ export default function IntegracoesPage() {
           <TabAsaas />
         </TabsContent>
 
-        <TabsContent value="pagseguro">
-          <TabPagSeguro />
-        </TabsContent>
+        {/* TabPagSeguro — desabilitado até sandbox PagBank ser validado
+        <TabsContent value="pagseguro"><TabPagSeguro /></TabsContent>
+        */}
       </Tabs>
     </div>
   )
