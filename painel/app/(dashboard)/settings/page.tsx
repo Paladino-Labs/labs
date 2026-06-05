@@ -1,8 +1,14 @@
 import Link from "next/link"
-import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare } from "lucide-react"
+import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, UserCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 const sections = [
+  {
+    href: "/settings/perfil",
+    icon: UserCircle,
+    title: "Meu Perfil",
+    description: "Nome e informações da sua conta",
+  },
   {
     href: "/settings/profile",
     icon: Building2,

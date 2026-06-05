@@ -14,6 +14,7 @@ interface AuthContextValue {
   hydrated: boolean   // true após validação do token (localStorage + servidor)
   login: (token: string) => void
   logout: () => void
+  setName: (name: string | null) => void
 }
 
 export const AuthContext = createContext<AuthContextValue>({
@@ -27,6 +28,7 @@ export const AuthContext = createContext<AuthContextValue>({
   hydrated: false,
   login: () => {},
   logout: () => {},
+  setName: () => {},
 })
 
 interface JwtPayload {
@@ -166,6 +168,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         hydrated,
         login,
         logout,
+        setName,
       }}
     >
       {children}
