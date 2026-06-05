@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Camera, CheckCircle2, ExternalLink, Music2, Star } from "lucide-react"
+import { Camera, Check, CheckCircle2, ExternalLink, Link2, Music2, Star } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 
 // ─── Tipo ─────────────────────────────────────────────────────────────────────
@@ -225,6 +225,11 @@ function GalleryField({
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
+interface CompanyBookingData {
+  slug?: string | null
+  settings?: { online_booking_enabled?: boolean } | null
+}
+
 export default function CompanyProfilePage() {
   const [form,    setForm]    = useState<CompanyProfile>(EMPTY)
   const [loading, setLoading] = useState(true)
@@ -232,12 +237,36 @@ export default function CompanyProfilePage() {
   const [success, setSuccess] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
+  // ── Estados — Agendamento Online ───────────────────────────────────────────
+  const [bookingCompany, setBookingCompany] = useState<CompanyBookingData | null>(null)
+  const [isOnlineBookingEnabled, setIsOnlineBookingEnabled] = useState(false)
+  const [slugInput, setSlugInput] = useState("")
+  const [savingSlug, setSavingSlug] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [bookingUrl, setBookingUrl] = useState<string | null>(null)
+
   // ── Fetch inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
     api.get<Partial<Record<keyof CompanyProfile, string | string[] | null>>>("/company/profile")
       .then((data) => setForm(normalizeProfile(data)))
       .catch(() => setError("Não foi possível carregar o perfil."))
       .finally(() => setLoading(false))
+  }, [])
+
+  // ── Fetch agendamento online (endpoint separado) ────────────────────────────
+  useEffect(() => {
+    api.get<CompanyBookingData>("/companies/me")
+      .then((d) => {
+        setBookingCompany(d)
+        setIsOnlineBookingEnabled(d.settings?.online_booking_enabled ?? false)
+        setSlugInput(d.slug ?? "")
+        if (d.slug) {
+          api.get<{ booking_url: string }>(`/booking/${d.slug}/info`)
+            .then((info) => setBookingUrl(info.booking_url))
+            .catch(() => {})
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -248,6 +277,41 @@ export default function CompanyProfilePage() {
   function handleInput(field: keyof CompanyProfile) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((prev) => ({ ...prev, [field]: e.target.value }))
+  }
+
+  // ── Funções — Agendamento Online ───────────────────────────────────────────
+  async function handleSaveSlug() {
+    if (!slugInput.trim()) return
+    setSavingSlug(true)
+    try {
+      const newSlug = slugInput.trim()
+      await api.patch("/companies/me", { company: { slug: newSlug } })
+      setBookingCompany((c) => c ? { ...c, slug: newSlug } : c)
+      api.get<{ booking_url: string }>(`/booking/${newSlug}/info`)
+        .then((info) => setBookingUrl(info.booking_url))
+        .catch(() => {})
+    } catch (e: unknown) {
+      alert((e as Error).message)
+    } finally {
+      setSavingSlug(false)
+    }
+  }
+
+  async function handleToggleOnlineBooking() {
+    const next = !isOnlineBookingEnabled
+    try {
+      await api.patch("/companies/me", { settings: { online_booking_enabled: next } })
+      setIsOnlineBookingEnabled(next)
+    } catch (e: unknown) {
+      alert((e as Error).message)
+    }
+  }
+
+  function handleCopyLink() {
+    if (!bookingUrl) return
+    navigator.clipboard.writeText(bookingUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
@@ -446,6 +510,75 @@ export default function CompanyProfilePage() {
               </div>
             </div>
 
+          </CardContent>
+        </Card>
+
+        {/* ── Agendamento Online ───────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Link2 className="h-4 w-4" /> Agendamento Online
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                Link personalizado da sua empresa (somente letras, números e hífen).
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={slugInput}
+                  onChange={(e) => setSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  placeholder="minha-barbearia"
+                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveSlug}
+                  disabled={savingSlug || !slugInput.trim() || slugInput === bookingCompany?.slug}
+                >
+                  {savingSlug ? "Salvando…" : "Salvar"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Agendamento online:</span>
+              <button
+                type="button"
+                onClick={handleToggleOnlineBooking}
+                disabled={!bookingCompany?.slug}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${
+                  isOnlineBookingEnabled ? "bg-primary" : "bg-muted"
+                }`}
+                aria-label="Toggle online booking"
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    isOnlineBookingEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+              <span className="text-sm font-medium">
+                {isOnlineBookingEnabled ? "Ativado" : "Desativado"}
+              </span>
+            </div>
+            {!bookingCompany?.slug && (
+              <p className="text-xs text-muted-foreground">
+                Configure o link personalizado acima para ativar o agendamento online.
+              </p>
+            )}
+
+            {bookingUrl && isOnlineBookingEnabled && (
+              <div className="rounded-lg bg-muted px-3 py-2 text-sm break-all flex items-center justify-between gap-2">
+                <span className="text-muted-foreground font-mono text-xs">{bookingUrl}</span>
+                <Button type="button" size="sm" variant="outline" onClick={handleCopyLink}>
+                  {copied ? <><Check className="h-4 w-4" /> Copiado</> : "Copiar"}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 

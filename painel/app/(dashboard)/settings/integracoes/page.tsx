@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Check, Eye, EyeOff, Info, Link2, Smartphone, Timer } from "lucide-react"
+import { Eye, EyeOff, Info, Smartphone, Timer } from "lucide-react"
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -147,6 +147,19 @@ function TabWhatsApp() {
     }
   }
 
+  interface CompanyData {
+    settings?: { bot_enabled?: boolean } | null
+  }
+  const [isBotEnabled, setIsBotEnabled] = useState(false)
+
+  useEffect(() => {
+    api.get<CompanyData>("/companies/me")
+      .then((d) => {
+        setIsBotEnabled(d.settings?.bot_enabled ?? false)
+      })
+      .catch(() => {})
+  }, [])
+
   async function handleToggleBot() {
     const next = !isBotEnabled
     try {
@@ -157,141 +170,8 @@ function TabWhatsApp() {
     }
   }
 
-  interface CompanyData {
-    name: string
-    slug?: string | null
-    settings?: {
-      bot_enabled?: boolean
-      online_booking_enabled?: boolean
-    } | null
-  }
-  const [company, setCompany] = useState<CompanyData | null>(null)
-  const [isBotEnabled, setIsBotEnabled] = useState(false)
-  const [isOnlineBookingEnabled, setIsOnlineBookingEnabled] = useState(false)
-  const [slugInput, setSlugInput] = useState("")
-  const [savingSlug, setSavingSlug] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [bookingUrl, setBookingUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    api.get<CompanyData>("/companies/me")
-      .then((d) => {
-        setCompany(d)
-        setIsBotEnabled(d.settings?.bot_enabled ?? false)
-        setIsOnlineBookingEnabled(d.settings?.online_booking_enabled ?? false)
-        setSlugInput(d.slug ?? "")
-        if (d.slug) {
-          api.get<{ booking_url: string }>(`/booking/${d.slug}/info`)
-            .then((info) => setBookingUrl(info.booking_url))
-            .catch(() => {})
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  async function handleSaveSlug() {
-    if (!slugInput.trim()) return
-    setSavingSlug(true)
-    try {
-      const newSlug = slugInput.trim()
-      await api.patch("/companies/me", { company: { slug: newSlug } })
-      setCompany((c) => c ? { ...c, slug: newSlug } : c)
-      api.get<{ booking_url: string }>(`/booking/${newSlug}/info`)
-        .then((info) => setBookingUrl(info.booking_url))
-        .catch(() => {})
-    } catch (e: unknown) {
-      alert((e as Error).message)
-    } finally {
-      setSavingSlug(false)
-    }
-  }
-
-  async function handleToggleOnlineBooking() {
-    const next = !isOnlineBookingEnabled
-    try {
-      await api.patch("/companies/me", { settings: { online_booking_enabled: next } })
-      setIsOnlineBookingEnabled(next)
-    } catch (e: unknown) {
-      alert((e as Error).message)
-    }
-  }
-
-  function handleCopyLink() {
-    if (!bookingUrl) return
-    navigator.clipboard.writeText(bookingUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   return (
     <div className="space-y-6">
-      {/* Agendamento Online */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Link2 className="h-4 w-4" /> Agendamento Online
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">
-              Link personalizado da sua empresa (somente letras, números e hífen).
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={slugInput}
-                onChange={(e) => setSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                placeholder="minha-barbearia"
-                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button
-                size="sm"
-                onClick={handleSaveSlug}
-                disabled={savingSlug || !slugInput.trim() || slugInput === company?.slug}
-              >
-                {savingSlug ? "Salvando…" : "Salvar"}
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">Agendamento online:</span>
-            <button
-              onClick={handleToggleOnlineBooking}
-              disabled={!company?.slug}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${
-                isOnlineBookingEnabled ? "bg-primary" : "bg-muted"
-              }`}
-              aria-label="Toggle online booking"
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  isOnlineBookingEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-            <span className="text-sm font-medium">
-              {isOnlineBookingEnabled ? "Ativado" : "Desativado"}
-            </span>
-          </div>
-          {!company?.slug && (
-            <p className="text-xs text-muted-foreground">
-              Configure o link personalizado acima para ativar o agendamento online.
-            </p>
-          )}
-
-          {bookingUrl && isOnlineBookingEnabled && (
-            <div className="rounded-lg bg-muted px-3 py-2 text-sm break-all flex items-center justify-between gap-2">
-              <span className="text-muted-foreground font-mono text-xs">{bookingUrl}</span>
-              <Button size="sm" variant="outline" onClick={handleCopyLink}>
-                {copied ? <><Check className="h-4 w-4" /> Copiado</> : "Copiar"}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* WhatsApp Business */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
