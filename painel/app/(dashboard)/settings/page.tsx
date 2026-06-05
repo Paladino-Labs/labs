@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, Percent } from "lucide-react"
+import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 const sections = [
@@ -32,12 +32,6 @@ const sections = [
     icon: MessageSquare,
     title: "Comunicação",
     description: "Configurações de email e WhatsApp",
-  },
-  {
-    href: "/settings/taxas",
-    icon: Percent,
-    title: "Taxas MDR",
-    description: "Políticas de taxa por método de pagamento",
   },
 ]
 

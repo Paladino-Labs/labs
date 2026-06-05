@@ -254,7 +254,7 @@ function NovoPageContent() {
               feeSource={confirmResult.fee_warning.fee_source}
               message={confirmResult.fee_warning.message}
               onDismiss={() => setFeeWarningDismissed(true)}
-              onConfigureClick={() => router.push("/settings/taxas")}
+              onConfigureClick={() => router.push("/financeiro/taxas")}
             />
           )}
 

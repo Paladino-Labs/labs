@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { CreditCard, ArrowLeftRight, Plus, ChevronRight } from "lucide-react"
+import { CreditCard, ArrowLeftRight, Plus, ChevronRight, Percent } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 const sections = [
@@ -22,6 +22,12 @@ const sections = [
     icon: Plus,
     title: "Registrar pagamento",
     description: "Registre um novo pagamento manualmente",
+  },
+  {
+    href: "/financeiro/taxas",
+    icon: Percent,
+    title: "Taxas de maquininha",
+    description: "Configure as taxas por método de pagamento",
   },
 ]
 
