@@ -96,7 +96,8 @@ export default function DashboardPage() {
         .sort(
           (a, b) =>
             new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
-        ),
+        )
+        .slice(0, 8),
     [todayAppts],
   )
 
@@ -202,7 +203,7 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-primary/85">
           <span className="h-px w-8 bg-primary/50" />
-          <span>Overview · {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</span>
+          <span>{format(new Date(), "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR })}</span>
           <span className="h-px w-8 bg-primary/50" />
         </div>
         <h1 className="font-display text-5xl md:text-6xl tracking-tight">
@@ -233,7 +234,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <h2 className="font-display text-3xl tracking-wide">Próximos da casa</h2>
             <Link
-              href="/appointments"
+              href="/agenda"
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               ver agenda →
@@ -323,7 +324,10 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Quick action ─────────────────────────────────────────────────────── */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        <Button variant="outline" onClick={() => router.push("/financeiro/pagamentos/novo")}>
+          + Registrar pagamento
+        </Button>
         <Button onClick={() => router.push("/appointments/new")}>
           + Novo Agendamento
         </Button>

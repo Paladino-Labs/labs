@@ -86,8 +86,6 @@ export default function ProfessionalEditorPage() {
   const [prof, setProf] = useState<Professional | null>(null)
   const [editName, setEditName] = useState("")
   const [editSpecialty, setEditSpecialty] = useState("")
-  const [editCpfCnpj, setEditCpfCnpj] = useState("")
-  const [cpfCnpjError, setCpfCnpjError] = useState<string | null>(null)
   const [savingInfo, setSavingInfo] = useState(false)
 
   const [whRows, setWhRows] = useState<WhRow[]>(
@@ -122,7 +120,6 @@ export default function ProfessionalEditorPage() {
       setProf(profData)
       setEditName(profData.name)
       setEditSpecialty(profData.specialty ?? "")
-      setEditCpfCnpj("")  // nunca pré-preencher com valor criptografado
       setWhRows(mergeWh(wh))
       setProfServices(ps)
       setAllServices(svc)
@@ -136,55 +133,12 @@ export default function ProfessionalEditorPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // ── Validação client-side CPF/CNPJ ────────────────────────────────────────
-  function validateCpfCnpjClient(raw: string): string | null {
-    const digits = raw.replace(/\D/g, "")
-    if (digits.length === 0) return null
-    if (digits.length !== 11 && digits.length !== 14) {
-      return "CPF deve ter 11 dígitos ou CNPJ deve ter 14 dígitos"
-    }
-    if (digits.length === 11) {
-      if (digits === digits[0].repeat(11)) return "CPF inválido"
-      const check = (d: string, n: number) => {
-        const sum = Array.from({ length: n - 1 }, (_, i) => parseInt(d[i]) * (n - i)).reduce((a, b) => a + b, 0)
-        const r = (sum * 10) % 11
-        return r < 10 ? r : 0
-      }
-      if (check(digits, 10) !== parseInt(digits[9]) || check(digits, 11) !== parseInt(digits[10])) {
-        return "CPF inválido (dígito verificador)"
-      }
-    }
-    if (digits.length === 14) {
-      if (digits === digits[0].repeat(14)) return "CNPJ inválido"
-      const checkCnpj = (d: string, weights: number[]) => {
-        const sum = weights.reduce((acc, w, i) => acc + parseInt(d[i]) * w, 0)
-        const r = sum % 11
-        return r < 2 ? 0 : 11 - r
-      }
-      const w1 = [5,4,3,2,9,8,7,6,5,4,3,2]
-      const w2 = [6,5,4,3,2,9,8,7,6,5,4,3,2]
-      if (checkCnpj(digits, w1) !== parseInt(digits[12]) || checkCnpj(digits, w2) !== parseInt(digits[13])) {
-        return "CNPJ inválido (dígito verificador)"
-      }
-    }
-    return null
-  }
-
-  function handleCpfCnpjChange(raw: string) {
-    setEditCpfCnpj(raw)
-    setCpfCnpjError(validateCpfCnpjClient(raw))
-  }
-
   // ── Seção 1: Informações básicas ───────────────────────────────────────────
   async function handleSaveInfo() {
-    if (cpfCnpjError) return
     setSavingInfo(true)
     try {
       const body: Record<string, unknown> = { name: editName, specialty: editSpecialty || null }
-      const digits = editCpfCnpj.replace(/\D/g, "")
-      if (digits.length > 0) body.cpf_cnpj = editCpfCnpj
       await api.patch(`/professionals/${profId}`, body)
-      setEditCpfCnpj("")
       await fetchAll()
     } catch (e: unknown) {
       alert((e as Error).message)
@@ -347,34 +301,10 @@ export default function ProfessionalEditorPage() {
             />
           </div>
 
-          <div className="space-y-1">
-            <Label>CPF / CNPJ</Label>
-            {prof.cpf_cnpj_masked && (
-              <p className="text-sm text-muted-foreground mb-1">
-                Atual: <span className="font-mono">{prof.cpf_cnpj_masked}</span>
-              </p>
-            )}
-            <div className="flex flex-col gap-1">
-              <Input
-                value={editCpfCnpj}
-                onChange={(e) => handleCpfCnpjChange(e.target.value)}
-                placeholder={prof.cpf_cnpj_masked ? "Novo CPF/CNPJ para substituir" : "Digite o CPF ou CNPJ"}
-                className="max-w-xs font-mono"
-                inputMode="numeric"
-              />
-              {cpfCnpjError && (
-                <p className="text-xs text-destructive">{cpfCnpjError}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Será armazenado de forma criptografada. Exibição sempre mascarada.
-              </p>
-            </div>
-          </div>
-
           <div>
             <Button
               onClick={handleSaveInfo}
-              disabled={savingInfo || (editName.trim() === prof.name && editSpecialty === (prof.specialty ?? "") && editCpfCnpj.replace(/\D/g,"").length === 0) || !!cpfCnpjError}
+              disabled={savingInfo || (editName.trim() === prof.name && editSpecialty === (prof.specialty ?? ""))}
             >
               {savingInfo ? "Salvando…" : "Salvar informações"}
             </Button>
