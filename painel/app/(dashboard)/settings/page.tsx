@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Building2, KeyRound, ChevronRight } from "lucide-react"
+import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, Percent } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 const sections = [
@@ -14,6 +14,30 @@ const sections = [
     icon: KeyRound,
     title: "Segurança",
     description: "Alterar senha e configurações de acesso",
+  },
+  {
+    href: "/settings/usuarios",
+    icon: UserCog,
+    title: "Usuários",
+    description: "Gerenciar membros da equipe e convites",
+  },
+  {
+    href: "/settings/integracoes",
+    icon: Link2,
+    title: "Integrações",
+    description: "WhatsApp, Asaas e gateways de pagamento",
+  },
+  {
+    href: "/settings/comunicacao",
+    icon: MessageSquare,
+    title: "Comunicação",
+    description: "Configurações de email e WhatsApp",
+  },
+  {
+    href: "/settings/taxas",
+    icon: Percent,
+    title: "Taxas MDR",
+    description: "Políticas de taxa por método de pagamento",
   },
 ]
 
