@@ -38,7 +38,7 @@ def handle_payment_confirmed_notification(event) -> None:
                 db=db,
                 company_id=company_id,
                 recipient_id=UUID(customer_id),
-                recipient_type="customer",
+                recipient_type="CLIENT",
                 event_type="payment.confirmed",
                 context={
                     "payment_id": str(payment_id),

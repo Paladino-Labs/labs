@@ -87,11 +87,14 @@ class CommunicationService:
         db: Session,
     ) -> CommunicationLog:
         """
-        Enviar mensagem para um destinatário.
+        Enviar mensagem para um destinatario.
+
+        recipient_type e normalizado para uppercase — o enum
+        communicationaudience do PostgreSQL exige CLIENT, PROFESSIONAL, OWNER.
 
         Passos:
           1. Busca CommunicationSettings — algum canal habilitado?
-          2. Verifica quiet_hours (com distinção transacional vs automático).
+          2. Verifica quiet_hours (com distincao transacional vs automatico).
           3. Seleciona canal: EMAIL se email_enabled + template EMAIL existe;
              fallback para WHATSAPP se whatsapp_enabled + template WHATSAPP existe.
           4. ConsentRecord: Sprint 20. Skip gracioso por ora.
@@ -99,6 +102,7 @@ class CommunicationService:
           6. Envia via canal selecionado.
           7. Grava log com status SENT ou FAILED.
         """
+        recipient_type = recipient_type.upper()
         def _log(status: str, channel: str = "WHATSAPP", **kwargs) -> CommunicationLog:
             entry = CommunicationLog(
                 company_id=company_id,
