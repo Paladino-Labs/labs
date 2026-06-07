@@ -173,7 +173,18 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
         from app.modules.payments.service import validate_and_clean_cpf_cnpj
         _owner_cpf_cnpj_clean = validate_and_clean_cpf_cnpj(data.owner_cpf_cnpj)
 
-    company = Company(name=data.name, slug=data.slug)
+    company = Company(
+        name=data.name,
+        slug=data.slug,
+        owner_cpf_cnpj=_owner_cpf_cnpj_clean or None,
+        owner_birth_date=data.owner_birth_date or None,
+        owner_mobile_phone=data.owner_mobile_phone or None,
+        owner_income_value=data.owner_income_value,
+        owner_address=data.owner_address or None,
+        owner_address_number=data.owner_address_number or None,
+        owner_province=data.owner_province or None,
+        owner_postal_code=data.owner_postal_code or None,
+    )
     db.add(company)
     db.flush()  # gera company.id sem commit
 
@@ -266,9 +277,15 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
 
         result = provider.create_subaccount(
             name=company.name,
-            cpf_cnpj=_owner_cpf_cnpj_clean,
             email=owner_email,
-            birth_date=data.owner_birth_date or "",
+            cpf_cnpj=company.owner_cpf_cnpj or "",
+            birth_date=str(company.owner_birth_date) if company.owner_birth_date else "",
+            mobile_phone=company.owner_mobile_phone or "",
+            income_value=float(company.owner_income_value) if company.owner_income_value else None,
+            address=company.owner_address or "",
+            address_number=company.owner_address_number or "",
+            province=company.owner_province or "",
+            postal_code=company.owner_postal_code or "",
         )
         company.payment_provider = "asaas"
         company.external_account_id = result["accountId"]

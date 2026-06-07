@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean
+from sqlalchemy import Column, Numeric, String, Boolean
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from sqlalchemy.orm import relationship
 
@@ -24,6 +24,16 @@ class Company(Base, TimestampMixin):
     external_account_id = Column(String(255), nullable=True)
     external_account_status = Column(String(50), nullable=True)
     external_account_created_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    # Ajuste 9 — campos obrigatórios para criação de subconta Asaas
+    owner_cpf_cnpj = Column(String(20), nullable=True)
+    owner_birth_date = Column(String(10), nullable=True)
+    owner_mobile_phone = Column(String(20), nullable=True)
+    owner_income_value = Column(Numeric(12, 2), nullable=True)
+    owner_address = Column(String(200), nullable=True)
+    owner_address_number = Column(String(20), nullable=True)
+    owner_province = Column(String(100), nullable=True)
+    owner_postal_code = Column(String(10), nullable=True)
 
     users = relationship("User", back_populates="company", lazy="dynamic")
     professionals = relationship("Professional", back_populates="company", lazy="dynamic")

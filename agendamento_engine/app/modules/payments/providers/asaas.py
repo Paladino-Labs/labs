@@ -90,13 +90,23 @@ class AsaasProvider(PaymentProvider):
             raise AsaasError(f"Asaas connection error: {exc}") from exc
 
     def create_subaccount(
-        self, name: str, cpf_cnpj: str, email: str, birth_date: str = ""
+        self,
+        name: str,
+        cpf_cnpj: str,
+        email: str,
+        birth_date: str = "",
+        mobile_phone: str = "",
+        income_value: float | None = None,
+        address: str = "",
+        address_number: str = "",
+        province: str = "",
+        postal_code: str = "",
     ) -> dict:
-        """
-        Cria subconta Asaas.
+        """Cria subconta Asaas.
 
         cpf_cnpj: dígitos limpos (obrigatório em produção para CPF/MEI).
         birth_date: formato YYYY-MM-DD (obrigatório em produção quando cpf_cnpj é CPF).
+        Campos opcionais são incluídos no payload apenas quando não vazios/None.
         """
         payload: dict = {
             "name": name,
@@ -107,6 +117,18 @@ class AsaasProvider(PaymentProvider):
             payload["cpfCnpj"] = cpf_cnpj
         if birth_date:
             payload["birthDate"] = birth_date
+        if mobile_phone:
+            payload["mobilePhone"] = mobile_phone
+        if income_value:
+            payload["incomeValue"] = income_value
+        if address:
+            payload["address"] = address
+        if address_number:
+            payload["addressNumber"] = address_number
+        if province:
+            payload["province"] = province
+        if postal_code:
+            payload["postalCode"] = postal_code
         data = self._post("/accounts", payload)
         return {
             "accountId": data.get("id", data.get("accountId", "")),

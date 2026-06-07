@@ -29,6 +29,12 @@ class CompanyResponse(BaseModel):
 class CompanyUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     slug: Optional[str] = Field(None, min_length=1, max_length=100)
+    owner_mobile_phone: Optional[str] = None
+    owner_income_value: Optional[float] = None
+    owner_address: Optional[str] = None
+    owner_address_number: Optional[str] = None
+    owner_province: Optional[str] = None
+    owner_postal_code: Optional[str] = None
 
 
 class CompanySettingsUpdate(BaseModel):
@@ -51,3 +57,9 @@ class CompanyCreate(BaseModel):
     # Campos para subconta Asaas (obrigatórios em produção para pessoa física / MEI)
     owner_cpf_cnpj: Optional[str] = None    # apenas dígitos, e.g. "12345678901"
     owner_birth_date: Optional[str] = None  # formato YYYY-MM-DD
+    owner_mobile_phone: Optional[str] = None
+    owner_income_value: Optional[float] = None
+    owner_address: Optional[str] = None
+    owner_address_number: Optional[str] = None
+    owner_province: Optional[str] = None
+    owner_postal_code: Optional[str] = None

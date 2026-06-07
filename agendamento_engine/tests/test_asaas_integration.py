@@ -11,6 +11,10 @@ Casos cobertos:
   8.  [sandbox] get_status() retorna status válido para charge criada
   9.  handle_webhook() normaliza payload real Asaas (unit, sem sandbox)
   10. [sandbox] fluxo completo — curl/instruções para teste manual
+  11. create_subaccount com todos os campos → payload correto montado
+  12. create_subaccount com campos vazios → apenas name/email/companyType no payload
+  13. create_subaccount com income_value=None → incomeValue ausente do payload
+  14. update_company com novos campos → CompanyUpdate aceita os 6 novos campos
 """
 import os
 import uuid
@@ -284,27 +288,14 @@ _SANDBOX_SKIP = pytest.mark.skipif(
 @_SANDBOX_SKIP
 @pytest.mark.xfail(
     strict=False,
-    reason=(
-        "Asaas sandbox exige 'birthDate' para subcontas com CPF "
-        "(400: É necessário informar a data de nascimento). "
-        "O campo não está no payload de create_subaccount() em produção — "
-        "gap registrado para Sprint 12+."
-    ),
+    reason="CPF sandbox pode já estar registrado; comportamento esperado em ambiente compartilhado.",
 )
 def test_sandbox_create_subaccount():
-    """[sandbox] create_subaccount() deve retornar accountId sem HTTP error.
-
-    XFAIL conhecido: Asaas sandbox 400 "É necessário informar a data de nascimento."
-    O production code (asaas.py:create_subaccount) não inclui birthDate no payload.
-    Registrado como gap para correção futura — não bloqueia o Sprint atual.
-    """
+    """[sandbox] create_subaccount() com todos os campos → deve retornar accountId."""
     from app.modules.payments.providers.asaas import AsaasProvider
     from app.core.config import settings
 
-    # CPF de teste válido para o sandbox Asaas (dígitos verificadores corretos)
     _SANDBOX_CPF = "24971563792"
-
-    db = MagicMock()
 
     with patch(
         "app.modules.payments.providers.asaas._resolve_api_key",
@@ -318,6 +309,13 @@ def test_sandbox_create_subaccount():
         name="Empresa Teste Sandbox",
         cpf_cnpj=_SANDBOX_CPF,
         email="sandbox_test@paladino.app",
+        birth_date="1990-01-15",
+        mobile_phone="5562999990000",
+        income_value=5000.00,
+        address="Rua das Flores",
+        address_number="123",
+        province="Setor Central",
+        postal_code="74000000",
     )
 
     assert result.get("accountId"), f"accountId vazio: {result}"
@@ -488,6 +486,157 @@ def test_handle_webhook_real_payload_structure():
     # Ver: test_confirm_reads_value_and_fee_from_payment_sub_object
     assert "value" not in result, \
         "handle_webhook não deve expor 'value' diretamente (isso é papel do confirm)"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. create_subaccount com todos os campos → payload correto montado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_create_subaccount_full_payload():
+    """create_subaccount com todos os campos envia o payload completo ao Asaas."""
+    from app.modules.payments.providers.asaas import AsaasProvider
+
+    provider = AsaasProvider.__new__(AsaasProvider)
+    provider._api_key = "dummy"
+    provider._base_url = "https://sandbox.asaas.com/api/v3"
+
+    captured_payload = {}
+
+    def fake_post(path, body):
+        captured_payload.update(body)
+        return {"id": "acc_test123", "accountStatus": "pending_verification"}
+
+    provider._post = fake_post
+
+    result = provider.create_subaccount(
+        name="Barbearia Teste",
+        cpf_cnpj="24971563792",
+        email="owner@barbearia.com",
+        birth_date="1985-06-15",
+        mobile_phone="5562988887777",
+        income_value=8000.00,
+        address="Rua das Acácias",
+        address_number="42",
+        province="Jardim América",
+        postal_code="74110120",
+    )
+
+    assert captured_payload["name"] == "Barbearia Teste"
+    assert captured_payload["email"] == "owner@barbearia.com"
+    assert captured_payload["companyType"] == "MEI"
+    assert captured_payload["cpfCnpj"] == "24971563792"
+    assert captured_payload["birthDate"] == "1985-06-15"
+    assert captured_payload["mobilePhone"] == "5562988887777"
+    assert captured_payload["incomeValue"] == 8000.00
+    assert captured_payload["address"] == "Rua das Acácias"
+    assert captured_payload["addressNumber"] == "42"
+    assert captured_payload["province"] == "Jardim América"
+    assert captured_payload["postalCode"] == "74110120"
+    assert result["accountId"] == "acc_test123"
+    assert result["status"] == "pending_verification"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. create_subaccount com campos vazios → apenas name/email/companyType
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_create_subaccount_empty_fields_omitted():
+    """Campos vazios ou None não devem aparecer no payload enviado ao Asaas."""
+    from app.modules.payments.providers.asaas import AsaasProvider
+
+    provider = AsaasProvider.__new__(AsaasProvider)
+    provider._api_key = "dummy"
+    provider._base_url = "https://sandbox.asaas.com/api/v3"
+
+    captured_payload = {}
+
+    def fake_post(path, body):
+        captured_payload.update(body)
+        return {"id": "acc_min123", "accountStatus": "pending_verification"}
+
+    provider._post = fake_post
+
+    provider.create_subaccount(
+        name="Empresa Mínima",
+        cpf_cnpj="",
+        email="minimal@example.com",
+    )
+
+    assert set(captured_payload.keys()) == {"name", "email", "companyType"}
+    assert "cpfCnpj" not in captured_payload
+    assert "birthDate" not in captured_payload
+    assert "mobilePhone" not in captured_payload
+    assert "incomeValue" not in captured_payload
+    assert "address" not in captured_payload
+    assert "addressNumber" not in captured_payload
+    assert "province" not in captured_payload
+    assert "postalCode" not in captured_payload
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. create_subaccount com income_value=None → incomeValue ausente do payload
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_create_subaccount_income_value_none_omitted():
+    """income_value=None não deve incluir incomeValue no payload."""
+    from app.modules.payments.providers.asaas import AsaasProvider
+
+    provider = AsaasProvider.__new__(AsaasProvider)
+    provider._api_key = "dummy"
+    provider._base_url = "https://sandbox.asaas.com/api/v3"
+
+    captured_payload = {}
+
+    def fake_post(path, body):
+        captured_payload.update(body)
+        return {"id": "acc_no_income", "accountStatus": "pending_verification"}
+
+    provider._post = fake_post
+
+    provider.create_subaccount(
+        name="Sem Renda",
+        cpf_cnpj="24971563792",
+        email="sem_renda@example.com",
+        mobile_phone="5562911112222",
+        income_value=None,
+        address="Rua Teste",
+        address_number="1",
+        province="Centro",
+        postal_code="74000001",
+    )
+
+    assert "incomeValue" not in captured_payload
+    assert captured_payload.get("mobilePhone") == "5562911112222"
+    assert captured_payload.get("address") == "Rua Teste"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. CompanyUpdate aceita os 6 novos campos
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_company_update_schema_accepts_new_fields():
+    """CompanyUpdate deve aceitar e expor os 6 novos campos owner_*."""
+    from app.modules.companies.schemas import CompanyUpdate
+
+    data = CompanyUpdate(
+        owner_mobile_phone="5562999990000",
+        owner_income_value=5000.0,
+        owner_address="Rua das Flores",
+        owner_address_number="123",
+        owner_province="Setor Central",
+        owner_postal_code="74000000",
+    )
+
+    dumped = data.model_dump(exclude_none=True)
+    assert dumped["owner_mobile_phone"] == "5562999990000"
+    assert dumped["owner_income_value"] == 5000.0
+    assert dumped["owner_address"] == "Rua das Flores"
+    assert dumped["owner_address_number"] == "123"
+    assert dumped["owner_province"] == "Setor Central"
+    assert dumped["owner_postal_code"] == "74000000"
+    # Campos de nome/slug não enviados → não presentes no dump
+    assert "name" not in dumped
+    assert "slug" not in dumped
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -56,12 +56,12 @@ def test_create_company_passes_cpf_and_birthdate_to_asaas():
         patch("app.modules.companies.service.Account"),
         patch("app.modules.companies.service.TenantFeeRoutingPolicy"),
     ):
-        MockCompany.return_value = company_mock
-
-        # Simula db.flush preenchendo company.id
-        def side_flush():
-            pass
-        db.flush.side_effect = side_flush
+        # Captura os kwargs passados a Company() e os reflete no mock
+        def make_company(**kwargs):
+            for k, v in kwargs.items():
+                setattr(company_mock, k, v)
+            return company_mock
+        MockCompany.side_effect = make_company
 
         # Busca owner user → retorna None (usa email fallback)
         db.query.return_value.filter.return_value.first.return_value = None
@@ -114,7 +114,12 @@ def test_create_company_without_cpf_calls_subaccount_without_cpf():
         patch("app.modules.companies.service.Account"),
         patch("app.modules.companies.service.TenantFeeRoutingPolicy"),
     ):
-        MockCompany.return_value = company_mock
+        # Captura os kwargs passados a Company() e os reflete no mock
+        def make_company(**kwargs):
+            for k, v in kwargs.items():
+                setattr(company_mock, k, v)
+            return company_mock
+        MockCompany.side_effect = make_company
 
         db.query.return_value.filter.return_value.first.return_value = None
 
