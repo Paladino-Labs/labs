@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_FEE_SOURCES = [
-    "ASAAS_PIX",
-    "ASAAS_CARD",
-    "MAQUININHA_DEBIT",
-    "MAQUININHA_CREDIT",
+    "CASH",
+    "PIX",
+    "BOLETO",
     "MAQUININHA_PIX",
-    "ANTECIPACAO",
-    "ESTORNO",
-    "RECORRENTE_FEE",
+    "MAQUININHA_CREDIT",
+    "MAQUININHA_DEBIT",
+    "CARD_CREDIT",
+    "CARD_DEBIT",
 ]
 
 # fee_sources que partem com fee_percentage=NULL (taxa ainda não configurada).

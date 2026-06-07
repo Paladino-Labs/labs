@@ -12,7 +12,7 @@ Casos cobertos:
   4. compute_balance com 50 Movements INFLOW+OUTFLOW mistos → resultado correto
   5. aggregate_dre retorna RECEITA, DESPESA, TAXA separados por categoria
   6. create_company → Account CAIXA criada + 7 TenantFeeRoutingPolicies (tenant_share=100%)
-  7. PUT /tenant/fee-routing/ASAAS_PIX com soma != 100 → 422
+  7. PUT /tenant/fee-routing/PIX com soma != 100 → 422
   8. handle_payment_confirmed: gross=100, fee=2 → Movement INFLOW 100 + Entry RECEITA + OUTFLOW 2 + TAXA
   9. handle_payment_confirmed: gross=100, fee=0 → apenas Movement INFLOW + Entry RECEITA
  10. Falha no segundo Movement → rollback completo (INFLOW não persiste)
@@ -431,8 +431,9 @@ class TestCreateCompanyHook:
 
         fee_sources = {p.fee_source for p in policy_objs}
         expected = {
-            "ASAAS_PIX", "ASAAS_CARD", "MAQUININHA_DEBIT",
-            "MAQUININHA_CREDIT", "MAQUININHA_PIX", "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
+            "CASH", "PIX", "BOLETO",
+            "MAQUININHA_PIX", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT",
+            "CARD_CREDIT", "CARD_DEBIT",
         }
         assert fee_sources == expected
 
@@ -459,7 +460,7 @@ class TestFeeRoutingValidation:
 
         with pytest.raises(HTTPException) as exc_info:
             update_fee_routing_policy(
-                fee_source="ASAAS_PIX",
+                fee_source="PIX",
                 client_share=Decimal("50"),
                 tenant_share=Decimal("30"),
                 professional_share=Decimal("10"),   # soma = 90, não 100
@@ -484,7 +485,7 @@ class TestFeeRoutingValidation:
 
         company_id = uuid.uuid4()
         result = update_fee_routing_policy(
-            fee_source="ASAAS_PIX",
+            fee_source="PIX",
             client_share=Decimal("20"),
             tenant_share=Decimal("70"),
             professional_share=Decimal("10"),
@@ -575,7 +576,7 @@ class TestHandlePaymentConfirmed:
                     gross_amount=Decimal("100.00"),
                     provider_fee=Decimal("2.00"),
                     target_account_id=account_id,
-                    fee_source="ASAAS_PIX",
+                    fee_source="PIX",
                     company_id=company_id,
                     db=mock_db,
                 )
@@ -631,7 +632,7 @@ class TestHandlePaymentConfirmed:
                     gross_amount=Decimal("100.00"),
                     provider_fee=Decimal("0"),
                     target_account_id=uuid.uuid4(),
-                    fee_source="ASAAS_PIX",
+                    fee_source="PIX",
                     company_id=uuid.uuid4(),
                     db=mock_db,
                 )
@@ -683,7 +684,7 @@ class TestHandlePaymentConfirmedRollback:
                         gross_amount=Decimal("100.00"),
                         provider_fee=Decimal("3.00"),
                         target_account_id=uuid.uuid4(),
-                        fee_source="ASAAS_PIX",
+                        fee_source="PIX",
                         company_id=uuid.uuid4(),
                         db=mock_db,
                     )
@@ -819,12 +820,12 @@ class TestFeeRoutingFallback:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        policy = _get_fee_routing_policy("ASAAS_PIX", uuid.uuid4(), mock_db)
+        policy = _get_fee_routing_policy("PIX", uuid.uuid4(), mock_db)
 
         assert policy.tenant_share == Decimal("100")
         assert policy.client_share == Decimal("0")
         assert policy.professional_share == Decimal("0")
-        assert policy.fee_source == "ASAAS_PIX"
+        assert policy.fee_source == "PIX"
 
     def test_existing_policy_returned(self):
         """_get_fee_routing_policy com policy existente retorna a política do banco."""
@@ -835,15 +836,15 @@ class TestFeeRoutingFallback:
         existing.tenant_share = Decimal("60")
         existing.client_share = Decimal("30")
         existing.professional_share = Decimal("10")
-        existing.fee_source = "ASAAS_CARD"
+        existing.fee_source = "CARD_CREDIT"
 
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = existing
 
-        policy = _get_fee_routing_policy("ASAAS_CARD", uuid.uuid4(), mock_db)
+        policy = _get_fee_routing_policy("CARD_CREDIT", uuid.uuid4(), mock_db)
 
         assert policy.tenant_share == Decimal("60")
-        assert policy.fee_source == "ASAAS_CARD"
+        assert policy.fee_source == "CARD_CREDIT"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
