@@ -1,4 +1,4 @@
-**Fase 2 concluída.** Sprint atual: Sprint 11 em andamento (Fase 3 — Catálogo opt-ins)
+**Fase 2 concluída.** Sprint 12 concluído (2026-06-07 — CommissionEngine). Próximo: Sprint 13.
 
 ## Canal EMAIL — CommunicationService (Sprint 11)
 - `_send_email()` em `modules/communication/service.py` via smtplib nativo (síncrono)

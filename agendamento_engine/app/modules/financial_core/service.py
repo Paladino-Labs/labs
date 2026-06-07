@@ -6,13 +6,13 @@ API pública (queries):
 
 Handlers públicos (chamados por outros módulos/eventos):
     handle_payment_confirmed
+    handle_commission_paid
 
 API privada (apenas handlers internos):
     _record_movement, _record_entry
 
 NÃO implementados neste sprint (adiados):
-    handle_expense_paid  → Sprint 18 (Expense module)
-    handle_commission_paid → Sprint 12 (CommissionEngine)
+    handle_expense_paid  → Sprint 17/18 (Expense module)
 """
 from __future__ import annotations
 
@@ -547,6 +547,51 @@ def create_manual_adjustment(
     db.refresh(movement)
     db.refresh(entry)
     return movement, entry
+
+
+# ── Commission handler ────────────────────────────────────────────────────────
+
+def handle_commission_paid(
+    payout_id: UUID,
+    amount: Decimal,
+    account_id: UUID,
+    professional_id: UUID,
+    company_id: UUID,
+    db: Session,
+) -> tuple:
+    """Cria Movement OUTFLOW + Entry COMISSAO para um payout de comissão.
+
+    Commit é responsabilidade do chamador (permite composição em transações maiores).
+    """
+    now = datetime.now(timezone.utc)
+    source_type = "commission_payout"
+    source_id = payout_id
+
+    outflow = _record_movement(
+        account_id=account_id,
+        type="OUTFLOW",
+        amount=amount,
+        source_type=source_type,
+        source_id=source_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    commission_entry = _record_entry(
+        type="COMISSAO",
+        direction="SUBTRACTS",
+        amount=amount,
+        category="COMISSAO_SERVICO",
+        source_type=source_type,
+        source_id=source_id,
+        movement_id=outflow.movement_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    return outflow, commission_entry
 
 
 # ── Fee routing ───────────────────────────────────────────────────────────────

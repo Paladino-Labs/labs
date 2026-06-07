@@ -67,6 +67,7 @@ from app.modules.payments.router import financial_router as payments_financial_r
 from app.modules.agenda.router import router as agenda_router
 from app.modules.schedule_exceptions.router import router as schedule_exceptions_router
 from app.modules.professionals.overrides_router import router as overrides_router
+from app.modules.commission.router import router as commission_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -124,10 +125,12 @@ async def lifespan(app: FastAPI):
     from app.workers.appointment_reminder_handler import register_handlers as register_reminder_handlers
     from app.modules.communication.handlers import register_handlers as register_communication_handlers
     from app.workers.handlers.soft_reservation_handler import register_handlers as register_soft_reservation_handlers
+    from app.workers.handlers.commission_handler import register_handlers as register_commission_handlers
     register_booking_handlers()
     register_reminder_handlers()
     register_communication_handlers()
     register_soft_reservation_handlers()
+    register_commission_handlers()
 
     yield  # aplicação em execução
 
@@ -178,6 +181,7 @@ app.include_router(payments_financial_router)
 app.include_router(agenda_router)
 app.include_router(schedule_exceptions_router)
 app.include_router(overrides_router)
+app.include_router(commission_router)
 
 
 @app.get("/health")

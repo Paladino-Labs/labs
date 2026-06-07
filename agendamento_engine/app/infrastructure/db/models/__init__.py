@@ -38,6 +38,7 @@ from .deposit_policy import DepositPolicy
 from .schedule_exception import ScheduleException
 from .reservation import Reservation
 from .direct_occupancy import DirectOccupancy
+from .commission import CommissionPolicy, CommissionPayout, Commission
 
 __all__ = [
     "Company",
@@ -92,4 +93,7 @@ __all__ = [
     "ScheduleException",
     "Reservation",
     "DirectOccupancy",
+    "CommissionPolicy",
+    "CommissionPayout",
+    "Commission",
 ]
