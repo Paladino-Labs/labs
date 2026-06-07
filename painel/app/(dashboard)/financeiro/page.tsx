@@ -18,9 +18,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Movement {
-  id: string
-  movement_type: "INFLOW" | "OUTFLOW" | string
-  amount: number
+  movement_id: string
+  type: "INFLOW" | "OUTFLOW" | string
+  amount: number | string   // Decimal pode vir como string do backend
+  occurred_at: string
   created_at: string
 }
 
@@ -100,13 +101,15 @@ function buildAreaData(movements: Movement[], days: number) {
   }
 
   for (const m of movements) {
-    const key = new Date(m.created_at).toLocaleDateString("pt-BR", {
+    const dateStr = m.occurred_at ?? m.created_at
+    const key = new Date(dateStr).toLocaleDateString("pt-BR", {
       day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo",
     })
     const entry = map.get(key)
     if (!entry) continue
-    if (m.movement_type === "INFLOW") entry.Entradas += m.amount
-    else                              entry.Saídas  += m.amount
+    const amt = Number(m.amount)
+    if (m.type === "INFLOW") entry.Entradas += amt
+    else                     entry.Saídas  += amt
   }
 
   return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }))
@@ -226,8 +229,8 @@ export default function FinanceiroPage() {
 
   // ── KPI derivations ────────────────────────────────────────────────────────
 
-  const totalInflow  = useMemo(() => movements.filter((m) => m.movement_type === "INFLOW" ).reduce((s, m) => s + m.amount, 0), [movements])
-  const totalOutflow = useMemo(() => movements.filter((m) => m.movement_type === "OUTFLOW").reduce((s, m) => s + m.amount, 0), [movements])
+  const totalInflow  = useMemo(() => movements.filter((m) => m.type === "INFLOW" ).reduce((s, m) => s + Number(m.amount), 0), [movements])
+  const totalOutflow = useMemo(() => movements.filter((m) => m.type === "OUTFLOW").reduce((s, m) => s + Number(m.amount), 0), [movements])
   const netResult    = totalInflow - totalOutflow
   const txCount      = movements.length
 
