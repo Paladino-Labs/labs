@@ -34,6 +34,45 @@ c2d5546  feat: Bloco 5 — Evolution API validação e hardening
 
 **Pendências em aberto ao término do sprint:** ver `docs/pendencias-pos-sprint-integracoes.md`
 
+---
+
+## Sprint Frontend + Ajustes pós-sprint — 2026-06-04 a 2026-06-05
+
+**HEAD backend antes do sprint:** g3h4i5j6k7l8 (sem alterações de backend neste sprint)
+**HEAD frontend:** 38b8c66 (feat: dashboard financeiro com KPIs e gráfico de área)
+
+### Pré-requisito backend executado
+- Migration h2i3j4k5l6m7: ADD COLUMN users.name VARCHAR(100) nullable
+- GET /auth/me, POST /users/invite, PATCH /auth/profile: campo name incluído
+
+### Sprint frontend — Blocos A–F (14 requisitos)
+**Bloco A:** Sidebar (MENU, Painel, Financeiro), AuthContext.name, logo maior
+**Bloco B:** /agenda com calendário por padrão, dashboard sem OVERVIEW,
+             lista de próximos agendamentos, botão registrar pagamento
+**Bloco C:** Campo CPF removido do formulário de profissional (campo mantido no banco)
+**Bloco D:** Módulo Financeiro (/financeiro, /pagamentos, /movimentacoes, /pagamentos/novo)
+             CustomerAutocomplete, FeeWarningBanner, RBAC OWNER/ADMIN
+**Bloco E:** Configurações expandidas: Taxas, Integrações (WhatsApp + Asaas),
+             Comunicação (PUT), Usuários com campo nome no convite
+**Bloco F:** /activate — página de ativação de conta com nome opcional
+
+### Ajustes pós-sprint (8 de 9 concluídos)
+- Ajuste 1: guard hydrated em settings/taxas (Cenário C)
+- Ajuste 2: api.ts parseDetailMessage() — erros 422 FastAPI legíveis
+- Ajuste 3: Taxas movidas para /financeiro/taxas; /settings/taxas → redirect
+- Ajuste 4: Aba PagSeguro escondida (componente mantido comentado)
+- Ajuste 5: Link de agendamento online movido para Perfil da empresa
+- Ajuste 6: /settings/perfil — editar nome, ver email/papel
+- Ajuste 7: PaymentOnCompleteDialog — popup ao concluir agendamento
+- Ajuste 8: Dashboard financeiro com KPIs + gráfico de área (Recharts)
+
+### Pendente — próximo sprint
+- **Ajuste 9 (subconta Asaas):** 5 campos obrigatórios ausentes no payload
+  (mobilePhone, incomeValue, address, addressNumber, province, postalCode)
+  Requer: migration backend + CompanyUpdate schema + AsaasProvider +
+  formulário expandido em settings/integracoes aba Asaas
+  Referência: docs/plano-ajustes-pos-sprint.md seção Ajuste 9
+
 ### O que foi implementado
 
 **Bloco 1 — Email (CommunicationService)**

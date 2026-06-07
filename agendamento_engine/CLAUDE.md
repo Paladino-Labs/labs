@@ -21,8 +21,8 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** g3h4i5j6k7l8 (add_maquininha_pix_fee_source)
-**Total migrations Fase 2 + alinhamento + Sprint Integrações:** 24 (k1→d1→e1→psg→f2→g3)
+**HEAD migration:** h2i3j4k5l6m7 (add_user_name)
+**Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend:** 25 (k1→d1→e1→psg→f2→g3→h2)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
@@ -85,6 +85,55 @@
 - Webhook `POST /whatsapp/webhook` valida `EVOLUTION_WEBHOOK_SECRET` se configurado
 - Header validado: `x-evolution-global-apikey`; sem segredo configurado → sem validação
 - `EVOLUTION_WEBHOOK_SECRET: str = ""` em config.py (default = sem validação)
+
+## Sprint Frontend (pós-Sprint de Integrações)
+
+### Arquitetura de navegação (painel/)
+- Sidebar: MENU (não "Navegação"); itens: Painel, Clientes, Serviços,
+  Barbeiros, Produtos, Financeiro, Configurações
+- /agenda: rota canônica para agendamentos (calendário por padrão)
+- /appointments: redirect para /agenda
+- /users: redirect para /settings/usuarios
+- /integrations: redirect para /settings/integracoes
+
+### Módulo Financeiro (/financeiro)
+- Hub: dashboard com KPIs + gráfico de área (Recharts)
+- /financeiro/pagamentos: lista com confirm-manual e FeeWarningBanner
+- /financeiro/pagamentos/novo: formulário 4 métodos (CASH/PIX/MAQUININHA)
+- /financeiro/movimentacoes: extrato com filtros
+- /financeiro/taxas: políticas MDR por método (movido de /settings/taxas)
+
+### Configurações (/settings)
+- /settings/perfil: Meu Perfil (nome editável via PATCH /auth/profile)
+- /settings/profile: Perfil da empresa (inclui Agendamento Online)
+- /settings/integracoes: WhatsApp + Asaas (PagSeguro escondido até sandbox)
+- /settings/comunicacao: toggles email/WhatsApp via PUT (não PATCH)
+- /settings/usuarios: lista e convite de usuários (com campo name)
+- /settings/taxas: redirect para /financeiro/taxas
+
+### Componentes novos
+- CustomerAutocomplete: autocomplete client-side de clientes
+- FeeWarningBanner: aviso de taxa não configurada com link para /financeiro/taxas
+- PaymentOnCompleteDialog: popup de pagamento ao concluir agendamento
+  → fluxo: POST /payments → confirm-manual → PATCH /complete
+  → "Concluir sem registrar": apenas PATCH /complete
+
+### Decisões arquiteturais
+- PagSeguro escondido da UI: componente TabPagSeguro comentado em
+  settings/integracoes/page.tsx — reativar após sandbox PagBank validado
+- Link de agendamento online: settings/profile (não settings/integracoes)
+- Taxas MDR: módulo Financeiro (não Configurações)
+- api.ts: parseDetailMessage() trata detail como array (FastAPI 422)
+- AuthContext expõe setName para atualização do header sem reload
+
+### Dívidas frontend
+- Ajuste 9 (subconta Asaas): 5 campos obrigatórios ausentes no payload
+  mobilePhone, incomeValue, address, addressNumber, province, postalCode
+  Ver: painel/docs/plano-ajustes-pos-sprint.md seção Ajuste 9
+- Visual das novas seções: genérico, não compatível com projeto de referência
+  Deferido para após implementações prioritárias
+- settings/financial/page.tsx: orphan (sem link no hub) — manter ou redirect
+- Campo phone em User: não existe no modelo — requer migration separada
 
 ## Transfer + Reconciliação + CashCount (Sprint 7 concluído)
 - Transfer: 2 Movements atômicos; sem Entry
@@ -269,3 +318,6 @@
 - Email em produção: Railway bloqueia SMTP (portas 25/465/587/2525);
   implementação atual usa Mailtrap HTTP API (sandbox only);
   substituir por SendGrid/Mailgun/Mailtrap Email API antes de ir a produção
+- Subconta Asaas: 5 campos obrigatórios ausentes (mobilePhone, incomeValue,
+  address, addressNumber, province, postalCode) — criação de subconta falha
+  em produção para todos os tenants. Sprint Ajuste 9 pendente.
