@@ -16,13 +16,13 @@ import {
 import { formatBRL, formatDateTime } from "@/lib/utils"
 
 interface Movement {
-  id: string
+  movement_id: string
   account_id: string
-  movement_type: string
+  type: string          // "INFLOW" | "OUTFLOW"
   amount: number
-  description: string | null
   source_type: string
   source_id: string
+  occurred_at: string
   created_at: string
 }
 
@@ -59,7 +59,7 @@ export default function MovimentacoesPage() {
 
     const params = new URLSearchParams()
     if (accountFilter !== "all") params.set("account_id", accountFilter)
-    if (typeFilter !== "all") params.set("movement_type", typeFilter)
+    if (typeFilter !== "all") params.set("type", typeFilter)
     if (dateFrom) params.set("date_from", dateFrom)
     if (dateTo) params.set("date_to", dateTo)
 
@@ -160,12 +160,12 @@ export default function MovimentacoesPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {movements.map((m) => {
-                const isInflow = m.movement_type === "INFLOW"
+                const isInflow = m.type === "INFLOW"
                 const accountName = accountMap.get(m.account_id) ?? m.account_id
                 return (
-                  <tr key={m.id} className="transition-colors hover:bg-muted/30">
+                  <tr key={m.movement_id} className="transition-colors hover:bg-muted/30">
                     <td className="px-4 py-3 text-muted-foreground">
-                      {formatDateTime(m.created_at)}
+                      {formatDateTime(m.occurred_at ?? m.created_at)}
                     </td>
                     <td className="px-4 py-3">{accountName}</td>
                     <td className="px-4 py-3">
@@ -174,7 +174,7 @@ export default function MovimentacoesPage() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {m.description ?? "—"}
+                      {m.source_type}
                     </td>
                     <td className={`px-4 py-3 text-right font-medium ${isInflow ? "text-success" : "text-destructive"}`}>
                       {formatBRL(m.amount)}
