@@ -285,6 +285,12 @@ function TabAsaas() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [cpfCnpj, setCpfCnpj] = useState("")
   const [birthDate, setBirthDate] = useState("")
+  const [ownerMobilePhone, setOwnerMobilePhone] = useState("")
+  const [ownerIncomeValue, setOwnerIncomeValue] = useState("")
+  const [ownerAddress, setOwnerAddress] = useState("")
+  const [ownerAddressNumber, setOwnerAddressNumber] = useState("")
+  const [ownerProvince, setOwnerProvince] = useState("")
+  const [ownerPostalCode, setOwnerPostalCode] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -304,17 +310,20 @@ function TabAsaas() {
 
   async function handleConfigureAsaas(e: React.FormEvent) {
     e.preventDefault()
-    if (!cpfCnpj || !birthDate) return
     setSaving(true)
     setError(null)
     try {
       await api.patch("/companies/me", {
-        owner_cpf_cnpj: cpfCnpj.replace(/\D/g, ""),
-        owner_birth_date: birthDate,
+        owner_cpf_cnpj: cpfCnpj.replace(/\D/g, "") || undefined,
+        owner_birth_date: birthDate || undefined,
+        owner_mobile_phone: ownerMobilePhone || undefined,
+        owner_income_value: ownerIncomeValue ? parseFloat(ownerIncomeValue) : undefined,
+        owner_address: ownerAddress || undefined,
+        owner_address_number: ownerAddressNumber || undefined,
+        owner_province: ownerProvince || undefined,
+        owner_postal_code: ownerPostalCode || undefined,
       })
       await fetchSettings()
-      setCpfCnpj("")
-      setBirthDate("")
     } catch (e: unknown) {
       setError((e as Error).message ?? "Erro ao configurar subconta.")
     } finally {
@@ -356,40 +365,125 @@ function TabAsaas() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Subconta Asaas não configurada</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             <p className="text-sm text-muted-foreground">
               Preencha os dados do responsável para criar a subconta de pagamentos.
             </p>
 
-            <form onSubmit={handleConfigureAsaas} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="asaas-cpfcnpj">CPF ou CNPJ do responsável</Label>
-                <Input
-                  id="asaas-cpfcnpj"
-                  type="text"
-                  value={cpfCnpj}
-                  onChange={(e) => setCpfCnpj(e.target.value.replace(/\D/g, ""))}
-                  placeholder="Somente dígitos"
-                  inputMode="numeric"
-                />
+            <form onSubmit={handleConfigureAsaas} className="space-y-6">
+              {/* Seção: Responsável pela conta */}
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Responsável pela conta</p>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-cpfcnpj">CPF ou CNPJ</Label>
+                  <Input
+                    id="asaas-cpfcnpj"
+                    type="text"
+                    value={cpfCnpj}
+                    onChange={(e) => setCpfCnpj(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Somente dígitos"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-birthdate">Data de nascimento</Label>
+                  <Input
+                    id="asaas-birthdate"
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-mobile-phone">Celular do responsável</Label>
+                  <Input
+                    id="asaas-mobile-phone"
+                    type="text"
+                    value={ownerMobilePhone}
+                    onChange={(e) => setOwnerMobilePhone(e.target.value)}
+                    placeholder="Ex: 5511999999999 (com DDI e DDD)"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-income">Receita mensal estimada em R$</Label>
+                  <Input
+                    id="asaas-income"
+                    type="number"
+                    value={ownerIncomeValue}
+                    onChange={(e) => setOwnerIncomeValue(e.target.value)}
+                    placeholder="Ex: 5000"
+                    min="0"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="asaas-birthdate">Data de nascimento do responsável</Label>
-                <Input
-                  id="asaas-birthdate"
-                  type="date"
-                  value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
-                />
+              {/* Seção: Endereço do responsável */}
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Endereço do responsável</p>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-address">Rua / Logradouro</Label>
+                  <Input
+                    id="asaas-address"
+                    type="text"
+                    value={ownerAddress}
+                    onChange={(e) => setOwnerAddress(e.target.value)}
+                    placeholder="Ex: Rua das Flores"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-address-number">Número</Label>
+                  <Input
+                    id="asaas-address-number"
+                    type="text"
+                    value={ownerAddressNumber}
+                    onChange={(e) => setOwnerAddressNumber(e.target.value)}
+                    placeholder="Ex: 123"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-province">Bairro</Label>
+                  <Input
+                    id="asaas-province"
+                    type="text"
+                    value={ownerProvince}
+                    onChange={(e) => setOwnerProvince(e.target.value)}
+                    placeholder="Ex: Centro"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="asaas-postal-code">CEP</Label>
+                  <Input
+                    id="asaas-postal-code"
+                    type="text"
+                    value={ownerPostalCode}
+                    onChange={(e) => setOwnerPostalCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    placeholder="Ex: 74000000"
+                    inputMode="numeric"
+                    maxLength={8}
+                  />
+                </div>
               </div>
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <Button type="submit" disabled={saving || !cpfCnpj || !birthDate}>
+              <Button type="submit" disabled={saving}>
                 {saving ? "Configurando…" : "Configurar subconta Asaas"}
               </Button>
             </form>
+
+            <p className="text-xs text-muted-foreground">
+              Esses dados são necessários para criar sua subconta Asaas e processar pagamentos.
+              O CEP deve ter 8 dígitos sem traço.
+            </p>
           </CardContent>
         </Card>
       )}
