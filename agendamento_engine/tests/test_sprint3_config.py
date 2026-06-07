@@ -4,6 +4,7 @@ Testes do Sprint 3 — TenantConfig, Categories, Branding, create_company.
 Usa mocks (unittest.mock) para evitar dependência de banco PostgreSQL.
 Testes que requerem trigger de banco estão marcados com skip + justificativa.
 """
+import os
 import uuid
 import pytest
 from unittest.mock import MagicMock, patch
@@ -65,13 +66,44 @@ class TestTenantConfigAccrual:
         # Não deve levantar HTTPException
         update_tenant_config(mock_db, uuid.uuid4(), TenantConfigUpdate(accounting_mode="CASH"), mock_actor)
 
-    @pytest.mark.skip(reason=(
-        "Requer banco PostgreSQL com trigger block_accrual_mode ativo. "
-        "Validado em staging — não reproduzível com SQLite."
-    ))
+    @pytest.mark.skipif(
+        not os.environ.get("DATABASE_URL"),
+        reason="DATABASE_URL não configurado — rodar com Supabase",
+    )
     def test_trigger_blocks_accrual_at_db_level(self):
-        """O trigger block_accrual_mode no banco rejeita UPDATE com ACCRUAL diretamente."""
-        pass
+        # Requer PostgreSQL real com triggers instalados.
+        # Rodar com: $env:DATABASE_URL="<url_supabase>"; .\venv\Scripts\python.exe -m pytest tests/test_sprint3_config.py::TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level -v
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import DBAPIError
+
+        engine = create_engine(os.environ["DATABASE_URL"])
+
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT tenant_config_id FROM tenant_configs LIMIT 1"
+            )).fetchone()
+            if row is None:
+                pytest.skip("Nenhuma tenant_config no banco — criar um tenant primeiro")
+
+            tc_id = row[0]
+            nested = conn.begin_nested()
+            raised = None
+            try:
+                conn.execute(
+                    text("UPDATE tenant_configs SET accounting_mode='ACCRUAL' WHERE tenant_config_id = :id"),
+                    {"id": str(tc_id)},
+                )
+            except DBAPIError as e:
+                raised = e
+                nested.rollback()
+            else:
+                nested.rollback()
+                pytest.fail("Trigger enforce_cash_mode não bloqueou UPDATE para ACCRUAL")
+
+            conn.rollback()
+
+        assert raised is not None, "Trigger deve ter levantado exceção"
+        assert "ACCRUAL" in str(raised.orig)
 
 
 # ── 2. Category is_default — restrições de DELETE e PATCH ─────────────────────

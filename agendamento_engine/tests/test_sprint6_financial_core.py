@@ -21,6 +21,7 @@ Casos cobertos:
  13. Tenant sem TenantFeeRoutingPolicy para fee_source → fallback tenant_share=100%
  14. Tenant cruzado: GET /financial/accounts não retorna contas de outro tenant
 """
+import os
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -119,21 +120,133 @@ def _make_db_for_accounts(accounts=None, movements=None, entries=None, policy=No
 
 class TestImmutabilityTriggers:
 
-    @pytest.mark.skip(reason=(
-        "Requer banco PostgreSQL com trigger prevent_movement_modification ativo. "
-        "Validado em staging — não reproduzível com mock/SQLite."
-    ))
+    @pytest.mark.skipif(
+        not os.environ.get("DATABASE_URL"),
+        reason="DATABASE_URL não configurado — rodar com Supabase",
+    )
     def test_movement_update_rejected_by_trigger(self):
-        """UPDATE direto em movements → exception do trigger de banco."""
-        pass
+        # Requer PostgreSQL real com triggers instalados.
+        # Rodar com: $env:DATABASE_URL="<url_supabase>"; .\venv\Scripts\python.exe -m pytest tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_movement_update_rejected_by_trigger -v
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import DBAPIError
 
-    @pytest.mark.skip(reason=(
-        "Requer banco PostgreSQL com trigger prevent_entry_modification ativo. "
-        "Validado em staging — não reproduzível com mock/SQLite."
-    ))
+        engine = create_engine(os.environ["DATABASE_URL"])
+        movement_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+
+        with engine.connect() as conn:
+            company_row = conn.execute(text("SELECT id FROM companies LIMIT 1")).fetchone()
+            if company_row is None:
+                pytest.skip("Nenhuma company no banco — criar um tenant primeiro")
+            company_id = company_row[0]
+
+            account_row = conn.execute(
+                text("SELECT account_id FROM accounts WHERE company_id = :cid LIMIT 1"),
+                {"cid": str(company_id)},
+            ).fetchone()
+            if account_row is None:
+                pytest.skip("Nenhuma account para o tenant — criar company via endpoint primeiro")
+            account_id = account_row[0]
+
+            conn.execute(text("""
+                INSERT INTO movements (
+                    movement_id, company_id, account_id, type, amount,
+                    occurred_at, source_type, source_id, created_at
+                ) VALUES (
+                    :mid, :cid, :aid, 'INFLOW', 100.00,
+                    now(), 'payment', :sid, now()
+                )
+            """), {
+                "mid": str(movement_id),
+                "cid": str(company_id),
+                "aid": str(account_id),
+                "sid": str(source_id),
+            })
+
+            nested = conn.begin_nested()
+            raised = None
+            try:
+                conn.execute(
+                    text("UPDATE movements SET amount = 9999.00 WHERE movement_id = :mid"),
+                    {"mid": str(movement_id)},
+                )
+            except DBAPIError as e:
+                raised = e
+                nested.rollback()
+            else:
+                nested.rollback()
+                pytest.fail("Trigger movement_no_update não bloqueou UPDATE")
+
+            row = conn.execute(
+                text("SELECT amount FROM movements WHERE movement_id = :mid"),
+                {"mid": str(movement_id)},
+            ).fetchone()
+            assert row is not None
+            assert float(row[0]) == 100.00, "Valor original deve ser preservado após UPDATE rejeitado"
+
+            conn.rollback()
+
+        assert raised is not None, "Trigger deve ter levantado exceção"
+        assert "append-only" in str(raised.orig).lower()
+
+    @pytest.mark.skipif(
+        not os.environ.get("DATABASE_URL"),
+        reason="DATABASE_URL não configurado — rodar com Supabase",
+    )
     def test_entry_delete_rejected_by_trigger(self):
-        """DELETE direto em entries → exception do trigger de banco."""
-        pass
+        # Requer PostgreSQL real com triggers instalados.
+        # Rodar com: $env:DATABASE_URL="<url_supabase>"; .\venv\Scripts\python.exe -m pytest tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger -v
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import DBAPIError
+
+        engine = create_engine(os.environ["DATABASE_URL"])
+        entry_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+
+        with engine.connect() as conn:
+            company_row = conn.execute(text("SELECT id FROM companies LIMIT 1")).fetchone()
+            if company_row is None:
+                pytest.skip("Nenhuma company no banco — criar um tenant primeiro")
+            company_id = company_row[0]
+
+            conn.execute(text("""
+                INSERT INTO entries (
+                    entry_id, company_id, type, direction, amount,
+                    occurred_at, category, source_type, source_id, created_at
+                ) VALUES (
+                    :eid, :cid, 'RECEITA', 'ADDS', 200.00,
+                    now(), 'SERVICOS', 'payment', :sid, now()
+                )
+            """), {
+                "eid": str(entry_id),
+                "cid": str(company_id),
+                "sid": str(source_id),
+            })
+
+            nested = conn.begin_nested()
+            raised = None
+            try:
+                conn.execute(
+                    text("DELETE FROM entries WHERE entry_id = :eid"),
+                    {"eid": str(entry_id)},
+                )
+            except DBAPIError as e:
+                raised = e
+                nested.rollback()
+            else:
+                nested.rollback()
+                pytest.fail("Trigger entry_no_delete não bloqueou DELETE")
+
+            row = conn.execute(
+                text("SELECT entry_id FROM entries WHERE entry_id = :eid"),
+                {"eid": str(entry_id)},
+            ).fetchone()
+            assert row is not None, "Entry deve existir após DELETE rejeitado"
+
+            conn.rollback()
+
+        assert raised is not None, "Trigger deve ter levantado exceção"
+        assert "append-only" in str(raised.orig).lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
