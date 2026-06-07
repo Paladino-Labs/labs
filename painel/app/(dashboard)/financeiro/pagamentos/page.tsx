@@ -77,16 +77,17 @@ export default function PagamentosPage() {
   function loadData() {
     setLoading(true)
     setError(null)
-    Promise.all([
-      api.get<Payment[]>("/payments"),
-      api.get<Customer[]>("/customers"),
-    ])
-      .then(([paymentsData, customersData]) => {
-        setPayments(paymentsData)
-        setCustomerMap(new Map(customersData.map((c) => [c.id, c.name])))
-      })
+    // Carrega payments e customers de forma independente:
+    // falha em /customers não impede exibição dos pagamentos.
+    api.get<Payment[]>("/payments")
+      .then(setPayments)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
+
+    api.get<Customer[]>("/customers")
+      .then((data) => setCustomerMap(new Map(data.map((c) => [c.id, c.name])))
+      )
+      .catch(() => {}) // falha silenciosa — nomes de clientes ficam como IDs
   }
 
   useEffect(() => {

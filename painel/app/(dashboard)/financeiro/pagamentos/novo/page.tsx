@@ -39,14 +39,14 @@ interface FeeWarning {
   message: string
 }
 
+// ConfirmManualResponse do backend é flat — todos os campos de Payment
+// + fee_warning no mesmo objeto (não existe chave "payment" aninhada).
 interface ConfirmResult {
-  payment: {
-    payment_id: string
-    net_charged_amount: number
-    provider_fee: number
-    payment_method: string
-    payment_submethod?: string | null
-  }
+  payment_id: string
+  net_charged_amount: number
+  provider_fee: number
+  payment_method: string
+  payment_submethod?: string | null
   fee_warning: FeeWarning | null
 }
 
@@ -229,21 +229,21 @@ function NovoPageContent() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Valor líquido</span>
                 <span className="font-semibold text-base">
-                  {formatBRL(confirmResult.payment.net_charged_amount)}
+                  {formatBRL(confirmResult.net_charged_amount)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Taxa aplicada</span>
-                <span>{formatBRL(confirmResult.payment.provider_fee)}</span>
+                <span>{formatBRL(confirmResult.provider_fee)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Método</span>
                 <span className="capitalize">
                   {METHODS.find(
                     (m) =>
-                      m.payment_method === confirmResult.payment.payment_method &&
-                      m.payment_submethod === (confirmResult.payment.payment_submethod ?? null)
-                  )?.label ?? confirmResult.payment.payment_method}
+                      m.payment_method === confirmResult.payment_method &&
+                      m.payment_submethod === (confirmResult.payment_submethod ?? null)
+                  )?.label ?? confirmResult.payment_method}
                 </span>
               </div>
             </CardContent>
