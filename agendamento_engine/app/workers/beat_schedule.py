@@ -31,4 +31,8 @@ beat_schedule = {
         "task": "app.workers.tasks.expire_reservations.expire_soft_reservations_scan",
         "schedule": crontab(minute="*/5"),
     },
+    "customer-credit-expiry": {
+        "task": "app.workers.tasks.customer_credit_expiry.customer_credit_expiry_worker",
+        "schedule": crontab(hour=2, minute=30),
+    },
 }

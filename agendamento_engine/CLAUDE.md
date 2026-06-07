@@ -153,6 +153,40 @@
 
 **HEAD migration:** o1p2q3r4s5t6 (add_entries_with_immutability_trigger)
 
+## Ambiente de testes
+
+### Executar SEMPRE com o venv
+```powershell
+cd agendamento_engine
+.\venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+NUNCA usar `pytest` direto — o Python global (pyenv) não tem `slowapi`, causando 9 ModuleNotFoundError em `test_user_name.py`. Esses erros são **ambientais**, não bugs de código. Não investigar.
+
+#### test_user_name.py — 9 ModuleNotFoundError
+Causa: importa `app.main` → carrega `slowapi` ausente no Python global.
+Solução: sempre usar `.\venv\Scripts\python.exe -m pytest`. Não confundir com regressão — ignorar quando usando venv.
+
+### Testes skipados (PostgreSQL real)
+
+Todos os 3 usam `@pytest.mark.skip` **incondicional** (não `skipIf`) e têm corpo `pass` — são **stubs** aguardando implementação. Para desbloqueá-los: (1) remover o decorador `@pytest.mark.skip`, (2) implementar o corpo do teste, (3) configurar `DATABASE_URL`.
+
+| Teste | Arquivo | Trigger que valida |
+|---|---|---|
+| `TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level` | `tests/test_sprint3_config.py` | `block_accrual_mode` |
+| `TestImmutabilityTriggers::test_movement_update_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `prevent_movement_modification` |
+| `TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `prevent_entry_modification` |
+
+Após implementar e remover o skip, rodar no Supabase:
+```powershell
+$env:DATABASE_URL="postgresql://postgres:<senha>@<host>:5432/postgres"
+.\venv\Scripts\python.exe -m pytest tests/test_sprint3_config.py::TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_movement_update_rejected_by_trigger tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger -v
+```
+
+### 1 xfail esperado (permanente)
+`tests/test_asaas_integration.py::test_sandbox_create_subaccount`
+Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. Marcado `xfail(strict=False)` — comportamento esperado, não investigar.
+
 ## Stack e infraestrutura
 
 - FastAPI 0.115 · SQLAlchemy 2.0 · Alembic

@@ -39,6 +39,7 @@ from .schedule_exception import ScheduleException
 from .reservation import Reservation
 from .direct_occupancy import DirectOccupancy
 from .commission import CommissionPolicy, CommissionPayout, Commission
+from .customer_credit import CustomerCredit, CustomerCreditConsumption
 
 __all__ = [
     "Company",
@@ -96,4 +97,6 @@ __all__ = [
     "CommissionPolicy",
     "CommissionPayout",
     "Commission",
+    "CustomerCredit",
+    "CustomerCreditConsumption",
 ]
