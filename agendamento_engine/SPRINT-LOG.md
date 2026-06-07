@@ -118,6 +118,37 @@ c2d5546  feat: Bloco 5 — Evolution API validação e hardening
 
 ---
 
+## Sessão de correções em produção — 2026-06-07
+
+**Origem:** bugs encontrados após deploy do Sprint Frontend + Ajustes.
+**Tipo:** hotfixes — sem novos sprints formais.
+
+### Bugs corrigidos (8 total)
+
+| # | Bug | Causa raiz | Commit |
+|---|-----|-----------|--------|
+| 1 | GET /financial/fee-policies → 500 | `fee_percentage: Decimal` não-opcional no schema de resposta; banco tem NULL | 7a4eb92 |
+| 2 | Taxas exibem só PIX | `_DEFAULT_FEE_SOURCES` usava nomes antigos (ASAAS_PIX, ASAAS_CARD) incompatíveis com frontend | 85be662 |
+| 3 | POST /payments → 422 "Field required" | `provider` e `target_account_id` obrigatórios no schema; frontend não enviava | 7cc476c |
+| 4 | Notificação pós-pagamento → 500 | `audience: "customer"` (lowercase) inválido para enum PostgreSQL communicationaudience (espera "CLIENT") | bc4cf9c |
+| 5 | Movimentações exibiam todas como OUTFLOW | Frontend usava `m.movement_type` (inexistente) → undefined → tudo filtrado como OUTFLOW | 882416f |
+| 6 | Registro de pagamento crashava | ConfirmManualResponse é flat no backend; frontend acessava `confirmResult.payment.X` → TypeError | 56c45d1 |
+| 7 | Lista de pagamentos vazia | `Promise.all([/payments, /customers])` falhava inteiramente se /customers falhasse | 56c45d1 |
+| 8 | Dashboard sem gráficos | Mesmo bug do #5 no financeiro/page.tsx + `s + m.amount` (string + number = NaN) | 85376ad |
+
+### Lições registradas
+- Schemas Pydantic de resposta devem ter campos nullable como `Optional`
+  quando a coluna do banco é nullable. ResponseValidationError é silencioso.
+- Enums PostgreSQL requerem uppercase exato — normalizar no serviço antes de queries.
+- `Promise.all` em fetches independentes deve ser substituído por fetches
+  paralelos com tratamento de falha individual.
+- Campos de response do backend devem ser verificados contra o schema real
+  (não assumir estrutura nested quando a API retorna flat).
+- Ao renomear fee_sources ou outros enums, verificar consistência entre:
+  migration seed, _DEFAULT_FEE_SOURCES, _calc_manual_fee e frontend.
+
+---
+
 ## Sprint 10 — Operations FSM + Agenda granular — [registrar retroativamente]
 
 HEAD: `d1e2f3g4h5i6` (align_orm_schema_gaps)

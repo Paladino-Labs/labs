@@ -33,7 +33,7 @@
 
 ### Estado de entrada verificado
 
-- **HEAD migration:** `d1e2f3g4h5i6` (align_orm_schema_gaps)
+- **HEAD migration:** `j2k3l4m5n6o7` (fix_fee_source_names) ← verificado em 2026-06-07
 - **Modelos existentes usados:** `Service`, `CompanyProfile`, `AppointmentService`, `Professional`
 - **Serviços existentes modificados:** `app/modules/services/service.py`, `app/modules/availability/service.py`, `app/modules/public/service.py`, `app/modules/company_profile/service.py`
 
@@ -49,6 +49,7 @@
 - `booking/router.py` e `public/router.py` precisam ser atualizados para aceitar `professional_id` query param em `GET /booking/{slug}/services`
 
 **Colisões:** **SIM** — `e1f2g3h4i5j6` já está em uso por `add_asaas_customer_id_to_customers` (Sprint de Integrações, commitado em 2026-06-04). Sprint 11 passa a usar `e2f3g4h5i6j7`.
+**down_revision obrigatório:** `j2k3l4m5n6o7` (HEAD real após hotfixes de 2026-06-07 — não usar `d1e2f3g4h5i6`).
 
 ### Ordem de implementação
 
@@ -197,7 +198,7 @@ Escopo:
 
 Notas técnicas críticas:
   - Revision ID OBRIGATÓRIO: f3g4h5i6j7k8 (NÃO usar f1g2h3i4j5k6 — conflito).
-  - down_revision da migration Sprint 12 = "e2f3g4h5i6j7".
+  - down_revision da migration Sprint 12 = "e2f3g4h5i6j7" (após Sprint 11).
   - handle_commission_paid: seguir padrão de handle_payment_confirmed —
     _record_movement OUTFLOW + _record_entry COMISSAO; category = COMISSAO_SERVICO.
   - commission_handler.py: abrir SessionLocal() própria (ver soft_reservation_handler.py).
@@ -234,8 +235,9 @@ Suite completa sem regressões.
 
 ### Gaps e ajustes em relação ao brief
 
-**Revision ID BLOQUEADOR:** ID `g1h2i3j4k5l6` do brief está ocupado por Sprint 5 (seed templates).
-**Novo ID:** `g3h4i5j6k7l8_customer_credit`
+**Revision ID BLOQUEADOR (duplo):** ID `g1h2i3j4k5l6` do brief está ocupado por Sprint 5 (seed templates).
+ID corrigido anteriormente `g3h4i5j6k7l8` agora também está ocupado por `g3h4i5j6k7l8_add_maquininha_pix_fee_source.py` (Sprint de Integrações, 2026-06-04).
+**Novo ID:** `g4h5i6j7k8l9_customer_credit`
 
 **O que o brief omite mas é necessário:**
 - `NoCreditAvailableError` precisa ser uma exceção customizada (HTTP 422) — definir em `app/modules/customer_credit/exceptions.py`
@@ -244,7 +246,7 @@ Suite completa sem regressões.
 
 ### Ordem de implementação
 
-1. **Migration** `g3h4i5j6k7l8_customer_credit`
+1. **Migration** `g4h5i6j7k8l9_customer_credit`
 2. **Modelos ORM:** `CustomerCredit`, `CustomerCreditConsumption`
 3. **Exceções:** `app/modules/customer_credit/exceptions.py` com `NoCreditAvailableError`
 4. **Service:** `app/modules/customer_credit/service.py`: `consume_for_operation`, `grant_cota`, `revoke`, `get_balance`
@@ -282,7 +284,7 @@ Escopo:
   NÃO FAZER: integração com Package/Subscription (Sprint 14/15), painel/.
 
 Notas técnicas críticas:
-  - Revision ID OBRIGATÓRIO: g3h4i5j6k7l8 (NÃO usar g1h2i3j4k5l6 — conflito).
+  - Revision ID OBRIGATÓRIO: g4h5i6j7k8l9 (NÃO usar g1h2i3j4k5l6 nem g3h4i5j6k7l8 — ambos em conflito).
   - down_revision = "f3g4h5i6j7k8".
   - consume_for_operation: SELECT FOR UPDATE SKIP LOCKED é obrigatório.
     FEFO: ORDER BY expires_at NULLS LAST, granted_at ASC.
@@ -309,7 +311,7 @@ Sinal de conclusão: pytest tests/test_sprint13_customer_credit.py -v → todos 
 
 ### Estado de entrada verificado
 
-- **HEAD migration no início:** `g3h4i5j6k7l8` (após Sprint 13)
+- **HEAD migration no início:** `g4h5i6j7k8l9` (após Sprint 13)
 - **Modelos existentes usados:** `Customer`, `Payment` (PaymentsEngine), `CustomerCredit`, `CommissionEngine`
 - **Serviços existentes modificados:** `app/modules/payments/service.py` (extend handler `payment.confirmed`)
 
@@ -368,7 +370,7 @@ Escopo:
 
 Notas técnicas críticas:
   - Revision ID OBRIGATÓRIO: h3i4j5k6l7m8 (NÃO usar h1i2j3k4l5m6 — conflito).
-  - down_revision = "g3h4i5j6k7l8".
+  - down_revision = "g4h5i6j7k8l9".
   - O brief diz "verificar se Payment.appointment_id está vinculado a PackagePurchase"
     — IGNORAR essa frase. A lógica correta: buscar PackagePurchase por payment_id.
     PackagePurchase.payment_id → payments.payment_id é o vínculo.
@@ -404,8 +406,9 @@ Sinal de conclusão: pytest tests/test_sprint14_packages.py -v → todos passand
 
 ### Gaps e ajustes em relação ao brief
 
-**Revision ID BLOQUEADOR:** ID `i1j2k3l4m5n6` do brief está ocupado por Sprint 3 (rls_remaining_tables).
-**Novo ID:** `i3j4k5l6m7n8_subscriptions`
+**Revision ID BLOQUEADOR (duplo):** ID `i1j2k3l4m5n6` do brief está ocupado por Sprint 3 (rls_remaining_tables).
+ID corrigido anteriormente `i3j4k5l6m7n8` agora também está ocupado por `i3j4k5l6m7n8_add_asaas_fields_to_companies.py` (Ajuste 9 backend, 2026-06-05).
+**Novo ID:** `i4j5k6l7m8n9_subscriptions`
 
 **BLOQUEADOR de design — subscription_id em Payment:** O handler `payment.confirmed` para renovação de assinatura precisa saber qual `CustomerSubscription` está sendo renovada. O modelo `Payment` não tem `subscription_id`. Solução: adicionar `subscription_id UUID nullable REFERENCES customer_subscriptions(subscription_id)` à tabela `payments` como parte da migration `i3j4k5l6m7n8`. O `subscription_renewal_worker` passa `subscription_id` ao criar o Payment de renovação.
 
@@ -416,7 +419,7 @@ Sinal de conclusão: pytest tests/test_sprint14_packages.py -v → todos passand
 
 ### Ordem de implementação
 
-1. **Migration** `i3j4k5l6m7n8_subscriptions` (inclui: tabelas `subscription_plans` + `customer_subscriptions` + `ALTER TABLE payments ADD COLUMN subscription_id`)
+1. **Migration** `i4j5k6l7m8n9_subscriptions` (inclui: tabelas `subscription_plans` + `customer_subscriptions` + `ALTER TABLE payments ADD COLUMN subscription_id`)
 2. **Modelos ORM:** `SubscriptionPlan`, `CustomerSubscription`; atualizar `Payment` com `subscription_id`
 3. **Atualizar `customer_credit/service.py`:** `consume_for_operation` verifica se crédito vem de assinatura SUSPENDED → NoCreditAvailableError
 4. **Celery tasks:**
@@ -459,11 +462,12 @@ Escopo:
   NÃO FAZER: painel/, outros sprints.
 
 Notas técnicas críticas:
-  - Revision ID OBRIGATÓRIO: i3j4k5l6m7n8 (NÃO usar i1j2k3l4m5n6 — conflito).
+  - Revision ID OBRIGATÓRIO: i4j5k6l7m8n9 (NÃO usar i1j2k3l4m5n6 nem i3j4k5l6m7n8 — ambos em conflito).
   - down_revision = "h3i4j5k6l7m8".
   - A migration DEVE incluir: ALTER TABLE payments ADD COLUMN IF NOT EXISTS
     subscription_id UUID REFERENCES customer_subscriptions(subscription_id).
     Sem isso, o handler payment.confirmed não consegue identificar a assinatura.
+    NOTA: i3j4k5l6m7n8 já existe (add_asaas_fields_to_companies) — usar i4j5k6l7m8n9.
   - subscription_renewal_worker: verificar se já existe Payment PENDING para
     a subscription antes de criar novo (idempotência).
   - SUSPENDED: consume_for_operation em customer_credit/service.py deve
@@ -490,7 +494,7 @@ Sinal de conclusão: pytest tests/test_sprint15_subscriptions.py -v → todos pa
 
 ### Estado de entrada verificado
 
-- **HEAD migration no início:** `i3j4k5l6m7n8` (após Sprint 15)
+- **HEAD migration no início:** `i4j5k6l7m8n9` (após Sprint 15)
 - **Modelos existentes usados:** `Payment`, `Customer`
 - **Serviços existentes modificados:** `app/modules/payments/service.py` (verificar cupom em `payment.confirmed`)
 
@@ -543,7 +547,7 @@ Escopo:
 
 Notas técnicas críticas:
   - Revision ID OBRIGATÓRIO: j3k4l5m6n7o8 (NÃO usar j1k2l3m4n5o6 — conflito).
-  - down_revision = "i3j4k5l6m7n8".
+  - down_revision = "i4j5k6l7m8n9".
   - compute_preview NÃO persiste nada. Testar via SELECT COUNT.
   - effectuate: revalida tudo antes de persistir (promoção pode ter expirado).
   - EXCLUSIVE: maior desconto CUSTOMER_FAVORABLE.
@@ -731,16 +735,16 @@ testes do Sprint 17.
 
 ### Tabela de ordem de execução com dependências
 
-| Sprint | Nome | Rev ID (CORRIGIDO) | Depende de | Novos arquivos (~) |
-|--------|------|-------------------|------------|-------------------|
-| 11 | Catálogo opt-ins | `e2f3g4h5i6j7` | HEAD atual | 8 |
-| 12 | CommissionEngine | `f3g4h5i6j7k8` | Sprint 11 | 9 |
-| 13 | CustomerCredit | `g3h4i5j6k7l8` | Sprint 12 | 7 |
-| 14 | Pacotes | `h3i4j5k6l7m8` | S12 + S13 | 7 |
-| 15 | Assinaturas | `i3j4k5l6m7n8` | S12 + S13 + S14 | 9 |
-| 16 | Promoções + Cupons | `j3k4l5m6n7o8` | Sprint 15 | 7 |
-| 17 | Estoque + Fornecedores | `k3l4m5n6o7p8` | Sprint 16 | 12 |
-| 18 | Despesas | `l3m4n5o6p7q8` | Sprint 17 | 7 |
+| Sprint | Nome | Rev ID (CORRIGIDO) | down_revision | Novos arquivos (~) |
+|--------|------|-------------------|--------------|-------------------|
+| 11 | Catálogo opt-ins | `e2f3g4h5i6j7` | `j2k3l4m5n6o7` (HEAD real) | 8 |
+| 12 | CommissionEngine | `f3g4h5i6j7k8` | `e2f3g4h5i6j7` | 9 |
+| 13 | CustomerCredit | `g4h5i6j7k8l9` | `f3g4h5i6j7k8` | 7 |
+| 14 | Pacotes | `h3i4j5k6l7m8` | `g4h5i6j7k8l9` | 7 |
+| 15 | Assinaturas | `i4j5k6l7m8n9` | `h3i4j5k6l7m8` | 9 |
+| 16 | Promoções + Cupons | `j3k4l5m6n7o8` | `i4j5k6l7m8n9` | 7 |
+| 17 | Estoque + Fornecedores | `k3l4m5n6o7p8` | `j3k4l5m6n7o8` | 12 |
+| 18 | Despesas | `l3m4n5o6p7q8` | `k3l4m5n6o7p8` | 7 |
 
 ### Lista consolidada de revision IDs (verificados)
 
@@ -748,12 +752,17 @@ testes do Sprint 17.
 |--------|---------------------|--------------------------|--------|
 | 11 | `e1f2g3h4i5j6` | `e2f3g4h5i6j7` | 🔴 Conflito corrigido (Sprint Integrações) |
 | 12 | `f1g2h3i4j5k6` | `f3g4h5i6j7k8` | 🔴 Conflito corrigido |
-| 13 | `g1h2i3j4k5l6` | `g3h4i5j6k7l8` | 🔴 Conflito corrigido |
+| 13 | `g1h2i3j4k5l6` → `g3h4i5j6k7l8` | `g4h5i6j7k8l9` | 🔴🔴 Duplo conflito: brief e 1ª correção ocupados |
 | 14 | `h1i2j3k4l5m6` | `h3i4j5k6l7m8` | 🔴 Conflito corrigido |
-| 15 | `i1j2k3l4m5n6` | `i3j4k5l6m7n8` | 🔴 Conflito corrigido |
+| 15 | `i1j2k3l4m5n6` → `i3j4k5l6m7n8` | `i4j5k6l7m8n9` | 🔴🔴 Duplo conflito: brief e 1ª correção ocupados |
 | 16 | `j1k2l3m4n5o6` | `j3k4l5m6n7o8` | 🔴 Conflito corrigido |
 | 17 | `k1l2m3n4o5p6` | `k3l4m5n6o7p8` | 🔴 Conflito corrigido |
 | 18 | `l1m2n3o4p5q6` | `l3m4n5o6p7q8` | 🔴 Conflito corrigido |
+
+> **Nota (2026-06-07):** Sprints 13 e 15 têm duplo conflito pois o Sprint de Integrações
+> (2026-06-02–04) usou os IDs que este plano havia atribuído como correções.
+> Os IDs `g3h4i5j6k7l8` e `i3j4k5l6m7n8` agora pertencem a migrations do Sprint de Integrações
+> e Ajuste 9 respectivamente. Novos IDs atribuídos: `g4h5i6j7k8l9` e `i4j5k6l7m8n9`.
 
 ### Handlers de evento a registrar no lifespan
 

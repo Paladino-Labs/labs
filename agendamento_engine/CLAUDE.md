@@ -21,8 +21,8 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** i3j4k5l6m7n8 (add_asaas_fields_to_companies)
-**Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend + Ajuste 9:** 26 (k1→d1→e1→psg→f2→g3→h2→i3)
+**HEAD migration:** j2k3l4m5n6o7 (fix_fee_source_names)
+**Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend + Ajuste 9 + correções:** 27 (k1→d1→e1→psg→f2→g3→h2→i3→j2)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
@@ -321,3 +321,16 @@
 - [BACKEND CONCLUÍDO — Ajuste 9] Subconta Asaas: migration i3j4k5l6m7n8 adicionou
   8 colunas owner_* em companies; AsaasProvider.create_subaccount aceita todos os
   campos; service.py persiste e envia. Pendente: frontend (TabAsaas expandido).
+
+## Lições de produção (2026-06-07)
+- FeePolicyResponse.fee_percentage: sempre Optional[Decimal] — coluna nullable no banco
+- communicationaudience enum PostgreSQL: valores uppercase (CLIENT, PROFESSIONAL, OWNER)
+  dispatch() normaliza recipient_type.upper() antes de qualquer query
+- _DEFAULT_FEE_SOURCES deve estar sincronizado com _calc_manual_fee e frontend:
+  CASH, PIX, BOLETO, MAQUININHA_PIX, MAQUININHA_CREDIT, MAQUININHA_DEBIT,
+  CARD_CREDIT, CARD_DEBIT (migration j2k3l4m5n6o7 corrigiu dados históricos)
+- GET /financial/movements retorna: type (não movement_type), movement_id (não id),
+  occurred_at (não created_at), amount como string Decimal
+- ConfirmManualResponse é flat — não tem camada payment: { ... }
+- target_account_id em PaymentCreate: Optional — backend resolve conta CAIXA
+- provider em PaymentCreate: Optional — default "manual"
