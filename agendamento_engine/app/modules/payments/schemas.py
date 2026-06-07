@@ -40,8 +40,12 @@ class PaymentCreate(BaseModel):
     appointment_id: Optional[UUID] = None
     gross_amount: Decimal
     payment_method: str        # CASH | PIX | BOLETO | CARD_CREDIT | CARD_DEBIT | MAQUININHA
-    provider: str
-    target_account_id: UUID
+    # provider: padrão "manual" para pagamentos presenciais (CASH, MAQUININHA).
+    # PIX/BOLETO via Asaas: passar "asaas" explicitamente.
+    provider: str = "manual"
+    # target_account_id: conta de destino. Se None, o backend usa a conta
+    # padrão de entrada (is_default_inflow=True) da empresa.
+    target_account_id: Optional[UUID] = None
     payment_source_id: Optional[UUID] = None
     # Campos usados para registro no Asaas (obrigatórios para PIX/BOLETO)
     customer_cpf_cnpj: Optional[str] = None   # apenas dígitos, e.g. "12345678901"

@@ -152,19 +152,43 @@ def validate_and_clean_cpf_cnpj(raw: str) -> str:
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
+def _resolve_target_account(company_id: UUID, db: Session) -> UUID:
+    """Retorna a conta padrão de entrada (CAIXA) da empresa.
+
+    Usado quando o caller não informa target_account_id.
+    Levanta 422 se nenhuma conta com is_default_inflow=True existir.
+    """
+    from app.infrastructure.db.models.account import Account
+    account = (
+        db.query(Account)
+        .filter(Account.company_id == company_id, Account.is_default_inflow == True)
+        .first()
+    )
+    if not account:
+        raise HTTPException(
+            status_code=422,
+            detail="Empresa sem conta padrão de entrada configurada. "
+                   "Contate o suporte.",
+        )
+    return account.account_id
+
+
 def create_payment(
     company_id: UUID,
     customer_id: Optional[UUID],
     gross_amount: Decimal,
     payment_method: str,
-    provider: str,
-    target_account_id: UUID,
+    provider: str = "manual",
+    target_account_id: Optional[UUID] = None,
     appointment_id: Optional[UUID] = None,
     payment_source_id: Optional[UUID] = None,
     customer_cpf_cnpj: Optional[str] = None,
     due_date=None,          # date | None — padrão: hoje
     db: Optional[Session] = None,
 ) -> Payment:
+    # Resolve a conta de destino se não informada
+    if target_account_id is None:
+        target_account_id = _resolve_target_account(company_id, db)
     payment = Payment(
         company_id=company_id,
         customer_id=customer_id,
