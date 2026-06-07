@@ -47,3 +47,45 @@ def update_service(
     db: Session = Depends(get_db),
 ):
     return svc.update_service(db, user.company_id, service_id, body)
+
+
+# ─── Variantes ────────────────────────────────────────────────────────────────
+
+@router.get("/{service_id}/variants", response_model=List[schemas.ServiceVariantResponse])
+def list_variants(
+    service_id: UUID,
+    company_id: UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    return svc.list_variants(db, company_id, service_id)
+
+
+@router.post("/{service_id}/variants", response_model=schemas.ServiceVariantResponse, status_code=201)
+def create_variant(
+    service_id: UUID,
+    body: schemas.ServiceVariantCreate,
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    return svc.create_variant(db, user.company_id, service_id, body)
+
+
+@router.patch("/{service_id}/variants/{variant_id}", response_model=schemas.ServiceVariantResponse)
+def update_variant(
+    service_id: UUID,
+    variant_id: UUID,
+    body: schemas.ServiceVariantUpdate,
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    return svc.update_variant(db, user.company_id, service_id, variant_id, body)
+
+
+@router.delete("/{service_id}/variants/{variant_id}", status_code=204)
+def delete_variant(
+    service_id: UUID,
+    variant_id: UUID,
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    svc.delete_variant(db, user.company_id, service_id, variant_id)

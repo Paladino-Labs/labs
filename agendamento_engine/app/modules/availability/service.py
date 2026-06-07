@@ -92,7 +92,13 @@ def get_available_slots(
     if not service:
         raise HTTPException(status_code=404, detail="Serviço não encontrado")
 
-    duration = service.duration  # minutos
+    # Bloco total = preparo_antes + duração + preparo_depois
+    _pb = getattr(service, "preparation_minutes_before", 0)
+    _pa = getattr(service, "preparation_minutes_after", 0)
+    prep_before = _pb if isinstance(_pb, int) else 0
+    prep_after  = _pa if isinstance(_pa, int) else 0
+    duration = service.duration  # duração real do serviço (para horário do slot)
+    block_duration = prep_before + duration + prep_after  # bloco ocupado no calendário
 
     # Busca horário de trabalho do dia
     weekday = target_date.weekday()  # 0=seg
@@ -134,8 +140,8 @@ def get_available_slots(
     cursor = day_start
     now = datetime.now(timezone.utc)  # timezone-aware; datetime.utcnow() foi depreciado
 
-    while cursor + timedelta(minutes=duration) <= day_end:
-        slot_end = cursor + timedelta(minutes=duration)
+    while cursor + timedelta(minutes=block_duration) <= day_end:
+        slot_end = cursor + timedelta(minutes=block_duration)
 
         # Ignora slots no passado
         if cursor <= now:

@@ -11,6 +11,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
@@ -34,9 +35,13 @@ def get_company_info(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{slug}/services", response_model=List[ServicePublicInfo])
-def list_services(slug: str, db: Session = Depends(get_db)):
-    """Lista serviços ativos disponíveis para agendamento público."""
-    return svc.list_public_services(db, slug)
+def list_services(
+    slug: str,
+    professional_id: Optional[UUID] = Query(None, description="UUID do profissional para preço efetivo"),
+    db: Session = Depends(get_db),
+):
+    """Lista serviços ativos. Com professional_id, retorna preço efetivo (override/variante)."""
+    return svc.list_public_services(db, slug, professional_id=professional_id)
 
 
 @router.get("/{slug}/professionals", response_model=List[ProfessionalPublicInfo])

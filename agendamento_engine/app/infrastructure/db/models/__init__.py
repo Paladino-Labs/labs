@@ -4,7 +4,7 @@ from .user_invitation import UserInvitation, InvitationStatus
 from .audit_log import AuditLog
 from .customer import Customer
 from .professional import Professional
-from .service import Service, ProfessionalService
+from .service import Service, ProfessionalService, ServicePricingOverride, ServiceVariant
 from .product import Product
 from .appointment import Appointment, AppointmentService, AppointmentStatusLog
 from .availability_slot import WorkingHour, ScheduleBlock
@@ -52,6 +52,8 @@ __all__ = [
     "Professional",
     "Service",
     "ProfessionalService",
+    "ServicePricingOverride",
+    "ServiceVariant",
     "Product",
     "Appointment",
     "AppointmentService",

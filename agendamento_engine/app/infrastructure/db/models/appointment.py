@@ -85,7 +85,7 @@ class AppointmentService(Base):
         ForeignKey("appointments.id", ondelete="CASCADE"),
         nullable=False,
     )
-    service_id = Column(UUID(as_uuid=True), ForeignKey("services.id"), nullable=True)
+    service_id = Column(UUID(as_uuid=True), ForeignKey("services.id", ondelete="SET NULL"), nullable=True)
     service_name = Column(String(255), nullable=False)
     duration_snapshot = Column(Numeric, nullable=False)      # minutos
     price_snapshot = Column(Numeric(10, 2), nullable=False)  # preço travado

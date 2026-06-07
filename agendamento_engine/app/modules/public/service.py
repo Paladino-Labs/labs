@@ -80,7 +80,13 @@ def get_public_info(db: Session, slug: str) -> CompanyPublicInfo:
     )
 
 
-def list_public_services(db: Session, slug: str) -> list[ServicePublicInfo]:
+def list_public_services(
+    db: Session,
+    slug: str,
+    professional_id: UUID | None = None,
+) -> list[ServicePublicInfo]:
+    from app.modules.services.service import get_effective_price
+
     company = get_company_or_404(db, slug)
     _assert_booking_enabled(db, company.id)
 
@@ -90,17 +96,21 @@ def list_public_services(db: Session, slug: str) -> list[ServicePublicInfo]:
         .order_by(Service.name)
         .all()
     )
-    return [
-        ServicePublicInfo(
+    result: list[ServicePublicInfo] = []
+    for s in services:
+        if professional_id:
+            price, dur = get_effective_price(db, company.id, s.id, professional_id)
+        else:
+            price, dur = s.price, s.duration
+        result.append(ServicePublicInfo(
             id=s.id,
             name=s.name,
-            price=str(s.price),
-            duration_minutes=s.duration,
+            price=str(price),
+            duration_minutes=dur,
             description=s.description,
             image_url=s.image_url,
-        )
-        for s in services
-    ]
+        ))
+    return result
 
 
 def list_public_professionals(

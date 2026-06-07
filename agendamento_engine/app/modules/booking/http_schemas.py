@@ -52,6 +52,7 @@ class CompanyProfileResponse(BaseModel):
     tiktok_url: Optional[str] = None
     google_review_url: Optional[str] = None
     business_hours: Optional[str] = None
+    business_hours_structured: Optional[Any] = None
     online_booking_enabled: bool
 
 # ─── Saída: /services ─────────────────────────────────────────────────────────

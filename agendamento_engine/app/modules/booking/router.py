@@ -181,6 +181,7 @@ def get_company_profile(slug: str, db: Session = Depends(get_db)):
         tiktok_url=profile.tiktok_url if profile else None,
         google_review_url=profile.google_review_url if profile else None,
         business_hours=profile.business_hours if profile else None,
+        business_hours_structured=profile.business_hours_structured if profile else None,
         online_booking_enabled=bool(cfg and cfg.online_booking_enabled),
     )
 

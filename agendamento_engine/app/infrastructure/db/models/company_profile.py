@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, Text, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -39,6 +39,8 @@ class CompanyProfile(Base):
 
     # Horário de funcionamento
     business_hours = Column(String(255), nullable=True)
+    business_hours_structured = Column(JSONB, nullable=True)
+    # Formato: [{weekday: 0-6, open: "HH:MM", close: "HH:MM"}] (0=segunda, 6=domingo)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(),

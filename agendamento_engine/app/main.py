@@ -66,6 +66,7 @@ from app.modules.payments.router import router as payments_router
 from app.modules.payments.router import financial_router as payments_financial_router
 from app.modules.agenda.router import router as agenda_router
 from app.modules.schedule_exceptions.router import router as schedule_exceptions_router
+from app.modules.professionals.overrides_router import router as overrides_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -176,6 +177,7 @@ app.include_router(payments_router)
 app.include_router(payments_financial_router)
 app.include_router(agenda_router)
 app.include_router(schedule_exceptions_router)
+app.include_router(overrides_router)
 
 
 @app.get("/health")
