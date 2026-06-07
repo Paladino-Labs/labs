@@ -44,12 +44,15 @@ class FeePolicyResponse(BaseModel):
     """Política de cálculo de taxa MDR por fee_source.
 
     Exposta em GET/PATCH /financial/fee-policies.
+
+    fee_percentage é nullable no banco (NULL = taxa não configurada).
+    fee_flat pode ser NULL em tenants migrados antes do default=0.
     """
     policy_id: UUID
     company_id: UUID
     fee_source: str
-    fee_percentage: Decimal
-    fee_flat: Decimal
+    fee_percentage: Optional[Decimal] = None
+    fee_flat: Optional[Decimal] = None
     is_active: bool
     client_share: Decimal
     tenant_share: Decimal
