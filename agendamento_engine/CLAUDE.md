@@ -21,8 +21,8 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** h2i3j4k5l6m7 (add_user_name)
-**Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend:** 25 (k1→d1→e1→psg→f2→g3→h2)
+**HEAD migration:** i3j4k5l6m7n8 (add_asaas_fields_to_companies)
+**Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend + Ajuste 9:** 26 (k1→d1→e1→psg→f2→g3→h2→i3)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
 ## PaymentsEngine (Sprint 9 concluído)
@@ -318,6 +318,6 @@
 - Email em produção: Railway bloqueia SMTP (portas 25/465/587/2525);
   implementação atual usa Mailtrap HTTP API (sandbox only);
   substituir por SendGrid/Mailgun/Mailtrap Email API antes de ir a produção
-- Subconta Asaas: 5 campos obrigatórios ausentes (mobilePhone, incomeValue,
-  address, addressNumber, province, postalCode) — criação de subconta falha
-  em produção para todos os tenants. Sprint Ajuste 9 pendente.
+- [BACKEND CONCLUÍDO — Ajuste 9] Subconta Asaas: migration i3j4k5l6m7n8 adicionou
+  8 colunas owner_* em companies; AsaasProvider.create_subaccount aceita todos os
+  campos; service.py persiste e envia. Pendente: frontend (TabAsaas expandido).
