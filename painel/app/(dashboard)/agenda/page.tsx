@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import AgendaCalendar, { type Appointment as CalendarAppt } from "@/components/AgendaCalendar"
+import { PaymentOnCompleteDialog } from "@/components/PaymentOnCompleteDialog"
 
 const STATUS_OPTIONS = [
   "todos",
@@ -125,6 +126,9 @@ export default function AppointmentsPage() {
   // Modal de detalhe
   const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
 
+  // Dialog de pagamento ao concluir
+  const [paymentTarget, setPaymentTarget] = useState<Appointment | null>(null)
+
   // Remarcar dialog
   const [rescheduleId, setRescheduleId] = useState<string | null>(null)
   const [newStartAt,   setNewStartAt]   = useState("")
@@ -188,15 +192,9 @@ export default function AppointmentsPage() {
 
   // ── Ações ────────────────────────────────────────────────────────────────────
 
-  async function handleComplete(id: string) {
-    if (!confirm("Marcar como concluído?")) return
-    try {
-      await api.patch(`/appointments/${id}/complete`, {})
-      setDetailAppt(null)
-      fetchAll()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    }
+  function handleComplete(appt: Appointment) {
+    setDetailAppt(null)
+    setPaymentTarget(appt)
   }
 
   async function handleCancel(id: string) {
@@ -538,7 +536,7 @@ export default function AppointmentsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleComplete(detailAppt.id)}
+                  onClick={() => handleComplete(detailAppt)}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-1" />
                   Concluir
@@ -585,6 +583,20 @@ export default function AppointmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de pagamento ao concluir */}
+      <PaymentOnCompleteDialog
+        open={paymentTarget !== null}
+        appointment={paymentTarget ? {
+          id:            paymentTarget.id,
+          total_amount:  Number(paymentTarget.total_amount),
+          customer_id:   paymentTarget.client_id ?? paymentTarget.customer?.id ?? null,
+          customer_name: paymentTarget.customer?.name ?? null,
+          services:      paymentTarget.services,
+        } : { id: "", total_amount: 0, services: [] }}
+        onSuccess={() => { setPaymentTarget(null); fetchAll() }}
+        onClose={() => setPaymentTarget(null)}
+      />
 
     </div>
   )
