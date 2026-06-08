@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatBRL, formatDateTime } from "@/lib/utils"
+import { PAYMENT_METHOD_LABELS } from "@/lib/constants"
 
 interface Payment {
   payment_id: string
@@ -27,6 +28,7 @@ interface Payment {
   net_charged_amount: number
   provider_fee: number
   payment_method: string
+  payment_submethod: string | null
   provider: string
   status: string
   created_at: string
@@ -242,7 +244,11 @@ export default function PagamentosPage() {
                       {formatDateTime(p.created_at)}
                     </td>
                     <td className="px-4 py-3">{customerName}</td>
-                    <td className="px-4 py-3 capitalize">{p.payment_method}</td>
+                    <td className="px-4 py-3">
+                      {p.payment_method === "MAQUININHA" && p.payment_submethod
+                        ? PAYMENT_METHOD_LABELS[`MAQUININHA_${p.payment_submethod}`] ?? PAYMENT_METHOD_LABELS.MAQUININHA
+                        : PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">
                       {formatBRL(p.net_charged_amount)}
                     </td>

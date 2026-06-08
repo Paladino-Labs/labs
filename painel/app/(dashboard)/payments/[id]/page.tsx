@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatBRL, formatDateTime } from "@/lib/utils"
+import { PAYMENT_METHOD_LABELS } from "@/lib/constants"
 
 interface Payment {
   payment_id: string
@@ -26,6 +27,7 @@ interface Payment {
   net_charged_amount: number
   provider_fee: number
   payment_method: string
+  payment_submethod: string | null
   payment_source_id: string | null
   provider: string
   external_charge_id: string | null
@@ -118,8 +120,15 @@ export default function PaymentDetailPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <Row label="ID" value={payment.payment_id} mono />
-          <Row label="Método" value={payment.payment_method} />
-          <Row label="Provider" value={payment.provider} />
+          <Row
+            label="Método"
+            value={
+              payment.payment_method === "MAQUININHA" && payment.payment_submethod
+                ? PAYMENT_METHOD_LABELS[`MAQUININHA_${payment.payment_submethod}`] ?? PAYMENT_METHOD_LABELS.MAQUININHA
+                : PAYMENT_METHOD_LABELS[payment.payment_method] ?? payment.payment_method
+            }
+          />
+          <Row label="Provedor" value={payment.provider} />
           {payment.external_charge_id && (
             <Row label="Cobrança externa" value={payment.external_charge_id} mono />
           )}
@@ -129,7 +138,7 @@ export default function PaymentDetailPage() {
           )}
           <Row label="Valor cobrado" value={formatBRL(payment.net_charged_amount)} bold />
           {payment.provider_fee > 0 && (
-            <Row label="Taxa do provider" value={formatBRL(payment.provider_fee)} />
+            <Row label="Taxa da operadora" value={formatBRL(payment.provider_fee)} />
           )}
           <Row label="Criado em" value={formatDateTime(payment.created_at)} />
           {payment.paid_at && (

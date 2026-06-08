@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import Image from "next/image"
 import { useTheme } from "@/lib/theme"
+import { ROLE_LABELS } from "@/lib/constants"
 
 const NAV_LINKS: Array<{
   href: string
@@ -144,7 +145,7 @@ function SidebarContent({
               {displayName}
             </p>
             <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              {role ?? "admin"}
+              {ROLE_LABELS[role ?? ""] ?? role ?? "Admin"}
             </p>
           </div>
           <button

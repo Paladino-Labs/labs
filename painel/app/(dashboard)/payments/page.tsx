@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { formatBRL, formatDateTime } from "@/lib/utils"
+import { PAYMENT_METHOD_LABELS } from "@/lib/constants"
 
 interface Payment {
   payment_id: string
@@ -17,6 +18,7 @@ interface Payment {
   net_charged_amount: number
   provider_fee: number
   payment_method: string
+  payment_submethod: string | null
   provider: string
   status: string
   created_at: string
@@ -103,7 +105,7 @@ export default function PaymentsPage() {
               <tr>
                 <th className="px-4 py-3 text-left font-medium">Data</th>
                 <th className="px-4 py-3 text-left font-medium">Método</th>
-                <th className="px-4 py-3 text-left font-medium">Provider</th>
+                <th className="px-4 py-3 text-left font-medium">Provedor</th>
                 <th className="px-4 py-3 text-right font-medium">Valor</th>
                 <th className="px-4 py-3 text-left font-medium">Status</th>
                 <th className="px-4 py-3 text-left font-medium"></th>
@@ -117,7 +119,11 @@ export default function PaymentsPage() {
                     <td className="px-4 py-3 text-muted-foreground">
                       {formatDateTime(p.created_at)}
                     </td>
-                    <td className="px-4 py-3">{p.payment_method}</td>
+                    <td className="px-4 py-3">
+                      {p.payment_method === "MAQUININHA" && p.payment_submethod
+                        ? PAYMENT_METHOD_LABELS[`MAQUININHA_${p.payment_submethod}`] ?? PAYMENT_METHOD_LABELS.MAQUININHA
+                        : PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">{p.provider}</td>
                     <td className="px-4 py-3 text-right font-medium">
                       {formatBRL(p.net_charged_amount)}
