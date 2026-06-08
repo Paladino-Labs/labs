@@ -4,15 +4,6 @@ const BASE =
     ? "https://labs-production-86f9.up.railway.app"
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
 
-// Garante barra final antes do query string para evitar o 307 do FastAPI.
-// Sem a barra, o Railway redireciona para http://, causando Mixed Content.
-function withSlash(path: string): string {
-  const q = path.indexOf("?")
-  if (q === -1) return path.endsWith("/") ? path : path + "/"
-  const base = path.slice(0, q)
-  return (base.endsWith("/") ? base : base + "/") + path.slice(q)
-}
-
 function parseDetailMessage(detail: unknown): string {
   if (Array.isArray(detail)) {
     return detail.map((d: { msg?: string }) => d.msg ?? "Erro de validação").join("; ")

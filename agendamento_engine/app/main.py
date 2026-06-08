@@ -147,6 +147,7 @@ app = FastAPI(
     version="2.0.0",
     description="Paladino — Fase 2 concluída (Financial Core + Pagamentos)",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 app.state.limiter = limiter
