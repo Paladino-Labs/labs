@@ -1,11 +1,8 @@
-const rawBase = process.env.NEXT_PUBLIC_API_URL ?? ""
-
-// Dev local: manter http://localhost intacto.
-// Produção: forçar https:// e cair no fallback se variável estiver vazia.
-const BASE = rawBase.includes("localhost")
-  ? rawBase
-  : rawBase.replace(/^http:\/\//, "https://") ||
-    "https://labs-production-86f9.up.railway.app"
+// NODE_ENV é injetado pelo Next.js no bundle — não depende de variável do Vercel.
+const BASE =
+  process.env.NODE_ENV === "production"
+    ? "https://labs-production-86f9.up.railway.app"
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
 
 function parseDetailMessage(detail: unknown): string {
   if (Array.isArray(detail)) {
