@@ -40,6 +40,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.rate_limit import limiter
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
@@ -147,7 +148,6 @@ app = FastAPI(
     version="2.0.0",
     description="Paladino — Fase 2 concluída (Financial Core + Pagamentos)",
     lifespan=lifespan,
-    redirect_slashes=False,
 )
 
 app.state.limiter = limiter
@@ -162,6 +162,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Lê X-Forwarded-Proto do Railway para que redirects de trailing slash usem https://.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 app.include_router(auth_router)
 app.include_router(companies_router)
