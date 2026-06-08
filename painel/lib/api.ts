@@ -1,11 +1,11 @@
-// Força HTTPS em produção para evitar Mixed Content.
-// Preserva http:// apenas para localhost (desenvolvimento local).
-const _rawBase = process.env.NEXT_PUBLIC_API_URL ?? ""
-const BASE = _rawBase.startsWith("http://") &&
-             !_rawBase.includes("localhost") &&
-             !_rawBase.includes("127.0.0.1")
-  ? _rawBase.replace("http://", "https://")
-  : _rawBase
+const rawBase = process.env.NEXT_PUBLIC_API_URL ?? ""
+
+// Dev local: manter http://localhost intacto.
+// Produção: forçar https:// e cair no fallback se variável estiver vazia.
+const BASE = rawBase.includes("localhost")
+  ? rawBase
+  : rawBase.replace(/^http:\/\//, "https://") ||
+    "https://labs-production-86f9.up.railway.app"
 
 function parseDetailMessage(detail: unknown): string {
   if (Array.isArray(detail)) {
