@@ -65,12 +65,10 @@ def _publish_operation_completed(appointment: Appointment) -> None:
 
         if hasattr(appointment, "services") and appointment.services:
             for svc in appointment.services:
-                if svc.price is not None:
-                    gross_amount += Decimal(str(svc.price))
+                if svc.price_snapshot is not None:
+                    gross_amount += Decimal(str(svc.price_snapshot))
                 if service_id is None and svc.service_id is not None:
                     service_id = svc.service_id
-        elif appointment.price is not None:
-            gross_amount = Decimal(str(appointment.price))
 
         event_bus.publish(DomainEvent(
             event_id=_uuid.uuid4(),
