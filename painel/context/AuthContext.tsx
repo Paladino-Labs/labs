@@ -155,6 +155,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     localStorage.setItem("token", newToken)
     const payload = decodeJwtPayload(newToken)
     applyUserData(newToken, payload)
+    // Busca name do /auth/me após login (JWT não carrega name no payload)
+    const _raw = process.env.NEXT_PUBLIC_API_URL ?? ""
+    const BASE = _raw.startsWith("http://") && !_raw.includes("localhost") && !_raw.includes("127.0.0.1")
+      ? _raw.replace("http://", "https://")
+      : _raw
+    fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${newToken}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data?.name) setName(data.name) })
+      .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
