@@ -277,7 +277,7 @@ export default function PoliticasPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-3xl tracking-wide">Políticas de comissão</h1>
+        <h1 className="text-3xl tracking-wide">Regras de comissão</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Configure como as comissões são calculadas para cada barbeiro e serviço.
         </p>
@@ -286,9 +286,9 @@ export default function PoliticasPage() {
       {/* ── Seção 1: Política global ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Política global</CardTitle>
+          <CardTitle>Regra global</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Aplicada quando não há política específica para o barbeiro ou serviço.
+            Aplicada quando não há regra específica para o barbeiro ou serviço.
           </p>
         </CardHeader>
         <CardContent>
@@ -307,20 +307,20 @@ export default function PoliticasPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Políticas específicas</CardTitle>
+            <CardTitle>Regras específicas</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Substituem a política global para combinações específicas de barbeiro/serviço.
+              Substituem a regra global para combinações específicas de barbeiro/serviço.
             </p>
           </div>
           <Button size="sm" onClick={openCreate}>
             <PlusIcon className="mr-1.5 size-4" />
-            Nova política
+            Nova regra
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           {specificActive.length === 0 ? (
             <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-              Nenhuma política específica cadastrada.
+              Nenhuma regra específica cadastrada.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -402,7 +402,7 @@ export default function PoliticasPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {editingPolicy ? "Editar política" : "Nova política específica"}
+              {editingPolicy ? "Editar regra" : "Nova regra específica"}
             </DialogTitle>
           </DialogHeader>
 
@@ -596,7 +596,7 @@ function GlobalForm({
       {/* Salvar */}
       <div className="flex items-end gap-2">
         <Button onClick={onSave} disabled={saving} size="sm" className="h-8">
-          {saving ? "Salvando…" : hasExisting ? "Salvar" : "Criar política global"}
+          {saving ? "Salvando…" : hasExisting ? "Salvar" : "Criar regra global"}
         </Button>
         {saved && (
           <span className="text-xs text-green-600">Salvo ✓</span>

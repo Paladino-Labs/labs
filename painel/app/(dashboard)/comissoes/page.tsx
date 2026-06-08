@@ -24,7 +24,7 @@ const QUICK_LINKS = [
   {
     href:        "/comissoes/politicas",
     icon:        FileText,
-    title:       "Políticas",
+    title:       "Regras",
     description: "Configure regras de comissão por profissional e serviço",
   },
   {
@@ -130,7 +130,7 @@ export default function ComissoesPage() {
       <div>
         <h1 className="font-display text-3xl tracking-wide">Comissões</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Políticas, histórico e pagamentos de comissões da equipe
+          Regras, histórico e pagamentos de comissões da equipe
         </p>
       </div>
 
@@ -145,7 +145,6 @@ export default function ComissoesPage() {
         <KpiCard
           label="A pagar"
           value={formatBRL(totalPending)}
-          hint="status CALCULATED ou DUE"
           loading={loading}
           error={hasError}
         />
