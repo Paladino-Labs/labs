@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import HTTPException
 
 from app.domain.enums import AppointmentStatus
 from app.infrastructure.db.models import Appointment, AppointmentStatusLog
+
+logger = logging.getLogger(__name__)
 
 
 def transition(
@@ -85,4 +89,7 @@ def _publish_operation_completed(appointment: Appointment) -> None:
             },
         ))
     except Exception:
-        pass
+        logger.exception(
+            "_publish_operation_completed: falha ao publicar evento appointment_id=%s",
+            appointment.id,
+        )
