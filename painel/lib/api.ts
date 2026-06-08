@@ -34,7 +34,7 @@ export function setAuthErrorHandler(handler: () => void): void {
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken()
 
-  const res = await fetch(`${BASE}${withSlash(path)}`, {
+  const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -65,7 +65,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
   const token = getToken()
 
-  const res = await fetch(`${BASE}${withSlash(path)}`, {
+  const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -93,7 +93,7 @@ async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
 }
 
 export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${withSlash(path)}`, {
+  const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
