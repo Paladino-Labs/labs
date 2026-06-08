@@ -4,6 +4,15 @@ const BASE =
     ? "https://labs-production-86f9.up.railway.app"
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
 
+// Garante barra final antes do query string para evitar o 307 do FastAPI.
+// Sem a barra, o Railway redireciona para http://, causando Mixed Content.
+function withSlash(path: string): string {
+  const q = path.indexOf("?")
+  if (q === -1) return path.endsWith("/") ? path : path + "/"
+  const base = path.slice(0, q)
+  return (base.endsWith("/") ? base : base + "/") + path.slice(q)
+}
+
 function parseDetailMessage(detail: unknown): string {
   if (Array.isArray(detail)) {
     return detail.map((d: { msg?: string }) => d.msg ?? "Erro de validação").join("; ")
@@ -34,7 +43,7 @@ export function setAuthErrorHandler(handler: () => void): void {
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken()
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${BASE}${withSlash(path)}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -65,7 +74,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
   const token = getToken()
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${BASE}${withSlash(path)}`, {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -93,7 +102,7 @@ async function apiFetchForm<T>(path: string, formData: FormData): Promise<T> {
 }
 
 export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${BASE}${withSlash(path)}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
