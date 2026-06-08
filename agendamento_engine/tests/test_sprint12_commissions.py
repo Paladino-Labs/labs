@@ -16,6 +16,10 @@ Casos obrigatórios:
   10. mark_due: CALCULATED → DUE
   11. create_payout sem commissions → 422
   12. create_payout com comissão de outro profissional → 422
+  13. payment.confirmed handler → provider_fee real usado (não "0" hardcoded)
+  14. AFTER_FEES com fee>0 produz resultado diferente de BEFORE_FEES
+  15. Payment sem appointment_id → sem comissão, sem erro
+  16. Agendamento sem professional_id → sem comissão, sem erro
 """
 import sys
 import uuid
@@ -824,6 +828,231 @@ class TestSchemaValidation:
         )
         assert p.fixed_amount == Decimal("25.00")
         assert p.rate is None
+
+
+# ─── 13–16. payment.confirmed handler ───────────────────────────────────────────
+
+class TestPaymentConfirmedHandler:
+    """Testa handle_payment_confirmed_commission — provider_fee real do Payment."""
+
+    def _make_event(self, payment_id, company_id):
+        e = MagicMock()
+        e.event_id = uuid.uuid4()
+        e.payload = {"payment_id": str(payment_id), "company_id": str(company_id)}
+        return e
+
+    def _mock_db_for_payment_and_appointment(self, payment_mock, appointment_mock):
+        """Retorna db mock que responde corretamente a query(Payment) e query(Appointment)."""
+        from app.infrastructure.db.models.payment import Payment
+        from app.infrastructure.db.models.appointment import Appointment
+
+        def query_side(model):
+            inner = MagicMock()
+            inner.filter.return_value = inner
+            if model is Payment:
+                inner.first.return_value = payment_mock
+            elif model is Appointment:
+                inner.first.return_value = appointment_mock
+            else:
+                inner.first.return_value = None
+            return inner
+
+        db = _make_db()
+        db.query.side_effect = query_side
+        return db
+
+    def test_uses_real_provider_fee(self):
+        """Handler lê provider_fee real do Payment — não "0" hardcoded do evento."""
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+        from app.modules.commission import service as svc_mod
+
+        cid = uuid.uuid4()
+        prof = uuid.uuid4()
+        appt = uuid.uuid4()
+        svc_id = uuid.uuid4()
+        payment_id = uuid.uuid4()
+
+        svc_item = MagicMock()
+        svc_item.service_id = svc_id
+
+        appointment_mock = MagicMock()
+        appointment_mock.id = appt
+        appointment_mock.company_id = cid
+        appointment_mock.professional_id = prof
+        appointment_mock.services = [svc_item]
+
+        payment_mock = MagicMock()
+        payment_mock.payment_id = payment_id
+        payment_mock.company_id = cid
+        payment_mock.appointment_id = appt
+        payment_mock.gross_catalog_amount = Decimal("100.00")
+        payment_mock.provider_fee = Decimal("3.00")
+
+        event = self._make_event(payment_id, cid)
+        commission_mock = _make_commission()
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch.object(svc_mod, "calculate_commission", return_value=commission_mock) as mock_calc, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            mock_db = self._mock_db_for_payment_and_appointment(payment_mock, appointment_mock)
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)
+
+        mock_calc.assert_called_once()
+        kwargs = mock_calc.call_args.kwargs
+        assert kwargs["provider_fee"] == Decimal("3.00")
+        assert kwargs["gross_amount"] == Decimal("100.00")
+        assert kwargs["professional_id"] == prof
+        assert kwargs["appointment_id"] == appt
+        assert kwargs["company_id"] == cid
+        assert kwargs["service_id"] == svc_id
+        assert kwargs["operation_type"] == "SERVICE_RENDERED"
+
+    def test_after_fees_with_real_fee_differs_from_before_fees(self):
+        """AFTER_FEES com provider_fee=3 → base=97 → comissão diferente de BEFORE_FEES."""
+        from app.modules.commission import service as svc_mod
+
+        cid = uuid.uuid4()
+        prof = uuid.uuid4()
+
+        policy_before = _make_policy(
+            company_id=cid, commission_base="GROSS_SERVICE",
+            commission_fee_policy="BEFORE_FEES", rate=Decimal("40.00"),
+        )
+        policy_after = _make_policy(
+            company_id=cid, commission_base="GROSS_SERVICE",
+            commission_fee_policy="AFTER_FEES", rate=Decimal("40.00"),
+        )
+
+        captured_before = {}
+        db_before = _make_db()
+        with patch.object(svc_mod, "_find_active_policy", return_value=policy_before):
+            db_before.add.side_effect = lambda obj: captured_before.update({"commission": obj})
+            svc_mod.calculate_commission(
+                professional_id=prof, service_id=None,
+                gross_amount=Decimal("100.00"), provider_fee=Decimal("3.00"),
+                operation_type="SERVICE_RENDERED", appointment_id=None,
+                company_id=cid, db=db_before,
+            )
+
+        captured_after = {}
+        db_after = _make_db()
+        with patch.object(svc_mod, "_find_active_policy", return_value=policy_after):
+            db_after.add.side_effect = lambda obj: captured_after.update({"commission": obj})
+            svc_mod.calculate_commission(
+                professional_id=prof, service_id=None,
+                gross_amount=Decimal("100.00"), provider_fee=Decimal("3.00"),
+                operation_type="SERVICE_RENDERED", appointment_id=None,
+                company_id=cid, db=db_after,
+            )
+
+        # BEFORE_FEES: 100 * 0.40 = 40.00
+        # AFTER_FEES:  (100 - 3) * 0.40 = 97 * 0.40 = 38.80
+        assert captured_before["commission"].commission_amount == Decimal("40.00")
+        assert captured_after["commission"].commission_amount == Decimal("38.80")
+        assert captured_after["commission"].commission_amount < captured_before["commission"].commission_amount
+
+    def test_payment_without_appointment_id_skips(self):
+        """Payment sem appointment_id → não gera comissão, sem erro."""
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+        from app.modules.commission import service as svc_mod
+        from app.infrastructure.db.models.payment import Payment
+
+        cid = uuid.uuid4()
+        payment_id = uuid.uuid4()
+
+        payment_mock = MagicMock()
+        payment_mock.payment_id = payment_id
+        payment_mock.company_id = cid
+        payment_mock.appointment_id = None  # sem agendamento
+
+        event = self._make_event(payment_id, cid)
+
+        def query_side(model):
+            inner = MagicMock()
+            inner.filter.return_value = inner
+            inner.first.return_value = payment_mock if model is Payment else None
+            return inner
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch.object(svc_mod, "calculate_commission") as mock_calc, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            mock_db = _make_db()
+            mock_db.query.side_effect = query_side
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)
+
+        mock_calc.assert_not_called()
+
+    def test_appointment_without_professional_id_skips(self):
+        """Agendamento sem professional_id → não gera comissão, sem erro."""
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+        from app.modules.commission import service as svc_mod
+        from app.infrastructure.db.models.payment import Payment
+        from app.infrastructure.db.models.appointment import Appointment
+
+        cid = uuid.uuid4()
+        payment_id = uuid.uuid4()
+        appt = uuid.uuid4()
+
+        payment_mock = MagicMock()
+        payment_mock.payment_id = payment_id
+        payment_mock.company_id = cid
+        payment_mock.appointment_id = appt
+
+        appointment_mock = MagicMock()
+        appointment_mock.id = appt
+        appointment_mock.company_id = cid
+        appointment_mock.professional_id = None  # sem profissional
+
+        event = self._make_event(payment_id, cid)
+
+        def query_side(model):
+            inner = MagicMock()
+            inner.filter.return_value = inner
+            if model is Payment:
+                inner.first.return_value = payment_mock
+            elif model is Appointment:
+                inner.first.return_value = appointment_mock
+            else:
+                inner.first.return_value = None
+            return inner
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch.object(svc_mod, "calculate_commission") as mock_calc, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            mock_db = _make_db()
+            mock_db.query.side_effect = query_side
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)
+
+        mock_calc.assert_not_called()
+
+    def test_exception_is_best_effort(self):
+        """Erro interno não propaga exceção — handler é best-effort."""
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+
+        cid = uuid.uuid4()
+        payment_id = uuid.uuid4()
+
+        event = self._make_event(payment_id, cid)
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            mock_db = _make_db()
+            mock_db.query.side_effect = RuntimeError("DB error")
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)  # não deve lançar
+
+        mock_db.rollback.assert_called_once()
 
 
 # ─── 12. handle_commission_paid em FinancialCoreEngine ────────────────────────
