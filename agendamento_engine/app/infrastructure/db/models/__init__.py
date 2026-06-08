@@ -40,6 +40,7 @@ from .reservation import Reservation
 from .direct_occupancy import DirectOccupancy
 from .commission import CommissionPolicy, CommissionPayout, Commission
 from .customer_credit import CustomerCredit, CustomerCreditConsumption
+from .package import Package, PackagePurchase
 
 __all__ = [
     "Company",
@@ -99,4 +100,6 @@ __all__ = [
     "Commission",
     "CustomerCredit",
     "CustomerCreditConsumption",
+    "Package",
+    "PackagePurchase",
 ]
