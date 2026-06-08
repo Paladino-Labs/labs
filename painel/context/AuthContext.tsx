@@ -119,7 +119,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     }
 
     // C4: valida token contra o servidor antes de confiar nele
-    const BASE = process.env.NEXT_PUBLIC_API_URL!
+    const _raw = process.env.NEXT_PUBLIC_API_URL ?? ""
+    const BASE = _raw.startsWith("http://") && !_raw.includes("localhost") && !_raw.includes("127.0.0.1")
+      ? _raw.replace("http://", "https://")
+      : _raw
     fetch(`${BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${stored}` },
     })

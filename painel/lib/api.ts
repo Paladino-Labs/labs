@@ -1,4 +1,11 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL!
+// Força HTTPS em produção para evitar Mixed Content.
+// Preserva http:// apenas para localhost (desenvolvimento local).
+const _rawBase = process.env.NEXT_PUBLIC_API_URL ?? ""
+const BASE = _rawBase.startsWith("http://") &&
+             !_rawBase.includes("localhost") &&
+             !_rawBase.includes("127.0.0.1")
+  ? _rawBase.replace("http://", "https://")
+  : _rawBase
 
 function parseDetailMessage(detail: unknown): string {
   if (Array.isArray(detail)) {
