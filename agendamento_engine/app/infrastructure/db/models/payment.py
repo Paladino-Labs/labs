@@ -21,7 +21,8 @@ class Payment(Base):
     payment_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=True)
-    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"), nullable=True)
+    appointment_id  = Column(UUID(as_uuid=True), ForeignKey("appointments.id"), nullable=True)
+    subscription_id = Column(UUID(as_uuid=True), ForeignKey("customer_subscriptions.subscription_id"), nullable=True)
     currency = Column(String(3), nullable=False, default="BRL")
 
     gross_catalog_amount = Column(Numeric(15, 2), nullable=False)

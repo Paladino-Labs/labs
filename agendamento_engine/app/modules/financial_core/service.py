@@ -268,6 +268,52 @@ def handle_payment_refunded(
     }
 
 
+def handle_subscription_renewed(
+    subscription_id: UUID,
+    plan_price: Decimal,
+    target_account_id: UUID,
+    company_id: UUID,
+    db: Session,
+) -> dict:
+    """Cria Entry RECEITA ASSINATURA_RENOVACAO para renovação de assinatura.
+
+    Cria Movement INFLOW + Entry RECEITA ASSINATURA_RENOVACAO.
+    Commit é responsabilidade do chamador.
+    """
+    now = datetime.now(timezone.utc)
+    source_type = "subscription"
+    source_id = subscription_id
+
+    inflow = _record_movement(
+        account_id=target_account_id,
+        type="INFLOW",
+        amount=plan_price,
+        source_type=source_type,
+        source_id=source_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    entry = _record_entry(
+        type="RECEITA",
+        direction="ADDS",
+        amount=plan_price,
+        category="ASSINATURA_RENOVACAO",
+        source_type=source_type,
+        source_id=source_id,
+        movement_id=inflow.movement_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    return {
+        "inflow_movement_id": inflow.movement_id,
+        "entry_id": entry.entry_id,
+    }
+
+
 # ── API pública — queries ─────────────────────────────────────────────────────
 
 def get_account(account_id: UUID, company_id: UUID, db: Session) -> Account:

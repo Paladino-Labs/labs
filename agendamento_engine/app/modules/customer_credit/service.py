@@ -53,6 +53,15 @@ def consume_for_operation(
     if credit is None:
         raise NoCreditAvailableError()
 
+    # Sprint 15: bloquear consumo se crédito vem de assinatura SUSPENDED
+    if credit.entitlement_type == "SUBSCRIPTION" and credit.source_id is not None:
+        from app.infrastructure.db.models.subscription import CustomerSubscription
+        subscription = db.query(CustomerSubscription).filter(
+            CustomerSubscription.subscription_id == credit.source_id,
+        ).first()
+        if subscription and subscription.status == "SUSPENDED":
+            raise NoCreditAvailableError()
+
     credit.remaining_cotas -= 1
     if credit.remaining_cotas == 0:
         credit.status = "EXHAUSTED"

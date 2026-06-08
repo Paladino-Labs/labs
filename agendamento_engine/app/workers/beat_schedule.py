@@ -35,4 +35,12 @@ beat_schedule = {
         "task": "app.workers.tasks.customer_credit_expiry.customer_credit_expiry_worker",
         "schedule": crontab(hour=2, minute=30),
     },
+    "subscription-renewal": {
+        "task": "app.workers.tasks.subscription_renewal.subscription_renewal_worker",
+        "schedule": crontab(hour=6, minute=0),
+    },
+    "subscription-overdue": {
+        "task": "app.workers.tasks.subscription_overdue.subscription_overdue_worker",
+        "schedule": crontab(hour=8, minute=0),
+    },
 }
