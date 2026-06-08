@@ -167,17 +167,17 @@ NUNCA usar `pytest` direto — o Python global (pyenv) não tem `slowapi`, causa
 Causa: importa `app.main` → carrega `slowapi` ausente no Python global.
 Solução: sempre usar `.\venv\Scripts\python.exe -m pytest`. Não confundir com regressão — ignorar quando usando venv.
 
-### Testes skipados (PostgreSQL real)
+### Testes skipados sem DATABASE_URL (PostgreSQL real) — validados 2026-06-08
 
-Todos os 3 usam `@pytest.mark.skip` **incondicional** (não `skipIf`) e têm corpo `pass` — são **stubs** aguardando implementação. Para desbloqueá-los: (1) remover o decorador `@pytest.mark.skip`, (2) implementar o corpo do teste, (3) configurar `DATABASE_URL`.
+Usam `@pytest.mark.skipif(not DATABASE_URL)` — pulam automaticamente sem banco real; passam contra Supabase. Implementados com SAVEPOINT + rollback: zero resíduo no banco, usam registros reais para satisfazer FKs.
 
-| Teste | Arquivo | Trigger que valida |
-|---|---|---|
-| `TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level` | `tests/test_sprint3_config.py` | `block_accrual_mode` |
-| `TestImmutabilityTriggers::test_movement_update_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `prevent_movement_modification` |
-| `TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `prevent_entry_modification` |
+| Teste | Arquivo | Trigger que valida | Validado |
+|---|---|---|---|
+| `TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level` | `tests/test_sprint3_config.py` | `enforce_cash_mode` (fn `block_accrual_mode`) | ✓ 2026-06-08 |
+| `TestImmutabilityTriggers::test_movement_update_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `movement_no_update` (fn `prevent_movement_modification`) | ✓ 2026-06-08 |
+| `TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger` | `tests/test_sprint6_financial_core.py` | `entry_no_delete` (fn `prevent_entry_modification`) | ✓ 2026-06-08 |
 
-Após implementar e remover o skip, rodar no Supabase:
+Rodar contra Supabase:
 ```powershell
 $env:DATABASE_URL="postgresql://postgres:<senha>@<host>:5432/postgres"
 .\venv\Scripts\python.exe -m pytest tests/test_sprint3_config.py::TestTenantConfigAccrual::test_trigger_blocks_accrual_at_db_level tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_movement_update_rejected_by_trigger tests/test_sprint6_financial_core.py::TestImmutabilityTriggers::test_entry_delete_rejected_by_trigger -v
