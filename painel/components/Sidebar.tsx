@@ -13,6 +13,7 @@ import {
   Package,
   Settings,
   Wallet,
+  HandCoins,
   LogOut,
   Sun,
   Moon,
@@ -32,6 +33,7 @@ const NAV_LINKS: Array<{
   { href: "/professionals",    label: "Barbeiros",         icon: UserCircle,      roles: null },
   { href: "/products",         label: "Produtos",          icon: Package,         roles: null },
   { href: "/financeiro",       label: "Financeiro",        icon: Wallet,          roles: null },
+  { href: "/comissoes",        label: "Comissões",         icon: HandCoins,       roles: null },
   { href: "/settings",         label: "Configurações",     icon: Settings,        roles: null },
 ]
 
