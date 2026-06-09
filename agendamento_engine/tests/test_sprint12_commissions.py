@@ -1172,3 +1172,40 @@ class TestCalculateCommissionV2:
         # gross=100, fee=3, rate=40% → 40.00 (ignora fee, igual a BARBERSHOP_PAYS)
         commission = self._calc("BEFORE_FEES", Decimal("100.00"), Decimal("3.00"))
         assert commission.commission_amount == Decimal("40.00")
+
+
+# ─── T1. Wiring do EventBus ───────────────────────────────────────────────────
+
+class TestCommissionHandlerWiring:
+
+    def test_register_handlers_wires_payment_confirmed(self):
+        """
+        Após register_handlers(), payment.confirmed deve invocar
+        handle_payment_confirmed_commission.
+        """
+        from app.infrastructure.event_bus import EventBus
+        from app.workers.handlers import commission_handler
+
+        bus = EventBus()
+
+        with patch("app.infrastructure.event_bus.event_bus", bus):
+            commission_handler.register_handlers()
+
+        handlers = bus._handlers.get("payment.confirmed", [])
+        assert commission_handler.handle_payment_confirmed_commission in handlers
+
+    def test_handle_operation_completed_not_registered(self):
+        """
+        handle_operation_completed não deve estar registrado no EventBus
+        (handler mantido mas intencionalmente não ativo no Stage 0).
+        """
+        from app.infrastructure.event_bus import EventBus
+        from app.workers.handlers import commission_handler
+
+        bus = EventBus()
+
+        with patch("app.infrastructure.event_bus.event_bus", bus):
+            commission_handler.register_handlers()
+
+        handlers = bus._handlers.get("operation.completed", [])
+        assert commission_handler.handle_operation_completed not in handlers
