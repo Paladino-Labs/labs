@@ -7,7 +7,7 @@ Create Date: 2026-06-08
 from alembic import op
 
 revision: str = "k3l4m5n6o7p8"
-down_revision: str = "j2k3l4m5n6o7"
+down_revision: str = "i4j5k6l7m8n9"
 branch_labels = None
 depends_on = None
 
