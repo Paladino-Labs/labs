@@ -120,7 +120,7 @@ def _db_with_policy(policy):
 
 class TestCalculateCommissionGross:
     def test_gross_before_fees_40_percent(self):
-        """gross=100, rate=40%, BEFORE_FEES → commission=40.00"""
+        """gross=100, rate=40%, BARBERSHOP_PAYS → commission=40.00"""
         cid   = uuid.uuid4()
         prof  = uuid.uuid4()
         svc   = uuid.uuid4()
@@ -128,7 +128,7 @@ class TestCalculateCommissionGross:
         policy = _make_policy(
             company_id=cid, professional_id=prof, service_id=svc,
             commission_base="GROSS_SERVICE",
-            commission_fee_policy="BEFORE_FEES",
+            commission_fee_policy="BARBERSHOP_PAYS",
             rate=Decimal("40.00"),
         )
 
@@ -165,13 +165,13 @@ class TestCalculateCommissionGross:
         db.commit.assert_called_once()
 
     def test_gross_after_fees_40_percent(self):
-        """gross=100, fee=2, rate=40%, AFTER_FEES → base=98 → commission=39.20"""
+        """gross=100, fee=2, rate=40%, SPLIT_50_50 → (40.00) − (2/2) = 39.00"""
         cid   = uuid.uuid4()
         prof  = uuid.uuid4()
         policy = _make_policy(
             company_id=cid,
             commission_base="GROSS_SERVICE",
-            commission_fee_policy="AFTER_FEES",
+            commission_fee_policy="SPLIT_50_50",
             rate=Decimal("40.00"),
         )
 
@@ -194,7 +194,7 @@ class TestCalculateCommissionGross:
             )
 
         commission = captured["commission"]
-        assert commission.commission_amount == Decimal("39.20")
+        assert commission.commission_amount == Decimal("39.00")
 
     def test_custom_amount(self):
         """CUSTOM_AMOUNT: fixed_amount=25 → commission=25 (ignora gross)"""
@@ -911,7 +911,7 @@ class TestPaymentConfirmedHandler:
         assert kwargs["operation_type"] == "SERVICE_RENDERED"
 
     def test_after_fees_with_real_fee_differs_from_before_fees(self):
-        """AFTER_FEES com provider_fee=3 → base=97 → comissão diferente de BEFORE_FEES."""
+        """SPLIT_50_50 com provider_fee=3 → 40.00 − 1.50 = 38.50 (diferente de BARBERSHOP_PAYS)."""
         from app.modules.commission import service as svc_mod
 
         cid = uuid.uuid4()
@@ -919,11 +919,11 @@ class TestPaymentConfirmedHandler:
 
         policy_before = _make_policy(
             company_id=cid, commission_base="GROSS_SERVICE",
-            commission_fee_policy="BEFORE_FEES", rate=Decimal("40.00"),
+            commission_fee_policy="BARBERSHOP_PAYS", rate=Decimal("40.00"),
         )
         policy_after = _make_policy(
             company_id=cid, commission_base="GROSS_SERVICE",
-            commission_fee_policy="AFTER_FEES", rate=Decimal("40.00"),
+            commission_fee_policy="SPLIT_50_50", rate=Decimal("40.00"),
         )
 
         captured_before = {}
@@ -948,10 +948,10 @@ class TestPaymentConfirmedHandler:
                 company_id=cid, db=db_after,
             )
 
-        # BEFORE_FEES: 100 * 0.40 = 40.00
-        # AFTER_FEES:  (100 - 3) * 0.40 = 97 * 0.40 = 38.80
+        # BARBERSHOP_PAYS: 100 * 0.40 = 40.00
+        # SPLIT_50_50:     (100 * 0.40) − (3/2) = 40.00 − 1.50 = 38.50
         assert captured_before["commission"].commission_amount == Decimal("40.00")
-        assert captured_after["commission"].commission_amount == Decimal("38.80")
+        assert captured_after["commission"].commission_amount == Decimal("38.50")
         assert captured_after["commission"].commission_amount < captured_before["commission"].commission_amount
 
     def test_payment_without_appointment_id_skips(self):
@@ -1102,3 +1102,73 @@ class TestHandleCommissionPaid:
 
         assert outflow is movement_mock
         assert entry is entry_mock
+
+
+# ─── V2. Novo modelo de comissão ─────────────────────────────────────────────
+
+class TestCalculateCommissionV2:
+    """Testa as 3 novas opções de taxa + fallback legado e nunca-negativo."""
+
+    def _calc(self, fee_policy, gross, fee, rate=Decimal("40.00")):
+        from app.modules.commission import service as svc_mod
+
+        cid  = uuid.uuid4()
+        prof = uuid.uuid4()
+        policy = _make_policy(
+            company_id=cid,
+            commission_base="GROSS_SERVICE",
+            commission_fee_policy=fee_policy,
+            rate=rate,
+        )
+
+        captured = {}
+        db = _make_db()
+        db.add.side_effect = lambda obj: captured.update({"commission": obj})
+
+        with patch.object(svc_mod, "_find_active_policy", return_value=policy):
+            svc_mod.calculate_commission(
+                professional_id=prof, service_id=None,
+                gross_amount=gross, provider_fee=fee,
+                operation_type="SERVICE_RENDERED", appointment_id=None,
+                company_id=cid, db=db,
+            )
+
+        return captured["commission"]
+
+    def test_barbershop_pays_ignores_fee(self):
+        """BARBERSHOP_PAYS: barbearia absorve taxa — barbeiro recebe rate × gross."""
+        # gross=100, fee=3, rate=40% → 40.00
+        commission = self._calc("BARBERSHOP_PAYS", Decimal("100.00"), Decimal("3.00"))
+        assert commission.commission_amount == Decimal("40.00")
+
+    def test_split_50_50_halves_fee(self):
+        """SPLIT_50_50: taxa dividida → (rate × gross) − (fee / 2)."""
+        # gross=100, fee=3, rate=40% → 40.00 − 1.50 = 38.50
+        commission = self._calc("SPLIT_50_50", Decimal("100.00"), Decimal("3.00"))
+        assert commission.commission_amount == Decimal("38.50")
+
+    def test_barber_pays_full_fee(self):
+        """BARBER_PAYS: barbeiro absorve taxa inteira → (rate × gross) − fee."""
+        # gross=100, fee=3, rate=40% → 40.00 − 3.00 = 37.00
+        commission = self._calc("BARBER_PAYS", Decimal("100.00"), Decimal("3.00"))
+        assert commission.commission_amount == Decimal("37.00")
+
+    def test_commission_never_negative(self):
+        """commission_amount nunca retorna valor negativo — piso em 0.00."""
+        # gross=10, fee=50, rate=40% → gross_commission=4.00, 4.00−50=−46 → 0.00
+        commission = self._calc("BARBER_PAYS", Decimal("10.00"), Decimal("50.00"))
+        assert commission.commission_amount == Decimal("0.00")
+
+    def test_split_50_50_quantized_to_cents(self):
+        """SPLIT_50_50 resultado é Decimal quantizado em 2 casas decimais."""
+        # gross=100, fee=3, rate=40% → 38.50 (não 38.5000...)
+        commission = self._calc("SPLIT_50_50", Decimal("100.00"), Decimal("3.00"))
+        assert isinstance(commission.commission_amount, Decimal)
+        assert str(commission.commission_amount) == "38.50"
+
+    def test_legacy_before_fees_fallback(self):
+        """BEFORE_FEES (dado não migrado) → fallback conservador = gross_commission."""
+        # Garante que rollback ou dados antigos não quebram o sistema
+        # gross=100, fee=3, rate=40% → 40.00 (ignora fee, igual a BARBERSHOP_PAYS)
+        commission = self._calc("BEFORE_FEES", Decimal("100.00"), Decimal("3.00"))
+        assert commission.commission_amount == Decimal("40.00")

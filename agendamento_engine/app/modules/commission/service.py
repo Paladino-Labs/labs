@@ -75,39 +75,40 @@ def calculate_commission(
     if policy is None:
         return None
 
-    base = gross_amount
-
-    if policy.commission_base == "GROSS_SERVICE":
-        base = gross_amount
-    elif policy.commission_base == "NET_SERVICE":
-        base = gross_amount  # desconto não disponível aqui; usar gross como fallback
-    elif policy.commission_base == "GROSS_OPERATION":
-        base = gross_amount
-    elif policy.commission_base == "CUSTOM_AMOUNT":
-        commission_amount = Decimal(str(policy.fixed_amount))
-        commission = Commission(
-            company_id=company_id,
-            professional_id=professional_id,
-            policy_id=policy.policy_id,
-            appointment_id=appointment_id,
-            operation_type=operation_type,
-            gross_amount=gross_amount,
-            commission_amount=commission_amount,
-            status="CALCULATED",
+    if policy.commission_base == "CUSTOM_AMOUNT":
+        # Valor fixo — ignora fee policy e gross
+        commission_amount = Decimal(str(policy.fixed_amount or 0))
+    else:
+        # Sempre calcula sobre valor bruto
+        gross_commission = gross_amount * (
+            Decimal(str(policy.rate)) / Decimal("100")
         )
-        db.add(commission)
-        db.commit()
-        db.refresh(commission)
-        return commission
 
-    if policy.commission_fee_policy == "AFTER_FEES":
-        base = base - provider_fee
+        fee_policy = policy.commission_fee_policy
 
-    if base < Decimal("0"):
-        base = Decimal("0")
+        if fee_policy == "BARBERSHOP_PAYS":
+            commission_amount = gross_commission
 
-    rate = Decimal(str(policy.rate)) / Decimal("100")
-    commission_amount = (base * rate).quantize(Decimal("0.01"))
+        elif fee_policy == "SPLIT_50_50":
+            commission_amount = gross_commission - (provider_fee / Decimal("2"))
+
+        elif fee_policy == "BARBER_PAYS":
+            commission_amount = gross_commission - provider_fee
+
+        else:
+            # Fallback legado — dados não migrados ou rollback parcial
+            # AFTER_FEES → subtrai fee completo (comportamento anterior)
+            # BEFORE_FEES e valores desconhecidos → gross (conservador)
+            if fee_policy == "AFTER_FEES":
+                commission_amount = gross_commission - provider_fee
+            else:
+                commission_amount = gross_commission
+
+    # Nunca negativo; quantize para centavos
+    commission_amount = max(
+        Decimal("0"),
+        commission_amount
+    ).quantize(Decimal("0.01"))
 
     commission = Commission(
         company_id=company_id,

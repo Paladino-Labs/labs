@@ -13,8 +13,8 @@ from pydantic import BaseModel, model_validator
 class CommissionPolicyCreate(BaseModel):
     professional_id:       Optional[UUID] = None
     service_id:            Optional[UUID] = None
-    commission_base:       str   # GROSS_SERVICE | NET_SERVICE | GROSS_OPERATION | CUSTOM_AMOUNT
-    commission_fee_policy: str   # BEFORE_FEES | AFTER_FEES
+    commission_base:       str   # GROSS_SERVICE | CUSTOM_AMOUNT (Stage 0); aceitos por compat: NET_SERVICE, GROSS_OPERATION
+    commission_fee_policy: str   # BARBERSHOP_PAYS | SPLIT_50_50 | BARBER_PAYS; aceitos por compat: BEFORE_FEES, AFTER_FEES
     rate:                  Optional[Decimal] = None
     fixed_amount:          Optional[Decimal] = None
 
