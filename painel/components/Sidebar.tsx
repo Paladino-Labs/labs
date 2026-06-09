@@ -64,9 +64,7 @@ function SidebarContent({
   onNavigate?: () => void
 }) {
   const initials = getInitials(email)
-  const displayName = name
-    ?? email?.split("@")[0]?.replace(/[._]/g, " ")
-    ?? "Usuário"
+  const displayName = name || email?.split("@")[0]?.replace(/[._]/g, " ") || "Usuário"
   const { theme, toggle } = useTheme()
 
   return (
