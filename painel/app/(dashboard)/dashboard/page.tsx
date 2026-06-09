@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/hooks/useAuth"
+import { PaymentOnCompleteDialog } from "@/components/PaymentOnCompleteDialog"
 
 const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED"])
 
@@ -50,13 +51,14 @@ function fmtHour(isoStr: string): string {
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { email } = useAuth()
+  const { email, name } = useAuth()
 
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
+  const [paymentTarget, setPaymentTarget] = useState<Appointment | null>(null)
   const [rescheduleId, setRescheduleId] = useState<string | null>(null)
   const [newStartAt, setNewStartAt] = useState("")
   const [rescheduling, setRescheduling] = useState(false)
@@ -125,15 +127,9 @@ export default function DashboardPage() {
   const maxServiceCount = topServices[0]?.[1] ?? 1
 
   // ── Actions ──────────────────────────────────────────────────────────────────
-  async function handleComplete(id: string) {
-    if (!confirm("Marcar como concluído?")) return
-    try {
-      await api.patch(`/appointments/${id}/complete`, {})
-      setDetailAppt(null)
-      fetchAll()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    }
+  function handleComplete(appt: Appointment) {
+    setDetailAppt(null)
+    setPaymentTarget(appt)
   }
 
   async function handleCancel(id: string) {
@@ -175,9 +171,8 @@ export default function DashboardPage() {
   }
 
   // ── Derived display ──────────────────────────────────────────────────────────
-  const rawName = email?.split("@")[0]?.split(/[._]/)[0] ?? "Mestre"
-  const firstName =
-    rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase()
+  const rawName = name?.split(" ")[0] ?? email?.split("@")[0]?.split(/[._]/)[0] ?? "Mestre"
+  const firstName = rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase()
 
   const kpis = [
     {
@@ -372,7 +367,7 @@ export default function DashboardPage() {
               <DialogFooter className="flex gap-2 sm:justify-start">
                 <Button
                   size="sm"
-                  onClick={() => handleComplete(detailAppt.id)}
+                  onClick={() => handleComplete(detailAppt)}
                 >
                   Concluir
                 </Button>
@@ -395,6 +390,20 @@ export default function DashboardPage() {
           </DialogContent>
         )}
       </Dialog>
+
+      {/* ── Payment dialog ──────────────────────────────────────────────────── */}
+      <PaymentOnCompleteDialog
+        open={paymentTarget !== null}
+        appointment={paymentTarget ? {
+          id:            paymentTarget.id,
+          total_amount:  Number(paymentTarget.total_amount),
+          customer_id:   paymentTarget.client_id ?? paymentTarget.customer?.id ?? null,
+          customer_name: paymentTarget.customer?.name ?? null,
+          services:      paymentTarget.services,
+        } : { id: "", total_amount: 0, services: [] }}
+        onSuccess={() => { setPaymentTarget(null); fetchAll() }}
+        onClose={() => setPaymentTarget(null)}
+      />
 
       {/* ── Reschedule dialog ────────────────────────────────────────────────── */}
       <Dialog
