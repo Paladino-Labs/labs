@@ -173,7 +173,7 @@ Total testes: 142/142
 | 1 | Segurança e infraestrutura crítica | ✅ Aprovado | 2026-05-26 | não |
 | 2 | RBAC: papéis, convite e auditoria | ✅ Aprovado | 2026-05-26 | não |
 | 3 | TenantConfig, módulos e branding | ✅ Aprovado | 2026-05-26 | não |
-| 4 | Sistema de eventos e workers | ⚠️ Aberto | 2026-05-26 | não |
+| 4 | Sistema de eventos e workers | ✅ COMPLETO | 2026-06-09 | não |
 | 5 | Comunicação e credenciais | ✅ Aprovado | 2026-05-26 | não |
 | Fechamento | Testes, password reset, correções | ✅ Aprovado | 2026-05-28 | não |
 | RLS | Row Level Security | ✅ Aprovado | 2026-05-28 | não |
@@ -286,9 +286,9 @@ Total testes: 142/142
 
 ## Sprint 4 — Sistema de eventos e workers
 
-**Status:** ⚠️ Aberto (flip asyncio→Celery pendente de 24h em produção)  
-**Data de conclusão:** —  
-**Veredicto do auditor:** Aprovado com ressalvas — código completo, flip operacional pendente  
+**Status:** ✅ COMPLETO  
+**Data de conclusão:** 2026-06-09  
+**Veredicto do auditor:** Aprovado com ressalvas resolvidas — flip asyncio→Celery validado em produção  
 
 **Sinal do executor recebido:** sim  
 **Checklist do protocolo rodado:** sim  
@@ -305,13 +305,16 @@ Total testes: 142/142
 - migration processed_idempotency_keys: aplicada ✅
 
 **Dívida técnica gerada:**
-- flip definitivo (remover asyncio.create_task do lifespan) — após 24h em produção sem erros
-- commit CLAUDE.md final pós-flip pendente
+- flip definitivo (remover asyncio.create_task do lifespan) — ✅ resolvido: asyncio.create_task removido do lifespan (commit anterior ao fechamento formal)
+- commit CLAUDE.md final pós-flip — ✅ resolvido: Celery Beat exclusivo documentado em CLAUDE.md
+
+**Nota de fechamento (2026-06-09):** Flip asyncio→Celery validado em produção. asyncio.create_task
+removido do lifespan (commit anterior). Celery Beat operacional. Sprint formalmente fechado.
 
 **Dívida que bloqueia Sprint 5:** não  
 
-**CLAUDE.md atualizado:** sim (parcial — commit final após flip)  
-**Commit:** ab7f404 (parcial) · commit final: pendente
+**CLAUDE.md atualizado:** sim  
+**Commit:** ab7f404 (implementação) · fechamento formal: docs: fechar Sprint 4
 
 ---
 
