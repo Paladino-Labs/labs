@@ -1,5 +1,5 @@
 // NODE_ENV é injetado pelo Next.js no bundle — não depende de variável do Vercel.
-const BASE =
+export const BASE =
   process.env.NODE_ENV === "production"
     ? "https://labs-production-86f9.up.railway.app"
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")

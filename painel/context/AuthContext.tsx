@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
-import { setAuthErrorHandler } from "@/lib/api"
+import { setAuthErrorHandler, BASE } from "@/lib/api"
 
 interface AuthContextValue {
   token: string | null
@@ -119,10 +119,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     }
 
     // C4: valida token contra o servidor antes de confiar nele
-    const _raw = process.env.NEXT_PUBLIC_API_URL ?? ""
-    const BASE = _raw.startsWith("http://") && !_raw.includes("localhost") && !_raw.includes("127.0.0.1")
-      ? _raw.replace("http://", "https://")
-      : _raw
     fetch(`${BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${stored}` },
     })
@@ -156,10 +152,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const payload = decodeJwtPayload(newToken)
     applyUserData(newToken, payload)
     // Busca name do /auth/me após login (JWT não carrega name no payload)
-    const _raw = process.env.NEXT_PUBLIC_API_URL ?? ""
-    const BASE = _raw.startsWith("http://") && !_raw.includes("localhost") && !_raw.includes("127.0.0.1")
-      ? _raw.replace("http://", "https://")
-      : _raw
     fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${newToken}` } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => { if (data?.name) setName(data.name) })
