@@ -1209,3 +1209,138 @@ class TestCommissionHandlerWiring:
 
         handlers = bus._handlers.get("operation.completed", [])
         assert commission_handler.handle_operation_completed not in handlers
+
+
+# ─── T3. Idempotência do commission_handler ───────────────────────────────────
+
+class TestCommissionHandlerIdempotency:
+
+    def _make_full_event(self, payment_id, company_id):
+        e = MagicMock()
+        e.event_id = uuid.uuid4()
+        e.payload = {"payment_id": str(payment_id), "company_id": str(company_id)}
+        return e
+
+    def _mock_db_for_idempotency(self, payment_mock, appointment_mock, existing_commission=None):
+        """
+        db mock que responde a query(Payment), query(Appointment) e query(Commission).
+        existing_commission=None → sem comissão prévia; caso contrário retorna a mock.
+        """
+        from app.infrastructure.db.models.payment import Payment
+        from app.infrastructure.db.models.appointment import Appointment
+        from app.infrastructure.db.models.commission import Commission
+
+        def query_side(model):
+            inner = MagicMock()
+            inner.filter.return_value = inner
+            if model is Payment:
+                inner.first.return_value = payment_mock
+            elif model is Appointment:
+                inner.first.return_value = appointment_mock
+            elif model is Commission:
+                inner.first.return_value = existing_commission
+            else:
+                inner.first.return_value = None
+            return inner
+
+        db = _make_db()
+        db.query.side_effect = query_side
+        return db
+
+    def _make_payment_and_appointment(self, cid, payment_id, appt_id, prof_id, svc_id):
+        svc_item = MagicMock()
+        svc_item.service_id = svc_id
+
+        payment_mock = MagicMock()
+        payment_mock.payment_id = payment_id
+        payment_mock.company_id = cid
+        payment_mock.appointment_id = appt_id
+        payment_mock.gross_catalog_amount = Decimal("100.00")
+        payment_mock.provider_fee = Decimal("2.00")
+
+        appointment_mock = MagicMock()
+        appointment_mock.id = appt_id
+        appointment_mock.company_id = cid
+        appointment_mock.professional_id = prof_id
+        appointment_mock.services = [svc_item]
+
+        return payment_mock, appointment_mock
+
+    def test_duplicate_payment_confirmed_does_not_create_duplicate_commission(self):
+        """
+        Se payment.confirmed for processado duas vezes para o mesmo agendamento,
+        apenas uma Commission deve ser criada — a segunda chamada é ignorada.
+        """
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+        from app.modules.commission import service as svc_mod
+
+        cid = uuid.uuid4()
+        payment_id = uuid.uuid4()
+        appt_id = uuid.uuid4()
+        prof_id = uuid.uuid4()
+        svc_id = uuid.uuid4()
+
+        payment_mock, appointment_mock = self._make_payment_and_appointment(
+            cid, payment_id, appt_id, prof_id, svc_id
+        )
+
+        # Commission já existe (simulando retry de webhook)
+        existing_commission = _make_commission(
+            company_id=cid, appointment_id=appt_id, status="CALCULATED"
+        )
+
+        event = self._make_full_event(payment_id, cid)
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch.object(svc_mod, "calculate_commission") as mock_calc, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            mock_db = self._mock_db_for_idempotency(
+                payment_mock, appointment_mock, existing_commission=existing_commission
+            )
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)
+
+        # Guarda deve bloquear — calculate_commission NÃO deve ser chamado
+        mock_calc.assert_not_called()
+
+    def test_first_call_creates_commission_normally(self):
+        """
+        Primeira chamada (sem Commission prévia) cria a Commission normalmente.
+        A guarda não deve bloquear quando não há comissão existente.
+        """
+        from app.workers.handlers.commission_handler import handle_payment_confirmed_commission
+        from app.modules.commission import service as svc_mod
+
+        cid = uuid.uuid4()
+        payment_id = uuid.uuid4()
+        appt_id = uuid.uuid4()
+        prof_id = uuid.uuid4()
+        svc_id = uuid.uuid4()
+
+        payment_mock, appointment_mock = self._make_payment_and_appointment(
+            cid, payment_id, appt_id, prof_id, svc_id
+        )
+
+        event = self._make_full_event(payment_id, cid)
+        commission_mock = _make_commission(company_id=cid, appointment_id=appt_id)
+
+        with patch("app.workers.handlers.commission_handler.SessionLocal") as mock_session, \
+             patch.object(svc_mod, "calculate_commission", return_value=commission_mock) as mock_calc, \
+             patch("app.core.db_rls.set_rls_context"):
+
+            # existing_commission=None → sem comissão prévia → guarda não bloqueia
+            mock_db = self._mock_db_for_idempotency(
+                payment_mock, appointment_mock, existing_commission=None
+            )
+            mock_session.return_value = mock_db
+
+            handle_payment_confirmed_commission(event)
+
+        mock_calc.assert_called_once()
+        kwargs = mock_calc.call_args.kwargs
+        assert kwargs["professional_id"] == prof_id
+        assert kwargs["appointment_id"] == appt_id
+        assert kwargs["company_id"] == cid
+        assert kwargs["provider_fee"] == Decimal("2.00")

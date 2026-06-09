@@ -57,6 +57,21 @@ def handle_payment_confirmed_commission(event) -> None:
         if not appointment or not appointment.professional_id:
             return  # agendamento sem profissional não gera comissão
 
+        from app.infrastructure.db.models.commission import Commission
+
+        existing = db.query(Commission).filter(
+            Commission.appointment_id == appointment.id,
+            Commission.company_id == company_id,
+            Commission.status != "REVERSED",
+        ).first()
+        if existing:
+            logger.info(
+                "handle_payment_confirmed_commission: comissão já existe "
+                "para appointment_id=%s, ignorando",
+                appointment.id,
+            )
+            return
+
         service_id = None
         if appointment.services:
             service_id = appointment.services[0].service_id
