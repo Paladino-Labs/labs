@@ -304,12 +304,16 @@ function NovoPageContent() {
                       onValueChange={(v) => setAppointmentId(v === "none" ? null : v)}
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>
+                          {appointmentId && appointmentId !== "none"
+                            ? formatApptLabel(appointments.find((a) => a.id === appointmentId) ?? appointments[0])
+                            : "Sem agendamento"}
+                        </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="w-[var(--radix-select-trigger-width)]">
                         <SelectItem value="none">Sem agendamento</SelectItem>
                         {appointments.map((a) => (
-                          <SelectItem key={a.id} value={a.id}>
+                          <SelectItem key={a.id} value={a.id} className="whitespace-normal">
                             {formatApptLabel(a)}
                           </SelectItem>
                         ))}

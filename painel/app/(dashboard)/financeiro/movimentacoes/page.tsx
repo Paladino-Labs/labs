@@ -37,6 +37,15 @@ const TYPE_LABELS: Record<string, string> = {
   OUTFLOW: "Saída",
 }
 
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  payment:           "Pagamento",
+  commission_payout: "Pagamento de comissão",
+  manual:            "Lançamento manual",
+  refund:            "Reembolso",
+  subscription:      "Assinatura",
+  package:           "Pacote",
+}
+
 export default function MovimentacoesPage() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [accountMap, setAccountMap] = useState<Map<string, string>>(new Map())
@@ -92,7 +101,7 @@ export default function MovimentacoesPage() {
                 <SelectValue>
                   {accountFilter === "all"
                     ? "Todas as contas"
-                    : (accounts.find((a) => a.id === accountFilter)?.name ?? accountFilter)}
+                    : (accountMap.get(accountFilter) ?? "Caixa principal")}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -173,7 +182,7 @@ export default function MovimentacoesPage() {
             <tbody className="divide-y divide-border">
               {movements.map((m) => {
                 const isInflow = m.type === "INFLOW"
-                const accountName = accountMap.get(m.account_id) ?? m.account_id
+                const accountName = accountMap.get(m.account_id) ?? "Caixa principal"
                 return (
                   <tr key={m.movement_id} className="transition-colors hover:bg-muted/30">
                     <td className="px-4 py-3 text-muted-foreground">
@@ -186,7 +195,7 @@ export default function MovimentacoesPage() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {m.source_type}
+                      {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
                     </td>
                     <td className={`px-4 py-3 text-right font-medium ${isInflow ? "text-success" : "text-destructive"}`}>
                       {formatBRL(m.amount)}

@@ -299,7 +299,7 @@ export default function PoliticasPage() {
       {/* ── Seção 1: Política global ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Regra global</CardTitle>
+          <CardTitle>Regra geral</CardTitle>
           <p className="text-xs text-muted-foreground">
             Aplicada quando não há regra específica para o barbeiro ou serviço.
           </p>
@@ -506,7 +506,7 @@ export default function PoliticasPage() {
 
             {/* Quem paga a taxa do gateway */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa do gateway</label>
+              <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa</label>
               <Select
                 value={modalForm.commission_fee_policy}
                 onValueChange={(v) => setModalForm((f) => ({ ...f, commission_fee_policy: v ?? "" }))}
@@ -523,7 +523,7 @@ export default function PoliticasPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-1">
-                Taxa cobrada pelo meio de pagamento (cartão, PIX, etc.)
+                Define quem absorve a taxa do meio de pagamento utilizado.
               </p>
             </div>
 

@@ -38,8 +38,11 @@ interface Professional {
 }
 
 const OPERATION_TYPE_LABELS: Record<string, string> = {
-  APPOINTMENT: "Agendamento",
-  PACKAGE: "Pacote",
+  SERVICE_RENDERED: "Agendamento",
+  PACKAGE_SOLD:     "Venda de pacote",
+  SUBSCRIPTION:     "Assinatura",
+  APPOINTMENT:      "Agendamento",
+  PACKAGE:          "Pacote",
 }
 
 const STATUS_LABELS: Record<string, string> = {
