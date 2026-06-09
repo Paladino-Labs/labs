@@ -42,19 +42,32 @@ interface Service { id: string; name: string; price: number }
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const BASE_LABELS: Record<string, string> = {
-  GROSS_SERVICE:   "% sobre valor bruto",
-  NET_SERVICE:     "% sobre valor líquido",
-  GROSS_OPERATION: "% sobre operação bruta",
+  GROSS_SERVICE:   "Percentual sobre valor bruto",
   CUSTOM_AMOUNT:   "Valor fixo (R$)",
+  // Legados — exibidos apenas na tabela para dados históricos
+  NET_SERVICE:     "% sobre valor líquido (legado)",
+  GROSS_OPERATION: "% sobre operação bruta (legado)",
 }
 
 const FEE_POLICY_LABELS: Record<string, string> = {
-  BEFORE_FEES: "Antes das taxas",
-  AFTER_FEES:  "Após as taxas",
+  BARBERSHOP_PAYS: "Barbearia paga a taxa",
+  SPLIT_50_50:     "Taxa dividida (50/50)",
+  BARBER_PAYS:     "Barbeiro paga a taxa",
+  // Legados — exibidos apenas na tabela para dados históricos
+  BEFORE_FEES:     "Antes das taxas (legado)",
+  AFTER_FEES:      "Após as taxas (legado)",
 }
 
-const BASE_OPTIONS = Object.entries(BASE_LABELS)
-const FEE_OPTIONS  = Object.entries(FEE_POLICY_LABELS)
+// Apenas opções Stage 0 — usadas nos formulários de criação/edição
+const BASE_OPTIONS: [string, string][] = [
+  ["GROSS_SERVICE", BASE_LABELS.GROSS_SERVICE],
+  ["CUSTOM_AMOUNT", BASE_LABELS.CUSTOM_AMOUNT],
+]
+const FEE_OPTIONS: [string, string][] = [
+  ["BARBERSHOP_PAYS", FEE_POLICY_LABELS.BARBERSHOP_PAYS],
+  ["SPLIT_50_50",     FEE_POLICY_LABELS.SPLIT_50_50],
+  ["BARBER_PAYS",     FEE_POLICY_LABELS.BARBER_PAYS],
+]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +97,7 @@ const EMPTY_FORM: FormState = {
   professional_id:     "",
   service_id:          "",
   commission_base:     "GROSS_SERVICE",
-  commission_fee_policy: "BEFORE_FEES",
+  commission_fee_policy: "BARBERSHOP_PAYS",
   amount:              "",
 }
 
@@ -481,9 +494,9 @@ export default function PoliticasPage() {
               />
             </div>
 
-            {/* Quando calcular */}
+            {/* Quem paga a taxa do gateway */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Quando calcular</label>
+              <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa do gateway</label>
               <Select
                 value={modalForm.commission_fee_policy}
                 onValueChange={(v) => setModalForm((f) => ({ ...f, commission_fee_policy: v ?? "" }))}
@@ -497,6 +510,9 @@ export default function PoliticasPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Taxa cobrada pelo meio de pagamento (cartão, PIX, etc.)
+              </p>
             </div>
 
             {modalError && (
@@ -575,9 +591,9 @@ function GlobalForm({
         />
       </div>
 
-      {/* Quando calcular */}
+      {/* Quem paga a taxa do gateway */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Quando calcular</label>
+        <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa do gateway</label>
         <Select
           value={form.commission_fee_policy}
           onValueChange={(v) => onChange({ ...form, commission_fee_policy: v ?? "" })}
@@ -591,6 +607,9 @@ function GlobalForm({
             ))}
           </SelectContent>
         </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          Taxa cobrada pelo meio de pagamento (cartão, PIX, etc.)
+        </p>
       </div>
 
       {/* Salvar */}
