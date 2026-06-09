@@ -428,7 +428,11 @@ export default function PoliticasPage() {
                 onValueChange={(v) => setModalForm((f) => ({ ...f, professional_id: v ?? "" }))}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos os barbeiros" />
+                  <SelectValue>
+                    {modalForm.professional_id
+                      ? professionals.find((p) => p.id === modalForm.professional_id)?.name ?? modalForm.professional_id
+                      : "Todos os barbeiros"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Todos os barbeiros</SelectItem>
@@ -447,7 +451,11 @@ export default function PoliticasPage() {
                 onValueChange={(v) => setModalForm((f) => ({ ...f, service_id: v ?? "" }))}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos os serviços" />
+                  <SelectValue>
+                    {modalForm.service_id
+                      ? services.find((s) => s.id === modalForm.service_id)?.name ?? modalForm.service_id
+                      : "Todos os serviços"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Todos os serviços</SelectItem>
@@ -468,7 +476,9 @@ export default function PoliticasPage() {
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {BASE_LABELS[modalForm.commission_base] ?? modalForm.commission_base}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {BASE_OPTIONS.map(([value, label]) => (
@@ -502,7 +512,9 @@ export default function PoliticasPage() {
                 onValueChange={(v) => setModalForm((f) => ({ ...f, commission_fee_policy: v ?? "" }))}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {FEE_POLICY_LABELS[modalForm.commission_fee_policy] ?? modalForm.commission_fee_policy}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {FEE_OPTIONS.map(([value, label]) => (
@@ -565,7 +577,9 @@ function GlobalForm({
           onValueChange={(v) => onChange({ ...form, commission_base: v ?? "", amount: "" })}
         >
           <SelectTrigger className="w-full">
-            <SelectValue />
+            <SelectValue>
+              {BASE_LABELS[form.commission_base] ?? form.commission_base}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {BASE_OPTIONS.map(([value, label]) => (
@@ -599,7 +613,9 @@ function GlobalForm({
           onValueChange={(v) => onChange({ ...form, commission_fee_policy: v ?? "" })}
         >
           <SelectTrigger className="w-full">
-            <SelectValue />
+            <SelectValue>
+              {FEE_POLICY_LABELS[form.commission_fee_policy] ?? form.commission_fee_policy}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {FEE_OPTIONS.map(([value, label]) => (

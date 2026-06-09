@@ -59,6 +59,22 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   REFUNDED:  { label: "Reembolsado", variant: "outline" },
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  all:       "Todos",
+  PENDING:   "Pendente",
+  CONFIRMED: "Confirmado",
+  FAILED:    "Falhou",
+  CANCELLED: "Cancelado",
+  REFUNDED:  "Reembolsado",
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  all:        "Todos",
+  MAQUININHA: "Crédito/Débito",
+  PIX:        "PIX",
+  CASH:       "Dinheiro",
+}
+
 export default function PagamentosPage() {
   const { role } = useAuth()
   const canConfirm = role === "OWNER" || role === "ADMIN"
@@ -156,7 +172,9 @@ export default function PagamentosPage() {
             <Label>Status</Label>
             <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
               <SelectTrigger className="w-40">
-                <SelectValue />
+                <SelectValue>
+                  {STATUS_LABELS[statusFilter] ?? statusFilter}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
@@ -173,12 +191,16 @@ export default function PagamentosPage() {
             <Label>Método</Label>
             <Select value={methodFilter} onValueChange={(v) => v && setMethodFilter(v)}>
               <SelectTrigger className="w-40">
-                <SelectValue />
+                <SelectValue>
+                  {METHOD_LABELS[methodFilter] ?? PAYMENT_METHOD_LABELS[methodFilter] ?? methodFilter}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 {uniqueMethods.map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                  <SelectItem key={m} value={m}>
+                    {METHOD_LABELS[m] ?? PAYMENT_METHOD_LABELS[m] ?? m}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

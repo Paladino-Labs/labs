@@ -42,6 +42,13 @@ const OPERATION_TYPE_LABELS: Record<string, string> = {
   PACKAGE: "Pacote",
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  all:      "Todas",
+  pending:  "Pendentes",
+  PAID:     "Pagas",
+  REVERSED: "Estornadas",
+}
+
 type StatusFilter = "all" | "pending" | "PAID" | "REVERSED"
 
 function isPending(status: string): boolean {
@@ -153,7 +160,11 @@ export default function HistoricoComissoesPage() {
             <Label>Profissional</Label>
             <Select value={professionalFilter} onValueChange={(v) => v && setProfessionalFilter(v)}>
               <SelectTrigger className="w-44">
-                <SelectValue />
+                <SelectValue>
+                  {professionalFilter === "all"
+                    ? "Todos"
+                    : (professionals.find((p) => p.id === professionalFilter)?.name ?? professionalFilter)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
@@ -168,7 +179,9 @@ export default function HistoricoComissoesPage() {
             <Label>Status</Label>
             <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v as StatusFilter)}>
               <SelectTrigger className="w-40">
-                <SelectValue />
+                <SelectValue>
+                  {STATUS_LABELS[statusFilter] ?? statusFilter}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>

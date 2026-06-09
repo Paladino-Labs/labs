@@ -31,6 +31,12 @@ interface FinancialAccount {
   name: string
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  all:     "Todos",
+  INFLOW:  "Entrada",
+  OUTFLOW: "Saída",
+}
+
 export default function MovimentacoesPage() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [accountMap, setAccountMap] = useState<Map<string, string>>(new Map())
@@ -83,7 +89,11 @@ export default function MovimentacoesPage() {
             <Label>Conta</Label>
             <Select value={accountFilter} onValueChange={(v) => v && setAccountFilter(v)}>
               <SelectTrigger className="w-44">
-                <SelectValue />
+                <SelectValue>
+                  {accountFilter === "all"
+                    ? "Todas as contas"
+                    : (accounts.find((a) => a.id === accountFilter)?.name ?? accountFilter)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as contas</SelectItem>
@@ -98,7 +108,9 @@ export default function MovimentacoesPage() {
             <Label>Tipo</Label>
             <Select value={typeFilter} onValueChange={(v) => v && setTypeFilter(v)}>
               <SelectTrigger className="w-36">
-                <SelectValue />
+                <SelectValue>
+                  {TYPE_LABELS[typeFilter] ?? typeFilter}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>

@@ -235,7 +235,11 @@ function PageContent() {
               }}
             >
               <SelectTrigger className="w-full sm:w-72">
-                <SelectValue placeholder="Selecione um barbeiro" />
+                <SelectValue>
+                  {selectedProfId
+                    ? professionals.find((p) => p.id === selectedProfId)?.name ?? selectedProfId
+                    : "Selecione um barbeiro"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {professionals.map((p) => (
@@ -290,7 +294,9 @@ function PageContent() {
                         onValueChange={(v) => setSelectedAccountId(v ?? "")}
                       >
                         <SelectTrigger className="w-full sm:w-72">
-                          <SelectValue />
+                          <SelectValue>
+                            {accounts.find((a) => a.account_id === selectedAccountId)?.name ?? selectedAccountId}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {accounts.map((a) => (
