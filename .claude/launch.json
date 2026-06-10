@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "Backend (FastAPI)",
-      "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["app.main:app", "--reload"],
+      "runtimeExecutable": "C:/dev/paladino/agendamento_engine/venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload"],
       "cwd": "C:/dev/paladino/agendamento_engine",
       "port": 8000,
       "autoPort": true
