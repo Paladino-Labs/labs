@@ -405,96 +405,6 @@ function DayView({
   )
 }
 
-// ─── Mini calendário ──────────────────────────────────────────────────────────
-
-function MiniCalendar({
-  selected,
-  onChange,
-  appointments,
-}: {
-  selected: Date
-  onChange: (d: Date) => void
-  appointments: Appointment[]
-}) {
-  const [viewing, setViewing] = useState(
-    new Date(selected.getFullYear(), selected.getMonth(), 1)
-  )
-  const today = new Date()
-
-  const firstDay = new Date(viewing.getFullYear(), viewing.getMonth(), 1).getDay()
-  const daysInMonth = new Date(viewing.getFullYear(), viewing.getMonth() + 1, 0).getDate()
-
-  const hasAppt = (d: Date) =>
-    appointments.some((a) => isSameDay(new Date(a.start_at), d))
-
-  return (
-    <div className="w-56 flex-shrink-0 select-none">
-      {/* Navegação do mês */}
-      <div className="flex items-center justify-between mb-2 px-1">
-        <button
-          onClick={() => setViewing(new Date(viewing.getFullYear(), viewing.getMonth() - 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
-        >
-          ‹
-        </button>
-        <span className="text-xs font-semibold text-foreground capitalize">
-          {MONTHS_PT[viewing.getMonth()]} {viewing.getFullYear()}
-        </span>
-        <button
-          onClick={() => setViewing(new Date(viewing.getFullYear(), viewing.getMonth() + 1, 1))}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
-        >
-          ›
-        </button>
-      </div>
-
-      {/* Dias da semana */}
-      <div className="grid grid-cols-7 mb-1">
-        {DAYS_PT.map((d) => (
-          <div key={d} className="text-center text-xs text-muted-foreground font-medium py-0.5">
-            {d[0]}
-          </div>
-        ))}
-      </div>
-
-      {/* Grade de dias */}
-      <div className="grid grid-cols-7 gap-y-0.5">
-        {Array.from({ length: firstDay }, (_, i) => (
-          <div key={`empty-${i}`} />
-        ))}
-        {Array.from({ length: daysInMonth }, (_, i) => {
-          const d = new Date(viewing.getFullYear(), viewing.getMonth(), i + 1)
-          const isSelected = isSameDay(d, selected)
-          const isToday = isSameDay(d, today)
-          const dot = hasAppt(d)
-
-          return (
-            <button
-              key={i}
-              onClick={() => onChange(d)}
-              className={`
-                relative w-7 h-7 mx-auto flex items-center justify-center rounded-full text-xs
-                transition-colors duration-100
-                ${isSelected
-                  ? "bg-primary text-primary-foreground font-semibold"
-                  : isToday
-                    ? "border border-primary text-primary font-semibold"
-                    : "text-foreground hover:bg-muted"
-                }
-              `}
-            >
-              {i + 1}
-              {dot && !isSelected && (
-                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─── Modal de detalhes ────────────────────────────────────────────────────────
 
 function ApptModal({
@@ -592,7 +502,7 @@ export default function AgendaCalendar({
 }: AgendaCalendarProps) {
   type ViewMode = "week" | "day"
 
-  const [view, setView]         = useState<ViewMode>("week")
+  const [view, setView]         = useState<ViewMode>("day")
   const [currentDate, setCurrentDate] = useState(() => {
     const d = new Date()
     d.setHours(0, 0, 0, 0)
@@ -699,16 +609,9 @@ export default function AgendaCalendar({
       {/* ── Corpo ────────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* Mini calendário lateral */}
+        {/* Legenda lateral de profissionais */}
         <div className="hidden lg:flex flex-col gap-6 px-4 py-4 border-r border-border flex-shrink-0">
-          <MiniCalendar
-            selected={currentDate}
-            onChange={(d) => setCurrentDate(d)}
-            appointments={appointments}
-          />
-
-          {/* Legenda de profissionais */}
-          <div className="space-y-2">
+          <div className="space-y-2 w-40">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Profissionais
             </p>
