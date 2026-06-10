@@ -45,33 +45,66 @@ class RefundReason(str, Enum):
     OTHER = "OTHER"
 
 
+# fee_source usado no fluxo de webhook (confirm) — apenas categoriza a Entry TAXA.
+# Métodos Asaas (PIX/BOLETO/CARD_*): taxa real chega no webhook (provider_fee);
+# não há política MDR local → None (mesmo tratamento de CASH).
 _PAYMENT_METHOD_TO_FEE_SOURCE: dict[str, Optional[str]] = {
-    "PIX": "ASAAS_PIX",
-    "BOLETO": "ASAAS_PIX",
-    "CARD_CREDIT": "ASAAS_CARD",
-    "CARD_DEBIT": "ASAAS_CARD",
-    "MAQUININHA": "MAQUININHA_CREDIT",
-    "MAQUININHA_CREDIT": "MAQUININHA_CREDIT",
-    "MAQUININHA_DEBIT": "MAQUININHA_DEBIT",
+    "PIX": None,
+    "BOLETO": None,
+    "CARD_CREDIT": None,
+    "CARD_DEBIT": None,
+    "CASH": None,
+    "CHAVE_PIX": "CHAVE_PIX",
+    "MAQUININHA": "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_CREDIT": "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_DEBIT": "MAQUININHA_DEBIT_OUTROS",
     "MAQUININHA_PIX": "MAQUININHA_PIX",
-    "CASH": None,  # sem taxa de provider em pagamento em dinheiro
 }
 
-# Métodos de maquininha que têm política de taxa MDR configurável.
-_MAQUININHA_METHODS = frozenset({"MAQUININHA", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT", "MAQUININHA_PIX"})
+# Métodos diretos com política MDR própria em pagamento manual.
+# MAQUININHA_CREDIT/MAQUININHA_DEBIT são legados (pré-bandeiras): caem nas
+# políticas fallback *_OUTROS.
+_MANUAL_METHOD_TO_FEE_SOURCE: dict[str, str] = {
+    "CHAVE_PIX": "CHAVE_PIX",
+    "MAQUININHA_PIX": "MAQUININHA_PIX",
+    "MAQUININHA_CREDIT": "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_DEBIT": "MAQUININHA_DEBIT_OUTROS",
+}
 
-# Labels legíveis para mensagens de aviso exibidas ao operador.
+# payment_submethod → fee_source para method=MAQUININHA (genérico).
+# CREDIT/DEBIT mantidos por compatibilidade com dados históricos.
+_MAQUININHA_SUBMETHOD_TO_FEE_SOURCE: dict[str, str] = {
+    "PIX": "MAQUININHA_PIX",
+    "CREDIT_VISA_MASTER": "MAQUININHA_CREDIT_VISA_MASTER",
+    "CREDIT_ELO": "MAQUININHA_CREDIT_ELO",
+    "CREDIT_HIPER_AMEX": "MAQUININHA_CREDIT_HIPER_AMEX",
+    "CREDIT_OUTROS": "MAQUININHA_CREDIT_OUTROS",
+    "DEBIT_VISA_MASTER": "MAQUININHA_DEBIT_VISA_MASTER",
+    "DEBIT_ELO": "MAQUININHA_DEBIT_ELO",
+    "DEBIT_OUTROS": "MAQUININHA_DEBIT_OUTROS",
+    "CREDIT": "MAQUININHA_CREDIT_OUTROS",
+    "DEBIT": "MAQUININHA_DEBIT_OUTROS",
+}
+
+# Labels legíveis para mensagens de aviso exibidas ao operador (glossário UI).
 _FEE_SOURCE_LABELS: dict[str, str] = {
-    "MAQUININHA_CREDIT": "crédito na maquininha",
-    "MAQUININHA_DEBIT": "débito na maquininha",
-    "MAQUININHA_PIX": "PIX na maquininha",
+    "CASH": "Dinheiro",
+    "CHAVE_PIX": "Chave Pix",
+    "MAQUININHA_PIX": "Pix QrCode",
+    "MAQUININHA_CREDIT_VISA_MASTER": "Crédito Visa/Master",
+    "MAQUININHA_CREDIT_ELO": "Crédito Elo",
+    "MAQUININHA_CREDIT_HIPER_AMEX": "Crédito Hiper/Amex",
+    "MAQUININHA_CREDIT_OUTROS": "Crédito Outros",
+    "MAQUININHA_DEBIT_VISA_MASTER": "Débito Visa/Master",
+    "MAQUININHA_DEBIT_ELO": "Débito Elo",
+    "MAQUININHA_DEBIT_OUTROS": "Débito Outros",
 }
 
 _CONSUMER = "payment_confirmed"
 
 
 def _fee_source_for(payment_method: str) -> Optional[str]:
-    return _PAYMENT_METHOD_TO_FEE_SOURCE.get(payment_method.upper(), "ASAAS_PIX")
+    return _PAYMENT_METHOD_TO_FEE_SOURCE.get(payment_method.upper())
 
 
 def _fee_warning_message(fee_source: str) -> str:
@@ -396,30 +429,41 @@ def _calc_manual_fee(
       - Política não encontrada ou inativa.
       - Política ativa mas fee_percentage IS NULL (não configurado pelo operador).
 
-    CASH → (Decimal("0"), None) — sem consulta ao banco.
-    MAQUININHA (genérico) + payment_submethod="DEBIT" → consulta MAQUININHA_DEBIT.
-    MAQUININHA (genérico) + payment_submethod="CREDIT" ou None → consulta MAQUININHA_CREDIT.
-    MAQUININHA_CREDIT → consulta política MAQUININHA_CREDIT.
-    MAQUININHA_DEBIT → consulta política MAQUININHA_DEBIT.
-    MAQUININHA_PIX   → consulta política MAQUININHA_PIX.
-    Outros métodos   → (Decimal("0"), None) sem consulta.
+    CASH → (Decimal("0"), None) — sem consulta ao banco (taxa 0 por definição).
+    CHAVE_PIX → consulta política CHAVE_PIX.
+    MAQUININHA (genérico) + payment_submethod → fee_source via
+        _MAQUININHA_SUBMETHOD_TO_FEE_SOURCE (PIX, CREDIT_VISA_MASTER, CREDIT_ELO,
+        CREDIT_HIPER_AMEX, CREDIT_OUTROS, DEBIT_VISA_MASTER, DEBIT_ELO, DEBIT_OUTROS;
+        CREDIT/DEBIT legados → *_OUTROS).
+    MAQUININHA + submethod não reconhecido → (Decimal("0"), warning) sem consulta.
+    MAQUININHA + submethod None → fallback MAQUININHA_CREDIT_OUTROS (compat histórico).
+    MAQUININHA_CREDIT/MAQUININHA_DEBIT (legados) → políticas *_OUTROS.
+    MAQUININHA_PIX → consulta política MAQUININHA_PIX.
+    Outros métodos → (Decimal("0"), None) sem consulta.
     """
     method = payment.payment_method.upper()
 
     if method == "CASH":
         return Decimal("0"), None
 
-    if method not in _MAQUININHA_METHODS:
+    if method == "MAQUININHA":
+        submethod = (payment_submethod or "").upper()
+        if not submethod:
+            # Compat histórico: MAQUININHA sem submethod assumia crédito
+            fee_source = "MAQUININHA_CREDIT_OUTROS"
+        else:
+            fee_source = _MAQUININHA_SUBMETHOD_TO_FEE_SOURCE.get(submethod)
+            if fee_source is None:
+                logger.warning(
+                    "manual_fee_unknown_submethod submethod=%s company_id=%s",
+                    submethod,
+                    payment.company_id,
+                )
+                return Decimal("0"), f"MAQUININHA_{submethod}"
+    elif method in _MANUAL_METHOD_TO_FEE_SOURCE:
+        fee_source = _MANUAL_METHOD_TO_FEE_SOURCE[method]
+    else:
         return Decimal("0"), None
-
-    fee_source = _PAYMENT_METHOD_TO_FEE_SOURCE[method]
-    # Quando method é "MAQUININHA" (genérico), payment_submethod determina crédito vs débito
-    if method == "MAQUININHA" and payment_submethod:
-        submethod = payment_submethod.upper()
-        if submethod == "DEBIT":
-            fee_source = "MAQUININHA_DEBIT"
-        elif submethod == "CREDIT":
-            fee_source = "MAQUININHA_CREDIT"
 
     policy = (
         db.query(TenantFeeRoutingPolicy)

@@ -434,7 +434,8 @@ def test_confirm_calls_handle_payment_confirmed_with_correct_args():
     call_kwargs = mock_fc.handle_payment_confirmed.call_args
     assert call_kwargs.kwargs["gross_amount"] == Decimal("100.00")
     assert call_kwargs.kwargs["target_account_id"] == account_id
-    assert call_kwargs.kwargs["fee_source"] == "ASAAS_PIX"  # PIX → ASAAS_PIX
+    # PIX (Asaas): taxa real chega no webhook — sem política MDR local
+    assert call_kwargs.kwargs["fee_source"] is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -720,11 +721,17 @@ def test_fee_source_mapping():
     """_fee_source_for deve mapear métodos de pagamento para fee_source correto."""
     from app.modules.payments.service import _fee_source_for
 
-    assert _fee_source_for("PIX") == "ASAAS_PIX"
-    assert _fee_source_for("BOLETO") == "ASAAS_PIX"
-    assert _fee_source_for("CARD_CREDIT") == "ASAAS_CARD"
-    assert _fee_source_for("CARD_DEBIT") == "ASAAS_CARD"
-    assert _fee_source_for("MAQUININHA") == "MAQUININHA_CREDIT"
+    # Métodos Asaas: taxa via webhook — sem fee_source local
+    assert _fee_source_for("PIX") is None
+    assert _fee_source_for("BOLETO") is None
+    assert _fee_source_for("CARD_CREDIT") is None
+    assert _fee_source_for("CARD_DEBIT") is None
+    # Presenciais
+    assert _fee_source_for("CHAVE_PIX") == "CHAVE_PIX"
+    assert _fee_source_for("MAQUININHA") == "MAQUININHA_CREDIT_OUTROS"
+    assert _fee_source_for("MAQUININHA_CREDIT") == "MAQUININHA_CREDIT_OUTROS"
+    assert _fee_source_for("MAQUININHA_DEBIT") == "MAQUININHA_DEBIT_OUTROS"
+    assert _fee_source_for("MAQUININHA_PIX") == "MAQUININHA_PIX"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

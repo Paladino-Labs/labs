@@ -1,7 +1,7 @@
 """Testes do endpoint e serviço de políticas de taxa MDR (fee-policies).
 
 Casos cobertos:
-  1.  list_fee_routing_policies → retorna lista com 8 políticas (inclui MAQUININHA_PIX)
+  1.  list_fee_routing_policies → retorna lista com 10 políticas (inclui CHAVE_PIX e bandeiras)
   2.  update_fee_policy_calculation → atualiza fee_percentage e retorna policy
   3.  FeePolicyUpdate rejeita fee_percentage > 100.0 (ValidationError Pydantic)
   4.  update_fee_policy_calculation → 404 para fee_source desconhecido
@@ -36,7 +36,7 @@ def _make_db():
 
 
 def _make_policy(
-    fee_source="MAQUININHA_CREDIT",
+    fee_source="MAQUININHA_CREDIT_OUTROS",
     fee_percentage=Decimal("0"),
     fee_flat=Decimal("0"),
     is_active=True,
@@ -56,20 +56,23 @@ def _make_policy(
     return p
 
 
-FEE_SOURCES_8 = [
-    "ASAAS_PIX", "ASAAS_CARD", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT",
-    "MAQUININHA_PIX", "ANTECIPACAO", "ESTORNO", "RECORRENTE_FEE",
+FEE_SOURCES_10 = [
+    "CASH", "CHAVE_PIX", "MAQUININHA_PIX",
+    "MAQUININHA_CREDIT_VISA_MASTER", "MAQUININHA_CREDIT_ELO",
+    "MAQUININHA_CREDIT_HIPER_AMEX", "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_DEBIT_VISA_MASTER", "MAQUININHA_DEBIT_ELO",
+    "MAQUININHA_DEBIT_OUTROS",
 ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. list_fee_routing_policies → retorna lista com 8 políticas (inclui MAQUININHA_PIX)
+# 1. list_fee_routing_policies → retorna lista com 10 políticas (inclui CHAVE_PIX)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_list_fee_policies_returns_eight_policies():
-    """list_fee_routing_policies deve retornar as 8 políticas do tenant (incluindo MAQUININHA_PIX)."""
+def test_list_fee_policies_returns_ten_policies():
+    """list_fee_routing_policies deve retornar as 10 políticas do tenant (incluindo CHAVE_PIX e bandeiras)."""
     company_id = uuid.uuid4()
-    policies = [_make_policy(fee_source=fs, company_id=company_id) for fs in FEE_SOURCES_8]
+    policies = [_make_policy(fee_source=fs, company_id=company_id) for fs in FEE_SOURCES_10]
     db = _make_db()
     db.query.return_value.filter.return_value.order_by.return_value.all.return_value = policies
 
@@ -77,10 +80,11 @@ def test_list_fee_policies_returns_eight_policies():
 
     result = list_fee_routing_policies(company_id=company_id, db=db)
 
-    assert len(result) == 8
+    assert len(result) == 10
     returned_sources = {p.fee_source for p in result}
-    assert returned_sources == set(FEE_SOURCES_8)
-    assert "MAQUININHA_PIX" in returned_sources
+    assert returned_sources == set(FEE_SOURCES_10)
+    assert "CHAVE_PIX" in returned_sources
+    assert "MAQUININHA_CREDIT_VISA_MASTER" in returned_sources
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -91,7 +95,7 @@ def test_update_fee_policy_updates_percentage():
     """update_fee_policy_calculation deve persistir novo fee_percentage."""
     company_id = uuid.uuid4()
     policy = _make_policy(
-        fee_source="MAQUININHA_CREDIT",
+        fee_source="MAQUININHA_CREDIT_OUTROS",
         fee_percentage=Decimal("0"),
         company_id=company_id,
     )
@@ -101,7 +105,7 @@ def test_update_fee_policy_updates_percentage():
     from app.modules.financial_core.service import update_fee_policy_calculation
 
     result = update_fee_policy_calculation(
-        fee_source="MAQUININHA_CREDIT",
+        fee_source="MAQUININHA_CREDIT_OUTROS",
         company_id=company_id,
         db=db,
         fee_percentage=Decimal("3.99"),
@@ -169,7 +173,7 @@ def test_confirm_manual_uses_updated_fee_percentage():
 
     # Simula policy com 5.0% atualizado
     policy = _make_policy(
-        fee_source="MAQUININHA_CREDIT",
+        fee_source="MAQUININHA_CREDIT_OUTROS",
         fee_percentage=Decimal("5.0"),
         company_id=company_id,
     )

@@ -31,7 +31,7 @@ class Payment(Base):
     provider_fee = Column(Numeric(15, 2), nullable=False, default=0)
 
     # Método de pagamento (separado de payment_source)
-    # CASH | PIX | BOLETO | CARD_CREDIT | CARD_DEBIT | MAQUININHA
+    # Presenciais: CASH | CHAVE_PIX | MAQUININHA — online (Asaas): PIX | BOLETO | CARD_CREDIT | CARD_DEBIT
     payment_method = Column(String(50), nullable=False)
     # Nulo para CASH/PIX/BOLETO; preenchido para cartão salvo
     payment_source_id = Column(UUID(as_uuid=True), ForeignKey("payment_sources.source_id"), nullable=True)

@@ -39,7 +39,9 @@ class PaymentCreate(BaseModel):
     customer_id: Optional[UUID] = None
     appointment_id: Optional[UUID] = None
     gross_amount: Decimal
-    payment_method: str        # CASH | PIX | BOLETO | CARD_CREDIT | CARD_DEBIT | MAQUININHA
+    # CASH | CHAVE_PIX | MAQUININHA | PIX | BOLETO | CARD_CREDIT | CARD_DEBIT
+    # (PIX/BOLETO/CARD_* são online via Asaas; presenciais usam CASH/CHAVE_PIX/MAQUININHA)
+    payment_method: str
     # provider: padrão "manual" para pagamentos presenciais (CASH, MAQUININHA).
     # PIX/BOLETO via Asaas: passar "asaas" explicitamente.
     provider: str = "manual"
@@ -50,14 +52,18 @@ class PaymentCreate(BaseModel):
     # Campos usados para registro no Asaas (obrigatórios para PIX/BOLETO)
     customer_cpf_cnpj: Optional[str] = None   # apenas dígitos, e.g. "12345678901"
     due_date: Optional[date] = None            # padrão: hoje
-    # Submethod para MAQUININHA genérico: "CREDIT" | "DEBIT" | None
-    # Determina fee_source correto em _calc_manual_fee (MAQUININHA_CREDIT vs MAQUININHA_DEBIT)
+    # Submethod para MAQUININHA genérico — determina o fee_source em _calc_manual_fee:
+    #   PIX | CREDIT_VISA_MASTER | CREDIT_ELO | CREDIT_HIPER_AMEX | CREDIT_OUTROS
+    #   | DEBIT_VISA_MASTER | DEBIT_ELO | DEBIT_OUTROS | None
+    # CREDIT e DEBIT (legados) seguem aceitos → políticas *_OUTROS.
+    # Submethod não reconhecido: confirma com fee=0 + fee_warning na resposta.
     payment_submethod: Optional[str] = None
 
 
 class ConfirmManualRequest(BaseModel):
-    # Aceita: "CREDIT" | "DEBIT" | None
-    # Usado quando payment_method="MAQUININHA" para determinar fee_source correto
+    # Mesmos valores de PaymentCreate.payment_submethod:
+    #   PIX | CREDIT_VISA_MASTER | CREDIT_ELO | CREDIT_HIPER_AMEX | CREDIT_OUTROS
+    #   | DEBIT_VISA_MASTER | DEBIT_ELO | DEBIT_OUTROS | CREDIT (legado) | DEBIT (legado) | None
     payment_submethod: Optional[str] = None
 
 

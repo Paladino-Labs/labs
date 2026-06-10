@@ -538,21 +538,27 @@ class TestCreateCompanyHook:
         assert caixa.is_default_inflow is True
         assert caixa.name == "Caixa principal"
 
-        # Verifica 8 TenantFeeRoutingPolicies (incluindo MAQUININHA_PIX)
+        # Verifica 10 TenantFeeRoutingPolicies (CHAVE_PIX + bandeiras de maquininha)
         policy_objs = [o for o in added_objects if isinstance(o, TenantFeeRoutingPolicy)]
-        assert len(policy_objs) == 8, f"Esperado 8 TenantFeeRoutingPolicies, encontrado {len(policy_objs)}"
+        assert len(policy_objs) == 10, f"Esperado 10 TenantFeeRoutingPolicies, encontrado {len(policy_objs)}"
 
         fee_sources = {p.fee_source for p in policy_objs}
         expected = {
-            "CASH", "PIX", "BOLETO",
-            "MAQUININHA_PIX", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT",
-            "CARD_CREDIT", "CARD_DEBIT",
+            "CASH", "CHAVE_PIX", "MAQUININHA_PIX",
+            "MAQUININHA_CREDIT_VISA_MASTER", "MAQUININHA_CREDIT_ELO",
+            "MAQUININHA_CREDIT_HIPER_AMEX", "MAQUININHA_CREDIT_OUTROS",
+            "MAQUININHA_DEBIT_VISA_MASTER", "MAQUININHA_DEBIT_ELO",
+            "MAQUININHA_DEBIT_OUTROS",
         }
         assert fee_sources == expected
 
-        # MAQUININHA_PIX deve partir com fee_percentage=None (aviso até configuração)
-        pix_policy = next(p for p in policy_objs if p.fee_source == "MAQUININHA_PIX")
-        assert pix_policy.fee_percentage is None
+        # Maquininha (PIX + bandeiras) parte com fee_percentage=None (aviso até configuração);
+        # CASH e CHAVE_PIX partem com 0 (sem taxa por padrão).
+        for p in policy_objs:
+            if p.fee_source in ("CASH", "CHAVE_PIX"):
+                assert p.fee_percentage == 0, f"{p.fee_source} deveria partir com 0"
+            else:
+                assert p.fee_percentage is None, f"{p.fee_source} deveria partir com NULL"
 
         for p in policy_objs:
             assert p.tenant_share == 100

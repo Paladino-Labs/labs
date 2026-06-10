@@ -20,20 +20,34 @@ from app.modules.companies.schemas import CompanyCreate, CompanyPatch
 logger = logging.getLogger(__name__)
 
 
+# 10 fee_sources canônicos (pagamentos manuais/presenciais).
+# Taxas de PIX/BOLETO/cartão online (Asaas) chegam via webhook — sem política local.
 _DEFAULT_FEE_SOURCES = [
     "CASH",
-    "PIX",
-    "BOLETO",
+    "CHAVE_PIX",
     "MAQUININHA_PIX",
-    "MAQUININHA_CREDIT",
-    "MAQUININHA_DEBIT",
-    "CARD_CREDIT",
-    "CARD_DEBIT",
+    "MAQUININHA_CREDIT_VISA_MASTER",
+    "MAQUININHA_CREDIT_ELO",
+    "MAQUININHA_CREDIT_HIPER_AMEX",
+    "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_DEBIT_VISA_MASTER",
+    "MAQUININHA_DEBIT_ELO",
+    "MAQUININHA_DEBIT_OUTROS",
 ]
 
 # fee_sources que partem com fee_percentage=NULL (taxa ainda não configurada).
 # Dispara aviso no confirm_manual até o operador configurar via PATCH /financial/fee-policies.
-_FEE_SOURCES_UNCONFIGURED_BY_DEFAULT = {"MAQUININHA_PIX"}
+# Maquininha sempre tem MDR real → NULL até configuração; CASH/CHAVE_PIX → 0 por padrão.
+_FEE_SOURCES_UNCONFIGURED_BY_DEFAULT = {
+    "MAQUININHA_PIX",
+    "MAQUININHA_CREDIT_VISA_MASTER",
+    "MAQUININHA_CREDIT_ELO",
+    "MAQUININHA_CREDIT_HIPER_AMEX",
+    "MAQUININHA_CREDIT_OUTROS",
+    "MAQUININHA_DEBIT_VISA_MASTER",
+    "MAQUININHA_DEBIT_ELO",
+    "MAQUININHA_DEBIT_OUTROS",
+}
 
 
 _DEFAULT_CATEGORIES: dict = {

@@ -511,7 +511,7 @@ def test_confirm_manual_maquininha_pix_without_fee_configured_triggers_warning()
     assert fee_warning["code"] == "fee_not_configured"
     assert fee_warning["fee_source"] == "MAQUININHA_PIX"
     assert fee_warning["fee_applied"] == 0.0
-    assert "PIX na maquininha" in fee_warning["message"]
+    assert "Pix QrCode" in fee_warning["message"]
     assert "Configurações" in fee_warning["message"]
 
 
@@ -629,7 +629,7 @@ def test_confirm_manual_maquininha_without_active_policy_uses_zero_fee():
     assert call_kwargs["webhook_data"]["fee"] == "0"
     assert fee_warning is not None
     assert fee_warning["code"] == "fee_not_configured"
-    assert fee_warning["fee_source"] == "MAQUININHA_CREDIT"
+    assert fee_warning["fee_source"] == "MAQUININHA_CREDIT_OUTROS"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -678,8 +678,8 @@ def test_confirm_manual_maquininha_debit_uses_debit_policy():
 # qual fee_source foi consultado.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_calc_manual_fee_maquininha_submethod_debit_uses_debit_source():
-    """MAQUININHA + payment_submethod='DEBIT' deve consultar MAQUININHA_DEBIT."""
+def test_calc_manual_fee_maquininha_submethod_debit_legacy_uses_outros():
+    """MAQUININHA + payment_submethod='DEBIT' (legado) deve consultar MAQUININHA_DEBIT_OUTROS."""
     from app.modules.payments.service import _calc_manual_fee
 
     payment = _make_payment(payment_method="MAQUININHA", provider="manual")
@@ -690,11 +690,11 @@ def test_calc_manual_fee_maquininha_submethod_debit_uses_debit_source():
     fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod="DEBIT")
 
     assert fee == Decimal("0")
-    assert warning_fee_source == "MAQUININHA_DEBIT"
+    assert warning_fee_source == "MAQUININHA_DEBIT_OUTROS"
 
 
-def test_calc_manual_fee_maquininha_submethod_credit_uses_credit_source():
-    """MAQUININHA + payment_submethod='CREDIT' deve consultar MAQUININHA_CREDIT."""
+def test_calc_manual_fee_maquininha_submethod_credit_legacy_uses_outros():
+    """MAQUININHA + payment_submethod='CREDIT' (legado) deve consultar MAQUININHA_CREDIT_OUTROS."""
     from app.modules.payments.service import _calc_manual_fee
 
     payment = _make_payment(payment_method="MAQUININHA", provider="manual")
@@ -704,11 +704,11 @@ def test_calc_manual_fee_maquininha_submethod_credit_uses_credit_source():
     fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod="CREDIT")
 
     assert fee == Decimal("0")
-    assert warning_fee_source == "MAQUININHA_CREDIT"
+    assert warning_fee_source == "MAQUININHA_CREDIT_OUTROS"
 
 
-def test_calc_manual_fee_maquininha_submethod_none_defaults_to_credit():
-    """MAQUININHA + payment_submethod=None deve consultar MAQUININHA_CREDIT (default)."""
+def test_calc_manual_fee_maquininha_submethod_none_defaults_to_credit_outros():
+    """MAQUININHA + payment_submethod=None deve consultar MAQUININHA_CREDIT_OUTROS (compat histórico)."""
     from app.modules.payments.service import _calc_manual_fee
 
     payment = _make_payment(payment_method="MAQUININHA", provider="manual")
@@ -718,4 +718,124 @@ def test_calc_manual_fee_maquininha_submethod_none_defaults_to_credit():
     fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=None)
 
     assert fee == Decimal("0")
-    assert warning_fee_source == "MAQUININHA_CREDIT"
+    assert warning_fee_source == "MAQUININHA_CREDIT_OUTROS"
+
+
+@pytest.mark.parametrize("submethod,expected_source", [
+    ("PIX",                 "MAQUININHA_PIX"),
+    ("CREDIT_VISA_MASTER",  "MAQUININHA_CREDIT_VISA_MASTER"),
+    ("CREDIT_ELO",          "MAQUININHA_CREDIT_ELO"),
+    ("CREDIT_HIPER_AMEX",   "MAQUININHA_CREDIT_HIPER_AMEX"),
+    ("CREDIT_OUTROS",       "MAQUININHA_CREDIT_OUTROS"),
+    ("DEBIT_VISA_MASTER",   "MAQUININHA_DEBIT_VISA_MASTER"),
+    ("DEBIT_ELO",           "MAQUININHA_DEBIT_ELO"),
+    ("DEBIT_OUTROS",        "MAQUININHA_DEBIT_OUTROS"),
+])
+def test_calc_manual_fee_maquininha_submethod_bandeiras(submethod, expected_source):
+    """MAQUININHA + submethod por bandeira deve consultar o fee_source correspondente."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="MAQUININHA", provider="manual")
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=submethod)
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == expected_source
+
+
+def test_calc_manual_fee_maquininha_unknown_submethod_returns_warning():
+    """MAQUININHA + submethod não reconhecido → fee=0 + warning, sem consulta ao banco."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="MAQUININHA", provider="manual")
+    db = _make_db()
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod="AMEX_GOLD")
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == "MAQUININHA_AMEX_GOLD"
+    db.query.assert_not_called()
+
+
+def test_confirm_manual_unknown_submethod_confirms_with_fee_warning():
+    """confirm_manual com submethod não reconhecido confirma com fee=0 e fee_warning preenchido."""
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        provider="manual",
+        gross_catalog_amount=Decimal("100.00"),
+    )
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+            payment_submethod="FOO",
+        )
+
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "0"
+    assert fee_warning is not None
+    assert fee_warning["code"] == "fee_not_configured"
+    assert fee_warning["fee_source"] == "MAQUININHA_FOO"
+
+
+def test_confirm_manual_chave_pix_uses_chave_pix_policy():
+    """CHAVE_PIX deve consultar a política CHAVE_PIX e calcular fee com o percentual configurado."""
+    gross = Decimal("100.00")
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="CHAVE_PIX",
+        provider="manual",
+        gross_catalog_amount=gross,
+        net_charged_amount=gross,
+    )
+    db = _make_db()
+
+    policy = MagicMock()
+    policy.is_active = True
+    policy.fee_percentage = Decimal("1.00")
+    policy.fee_flat = Decimal("0")
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    # fee = 100.00 * 1.00 / 100 = 1.00
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "1.00"
+    assert fee_warning is None
+
+
+def test_calc_manual_fee_chave_pix_without_policy_returns_warning():
+    """CHAVE_PIX sem política cadastrada → fee=0 + warning_fee_source=CHAVE_PIX."""
+    from app.modules.payments.service import _calc_manual_fee
+
+    payment = _make_payment(payment_method="CHAVE_PIX", provider="manual")
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db)
+
+    assert fee == Decimal("0")
+    assert warning_fee_source == "CHAVE_PIX"
