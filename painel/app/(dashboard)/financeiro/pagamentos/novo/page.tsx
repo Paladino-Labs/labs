@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Banknote, CheckCircle, CreditCard, QrCode } from "lucide-react"
+import { Banknote, CheckCircle, CreditCard, KeyRound, QrCode } from "lucide-react"
 import { api } from "@/lib/api"
+import { PAYMENT_METHOD_GROUPS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_OPTIONS } from "@/lib/constants"
 import { useAuth } from "@/context/AuthContext"
 import { formatBRL } from "@/lib/utils"
 import { CustomerAutocomplete } from "@/components/CustomerAutocomplete"
@@ -52,20 +53,11 @@ interface ConfirmResult {
 
 // ── Payment method config ─────────────────────────────────────────────────────
 
-type MethodKey = "CASH" | "PIX" | "CREDIT" | "DEBIT"
-
-const METHODS: Array<{
-  key: MethodKey
-  label: string
-  Icon: React.ElementType
-  payment_method: string
-  payment_submethod: string | null
-}> = [
-  { key: "CASH",   label: "Dinheiro", Icon: Banknote,    payment_method: "CASH",        payment_submethod: null     },
-  { key: "PIX",    label: "PIX",      Icon: QrCode,      payment_method: "PIX",         payment_submethod: null     },
-  { key: "CREDIT", label: "Crédito",  Icon: CreditCard,  payment_method: "MAQUININHA",  payment_submethod: "CREDIT" },
-  { key: "DEBIT",  label: "Débito",   Icon: CreditCard,  payment_method: "MAQUININHA",  payment_submethod: "DEBIT"  },
-]
+const METHOD_ICONS: Record<string, React.ElementType> = {
+  CASH:           Banknote,
+  CHAVE_PIX:      KeyRound,
+  MAQUININHA_PIX: QrCode,
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -111,7 +103,7 @@ function NovoPageContent() {
   const [loadingAppts, setLoadingAppts] = useState(false)
   const [appointmentId, setAppointmentId] = useState<string | null>(null)
   const [grossAmount, setGrossAmount] = useState("")
-  const [method, setMethod] = useState<MethodKey | null>(null)
+  const [method, setMethod] = useState<string | null>(null)
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"form" | "loading" | "success">("form")
@@ -150,7 +142,8 @@ function NovoPageContent() {
     }
     if (!method) { setError("Selecione o método de pagamento."); return }
 
-    const cfg = METHODS.find((m) => m.key === method)!
+    const cfg = PAYMENT_METHOD_OPTIONS.find((m) => m.key === method)!
+
     setError(null)
     setPhase("loading")
 
@@ -238,12 +231,10 @@ function NovoPageContent() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Método</span>
-                <span className="capitalize">
-                  {METHODS.find(
-                    (m) =>
-                      m.payment_method === confirmResult.payment_method &&
-                      m.payment_submethod === (confirmResult.payment_submethod ?? null)
-                  )?.label ?? confirmResult.payment_method}
+                <span>
+                  {confirmResult.payment_method === "MAQUININHA" && confirmResult.payment_submethod
+                    ? PAYMENT_METHOD_LABELS[`MAQUININHA_${confirmResult.payment_submethod}`] ?? PAYMENT_METHOD_LABELS.MAQUININHA
+                    : PAYMENT_METHOD_LABELS[confirmResult.payment_method] ?? confirmResult.payment_method}
                 </span>
               </div>
             </CardContent>
@@ -343,28 +334,37 @@ function NovoPageContent() {
               </div>
 
               {/* ── Método de pagamento ──────────────────────────────────── */}
-              <div className="space-y-1.5">
+              <div className="space-y-3">
                 <Label>Método de pagamento *</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  {METHODS.map(({ key, label, Icon }) => {
-                    const selected = method === key
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setMethod(key)}
-                        className={
-                          selected
-                            ? "flex items-center gap-2.5 rounded-lg border-2 border-primary bg-primary/5 px-4 py-3 text-sm font-medium text-primary transition-all"
-                            : "flex items-center gap-2.5 rounded-lg border border-border px-4 py-3 text-sm text-foreground transition-all hover:border-primary/50 hover:bg-muted/40"
+                {PAYMENT_METHOD_GROUPS.map((group) => (
+                  <div key={group} className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">{group}</p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {PAYMENT_METHOD_OPTIONS.filter((o) => o.group === group).map(
+                        ({ key, label, shortLabel }) => {
+                          const Icon = METHOD_ICONS[key] ?? CreditCard
+                          const selected = method === key
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              title={label}
+                              onClick={() => setMethod(key)}
+                              className={
+                                selected
+                                  ? "flex items-center gap-2 rounded-lg border-2 border-primary bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-all"
+                                  : "flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-foreground transition-all hover:border-primary/50 hover:bg-muted/40"
+                              }
+                            >
+                              <Icon className="h-4 w-4 shrink-0" />
+                              {shortLabel}
+                            </button>
+                          )
                         }
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {error && <p className="text-sm text-destructive">{error}</p>}

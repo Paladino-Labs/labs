@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { api } from "@/lib/api"
+import { FEE_SOURCE_LABELS } from "@/lib/constants"
 import { useAuth } from "@/hooks/useAuth"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,21 +15,10 @@ interface FeePolicy {
   is_active: boolean
 }
 
-const FEE_SOURCE_LABELS: Record<string, string> = {
-  CASH:              "Dinheiro",
-  PIX:               "PIX online (Asaas)",
-  MAQUININHA_PIX:    "PIX na maquininha",
-  MAQUININHA_CREDIT: "Cartão de crédito",
-  MAQUININHA_DEBIT:  "Cartão de débito",
-  CARD_CREDIT:       "Crédito online",
-  CARD_DEBIT:        "Débito online",
-  BOLETO:            "Boleto",
-}
-
-const EDITABLE_SOURCES = new Set([
-  "PIX", "MAQUININHA_PIX", "MAQUININHA_CREDIT", "MAQUININHA_DEBIT",
-  "CARD_CREDIT", "CARD_DEBIT", "BOLETO",
-])
+// Todos os fee_sources são editáveis, exceto CASH (sempre sem taxa)
+const EDITABLE_SOURCES = new Set(
+  Object.keys(FEE_SOURCE_LABELS).filter((s) => s !== "CASH")
+)
 
 function AccessRestricted() {
   return (

@@ -12,6 +12,7 @@ import {
   CreditCard, Minus, Percent, Plus, TrendingDown, TrendingUp,
 } from "lucide-react"
 import { api } from "@/lib/api"
+import { PAYMENT_METHOD_LABELS } from "@/lib/constants"
 import { formatBRL } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -42,13 +43,7 @@ const PERIOD_OPTIONS: { label: string; value: Period }[] = [
   { label: "90 dias", value: 90 },
 ]
 
-const METHOD_LABELS: Record<string, string> = {
-  CASH:       "Dinheiro",
-  PIX:        "PIX",
-  MAQUININHA: "Maquininha",
-  CREDIT:     "Crédito",
-  DEBIT:      "Débito",
-}
+const METHOD_LABELS: Record<string, string> = PAYMENT_METHOD_LABELS
 
 // Acesso rápido — cards compactos no final da página
 const QUICK_LINKS = [

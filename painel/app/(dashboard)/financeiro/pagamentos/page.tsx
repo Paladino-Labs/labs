@@ -68,11 +68,11 @@ const STATUS_LABELS: Record<string, string> = {
   REFUNDED:  "Reembolsado",
 }
 
+// Glossário completo vem de PAYMENT_METHOD_LABELS (constants.ts);
+// aqui só a opção sintética do filtro.
 const METHOD_LABELS: Record<string, string> = {
-  all:        "Todos",
-  MAQUININHA: "Crédito/Débito",
-  PIX:        "PIX",
-  CASH:       "Dinheiro",
+  all: "Todos",
+  ...PAYMENT_METHOD_LABELS,
 }
 
 export default function PagamentosPage() {

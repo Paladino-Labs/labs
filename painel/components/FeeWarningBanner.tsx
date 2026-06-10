@@ -2,16 +2,7 @@
 
 import { X } from "lucide-react"
 
-const FEE_SOURCE_LABELS: Record<string, string> = {
-  CASH:               "Dinheiro",
-  PIX:                "PIX online",
-  MAQUININHA_PIX:     "PIX na maquininha",
-  MAQUININHA_CREDIT:  "Cartão de crédito",
-  MAQUININHA_DEBIT:   "Cartão de débito",
-  CARD_CREDIT:        "Crédito online",
-  CARD_DEBIT:         "Débito online",
-  BOLETO:             "Boleto",
-}
+import { FEE_SOURCE_LABELS } from "@/lib/constants"
 
 interface Props {
   feeSource: string
