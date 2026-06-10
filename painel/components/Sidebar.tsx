@@ -17,6 +17,8 @@ import {
   LogOut,
   Sun,
   Moon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import Image from "next/image"
 import { useTheme } from "@/lib/theme"
@@ -55,6 +57,8 @@ function SidebarContent({
   logout,
   name,
   onNavigate,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   pathname: string
   email: string | null
@@ -62,6 +66,8 @@ function SidebarContent({
   logout: () => void
   name: string | null
   onNavigate?: () => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   const initials = getInitials(email)
   const displayName = name || email?.split("@")[0]?.replace(/[._]/g, " ") || "Usuário"
@@ -71,22 +77,53 @@ function SidebarContent({
     <div className="flex flex-col h-full">
 
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-sidebar-border">
-        <Image
-          src="/paladino-wordmark.png"
-          alt="Paladino"
-          width={160}
-          height={40}
-          className="h-10 w-auto object-contain"
-          priority
-        />
+      <div
+        className={cn(
+          "py-5 border-b border-sidebar-border",
+          collapsed
+            ? "px-0 flex flex-col items-center gap-3"
+            : "px-6 flex items-center justify-between gap-2"
+        )}
+      >
+        {collapsed ? (
+          <span className="font-display text-2xl text-sidebar-primary leading-none">
+            P
+          </span>
+        ) : (
+          <Image
+            src="/paladino-wordmark.png"
+            alt="Paladino"
+            width={160}
+            height={40}
+            className="h-10 w-auto object-contain"
+            priority
+          />
+        )}
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            className="hidden lg:flex w-6 h-6 items-center justify-center rounded-md
+              text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent
+              transition-colors flex-shrink-0"
+          >
+            {collapsed ? (
+              <ChevronRight size={16} strokeWidth={1.5} />
+            ) : (
+              <ChevronLeft size={16} strokeWidth={1.5} />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-4 py-5 overflow-y-auto">
-        <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-3 px-2">
-          MENU
-        </p>
+      <nav className={cn("flex-1 py-5 overflow-y-auto", collapsed ? "px-2" : "px-4")}>
+        {!collapsed && (
+          <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-3 px-2">
+            MENU
+          </p>
+        )}
         <div className="space-y-0.5">
           {NAV_LINKS.filter(({ roles }) => !roles || roles.includes(role ?? "")).map(({ href, label, icon: Icon }) => {
             const active =
@@ -97,29 +134,33 @@ function SidebarContent({
                 key={href}
                 href={href}
                 onClick={onNavigate}
+                title={collapsed ? label : undefined}
                 className={cn(
-                  "flex items-center justify-between rounded-md px-3 py-2 transition-colors",
+                  "flex items-center rounded-md py-2 transition-colors",
+                  collapsed ? "justify-center px-2" : "justify-between px-3",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                 )}
               >
-                <span className="flex items-center gap-3">
+                <span className={cn("flex items-center", !collapsed && "gap-3")}>
                   <Icon
                     size={16}
                     strokeWidth={1.5}
                     className="flex-shrink-0 text-sidebar-primary"
                   />
-                  <span
-                    className={cn(
-                      "font-display text-lg leading-tight",
-                      active && "italic"
-                    )}
-                  >
-                    {label}
-                  </span>
+                  {!collapsed && (
+                    <span
+                      className={cn(
+                        "font-display text-lg leading-tight",
+                        active && "italic"
+                      )}
+                    >
+                      {label}
+                    </span>
+                  )}
                 </span>
-                {active && (
+                {active && !collapsed && (
                   <span className="text-[10px] text-sidebar-primary leading-none">
                     ◆
                   </span>
@@ -131,6 +172,38 @@ function SidebarContent({
       </nav>
 
       {/* Footer */}
+      {collapsed ? (
+        <div className="px-2 py-4 border-t border-sidebar-border flex flex-col items-center gap-3">
+          <div
+            title={displayName}
+            className="h-8 w-8 rounded-full border border-sidebar-border bg-sidebar-accent flex items-center justify-center flex-shrink-0"
+          >
+            <span className="font-display text-sm text-sidebar-primary leading-none">
+              {initials}
+            </span>
+          </div>
+          <button
+            onClick={toggle}
+            title={theme === "dark" ? "Tema claro" : "Tema escuro"}
+            aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+            className="text-muted-foreground hover:text-sidebar-foreground transition-colors p-1 rounded"
+          >
+            {theme === "dark" ? (
+              <Sun size={15} strokeWidth={1.5} />
+            ) : (
+              <Moon size={15} strokeWidth={1.5} />
+            )}
+          </button>
+          <button
+            onClick={logout}
+            title="Sair"
+            aria-label="Sair"
+            className="text-muted-foreground hover:text-sidebar-foreground transition-colors p-1 rounded"
+          >
+            <LogOut size={15} strokeWidth={1.5} />
+          </button>
+        </div>
+      ) : (
       <div className="px-4 py-4 border-t border-sidebar-border space-y-3">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full border border-sidebar-border bg-sidebar-accent flex items-center justify-center flex-shrink-0">
@@ -168,6 +241,7 @@ function SidebarContent({
           <span>{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
         </button>
       </div>
+      )}
 
     </div>
   )
@@ -177,6 +251,18 @@ export default function Sidebar() {
   const pathname = usePathname()
   const { email, role, logout, name } = useAuth()
   const [open, setOpen] = useState(false)
+
+  // Colapso do sidebar desktop, persistido em localStorage
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("sidebar_collapsed") === "true"
+  })
+
+  const toggleCollapsed = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem("sidebar_collapsed", String(next))
+  }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setOpen(false) }, [pathname])
@@ -191,8 +277,18 @@ export default function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 min-h-screen bg-sidebar border-r border-sidebar-border flex-col shadow-sm flex-shrink-0">
-        <SidebarContent {...contentProps} />
+      <aside
+        className={cn(
+          "hidden lg:flex min-h-screen bg-sidebar border-r border-sidebar-border flex-col shadow-sm flex-shrink-0",
+          "transition-all duration-200",
+          collapsed ? "w-16" : "w-60"
+        )}
+      >
+        <SidebarContent
+          {...contentProps}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapsed}
+        />
       </aside>
 
       {/* Mobile: hamburger */}
