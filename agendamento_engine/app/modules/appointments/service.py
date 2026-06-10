@@ -4,7 +4,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.infrastructure.db.models import (
@@ -109,11 +109,34 @@ def _assert_slot_available(
         )
 
 
-def list_appointments(db: Session, company_id: UUID):
-    return (
+def list_appointments(
+    db: Session,
+    company_id: UUID,
+    page: int = 1,
+    page_size: int = 50,
+    start_after: datetime | None = None,
+    start_before: datetime | None = None,
+    customer_id: UUID | None = None,
+):
+    query = (
         db.query(Appointment)
+        .options(
+            selectinload(Appointment.services),
+            joinedload(Appointment.professional),
+            joinedload(Appointment.customer),
+        )
         .filter(Appointment.company_id == company_id)
-        .order_by(Appointment.start_at.desc())
+    )
+    if start_after is not None:
+        query = query.filter(Appointment.start_at >= start_after)
+    if start_before is not None:
+        query = query.filter(Appointment.start_at < start_before)
+    if customer_id is not None:
+        query = query.filter(Appointment.client_id == customer_id)
+    return (
+        query.order_by(Appointment.start_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
 

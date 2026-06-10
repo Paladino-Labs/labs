@@ -1,7 +1,8 @@
 import logging
+from datetime import datetime
 from uuid import UUID
-from typing import List
-from fastapi import APIRouter, BackgroundTasks, Depends
+from typing import List, Optional
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -30,9 +31,19 @@ def _handle_policy_error(e: PolicyViolationError) -> JSONResponse:
 @router.get("/", response_model=List[schemas.AppointmentResponse])
 def list_appointments(
     company_id: UUID = Depends(get_current_company_id),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    start_after: Optional[datetime] = Query(default=None),
+    start_before: Optional[datetime] = Query(default=None),
+    customer_id: Optional[UUID] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    return svc.list_appointments(db, company_id)
+    return svc.list_appointments(
+        db, company_id,
+        page=page, page_size=page_size,
+        start_after=start_after, start_before=start_before,
+        customer_id=customer_id,
+    )
 
 
 @router.post("/", response_model=schemas.AppointmentResponse, status_code=201)
