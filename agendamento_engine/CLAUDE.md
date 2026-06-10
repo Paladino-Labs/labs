@@ -21,7 +21,7 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** j2k3l4m5n6o7 (fix_fee_source_names)
+**HEAD migration:** l4m5n6o7p8q9 (expand_fee_sources_bandeiras)
 **Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend + Ajuste 9 + correções:** 27 (k1→d1→e1→psg→f2→g3→h2→i3→j2)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
@@ -361,8 +361,12 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - communicationaudience enum PostgreSQL: valores uppercase (CLIENT, PROFESSIONAL, OWNER)
   dispatch() normaliza recipient_type.upper() antes de qualquer query
 - _DEFAULT_FEE_SOURCES deve estar sincronizado com _calc_manual_fee e frontend:
-  CASH, PIX, BOLETO, MAQUININHA_PIX, MAQUININHA_CREDIT, MAQUININHA_DEBIT,
-  CARD_CREDIT, CARD_DEBIT (migration j2k3l4m5n6o7 corrigiu dados históricos)
+  CASH, CHAVE_PIX, MAQUININHA_PIX,
+  MAQUININHA_CREDIT_VISA_MASTER, MAQUININHA_CREDIT_ELO,
+  MAQUININHA_CREDIT_HIPER_AMEX, MAQUININHA_CREDIT_OUTROS,
+  MAQUININHA_DEBIT_VISA_MASTER, MAQUININHA_DEBIT_ELO,
+  MAQUININHA_DEBIT_OUTROS (migration l4m5n6o7p8q9).
+  PIX/BOLETO/CARD_* removidos — taxa vem do webhook Asaas.
 - GET /financial/movements retorna: type (não movement_type), movement_id (não id),
   occurred_at (não created_at), amount como string Decimal
 - ConfirmManualResponse é flat — não tem camada payment: { ... }
