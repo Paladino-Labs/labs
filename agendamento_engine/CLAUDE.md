@@ -1,4 +1,25 @@
-**Fase 2 concluída.** Sprint 12 concluído (2026-06-07 — CommissionEngine). Próximo: Sprint 13.
+**Fase 2 concluída.** Sprint I concluído (2026-06-11 — dívidas críticas de pagamento e comunicação). Próximo: Sprint 18 (plano Estágio 0 completo).
+
+## Sprint I — Dívidas críticas (2026-06-11)
+- `refund()`: gateway ANTES da contabilidade; falha do provider → HTTP 502, nenhum Movement/Entry
+- `force_local=true` no POST /payments/{id}/refund: apenas OWNER (403 p/ ADMIN);
+  reason obrigatório (422); audit action `refund_payment_forced_local`
+  com after_snapshot {"force_local": true, "note": "estorno forçado sem gateway"}
+- NullProvider.refund(): env var `NULLPROVIDER_REFUND_OUTCOME=success|error` (default success)
+- Chamadas diretas `evolution_client.send_text` de NOTIFICAÇÃO removidas:
+  notifications.py, reminder_worker.py, appointments/router.py (pós-atendimento)
+  → tudo via CommunicationService.dispatch; CommunicationLog captura 100% dos envios
+  Bot conversacional (whatsapp/sender.py + handlers) fora do escopo — é diálogo FSM, trilha 2.6/2.7
+- Flag `use_communication_service`: agora kill-switch — ausente → **True**
+  (`overrides.get("use_communication_service", True)` em todos os pontos)
+- Template novo `appointment.completed` (WHATSAPP/CLIENT) em _DEFAULT_TEMPLATES.
+  ⚠ Tenants criados ANTES do Sprint I não têm esse template — inserir via SQL
+  para manter a mensagem de pós-atendimento (sem template → SKIPPED_NO_TEMPLATE)
+- Email plugável: `EMAIL_PROVIDER=mailtrap|sendgrid|smtp` (default mailtrap);
+  `modules/communication/email_adapters.py` (EmailAdapter ABC + Mailtrap + SendGrid);
+  credencial ausente → fallback SMTP (credencial tenant → SMTP_* global)
+- reminder_worker: flags reminder_*_sent só marcados quando dispatch != FAILED
+  (FAILED → retry no próximo scan da janela)
 
 ## Canal EMAIL — CommunicationService (Sprint 11)
 - `_send_email()` em `modules/communication/service.py` via smtplib nativo (síncrono)
@@ -208,7 +229,7 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - Fernet encryption via `core/encryption.py`
   (CREDENTIAL_ENCRYPTION_KEY obrigatório em produção; ausente → KeyError no startup)
 - Feature flag: `TenantConfig.permission_overrides["use_communication_service"]`
-  ativa o dispatch (default False — coexistência com evolution_client durante rollout)
+  é kill-switch do dispatch (Sprint I: ausente → True; False = opt-out explícito)
 - RLS ativo em 26 tabelas (políticas por tenant_isolation; superuser bypassa automaticamente)
 - `core/db_rls.py` — set_rls_context() chamado em get_db() e workers Celery
 - Workers: company_id=None para scans multi-tenant (bypass); específico para tasks por tenant
@@ -287,7 +308,8 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - Não adicionar workers via asyncio.create_task no lifespan — usar Celery Beat
 - Não publicar eventos sem idempotency_key
 - Não chamar `evolution_client.send_text()` diretamente em código novo
-  → usar CommunicationService.dispatch após remoção das chamadas diretas
+  → usar CommunicationService.dispatch (chamadas diretas de notificação removidas no Sprint I;
+  exceção: bot conversacional via whatsapp/sender.py)
 - Não criar `integration_credentials` com `provider=WHATSAPP_EVOLUTION` no Estágio 0
 - `CREDENTIAL_ENCRYPTION_KEY` nunca commitar no repositório — vault Railway apenas
 - Não fazer queries fora de get_db() (HTTP) ou celery_db_session() (workers) — RLS context não será setado
@@ -342,19 +364,19 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - change_password e reset_password atualizam last_password_change_at
 
 ## Dívidas de integração
-- Asaas create_subaccount: campo birthDate obrigatório para CPF;
-  onboarding atual não coleta o campo; novos tenants ficam sem
-  external_account_id até ser corrigido
-- Asaas refund: payment_service.refund() não chama provider.refund() — estorno apenas
-  contábil local; gateway externo não processa o estorno automaticamente
+- [RESOLVIDO — Sprint I] Asaas refund: payment_service.refund() chama provider.refund()
+  ANTES da contabilidade; falha do gateway → 502 sem Movement/Entry; force_local p/ OWNER
+- [RESOLVIDO — Sprint I] Email em produção: adapter plugável via EMAIL_PROVIDER
+  (mailtrap|sendgrid|smtp). Railway bloqueia SMTP → configurar EMAIL_PROVIDER=sendgrid
+  + SENDGRID_API_KEY, ou mailtrap com token de produção (MAILTRAP_SANDBOX_INBOX_ID=0),
+  no vault do Railway. Mailtrap sandbox permanece para dev.
 - PagSeguro Point: REST API para push de cobranças não documentada publicamente;
   create_charge() e list_terminals() são stubs aguardando confirmação do time comercial PagBank
-- Email em produção: Railway bloqueia SMTP (portas 25/465/587/2525);
-  implementação atual usa Mailtrap HTTP API (sandbox only);
-  substituir por SendGrid/Mailgun/Mailtrap Email API antes de ir a produção
-- [BACKEND CONCLUÍDO — Ajuste 9] Subconta Asaas: migration i3j4k5l6m7n8 adicionou
-  8 colunas owner_* em companies; AsaasProvider.create_subaccount aceita todos os
-  campos; service.py persiste e envia. Pendente: frontend (TabAsaas expandido).
+- Ajuste 9 Asaas: backend completo (migration i3j4k5l6m7n8, 8 colunas owner_* em
+  companies; AsaasProvider.create_subaccount aceita todos os campos; service.py
+  persiste e envia — inclui birthDate). Frontend pendente (5 campos no formulário
+  de settings/integracoes). Tenants criados antes do Ajuste 9 sem external_account_id
+  — subconta Asaas inexistente para esses tenants.
 
 ## Lições de produção (2026-06-07)
 - FeePolicyResponse.fee_percentage: sempre Optional[Decimal] — coluna nullable no banco
