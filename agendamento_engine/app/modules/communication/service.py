@@ -253,11 +253,11 @@ class CommunicationService:
         rendered_body: str,
         db: Session,
     ) -> None:
-        """Envia email via Mailtrap HTTP API (preferencial) ou SMTP (fallback).
+        """Envia email via adapter plugável (EMAIL_PROVIDER) ou SMTP (fallback).
 
         Prioridade:
-          1. MAILTRAP_API_TOKEN configurado → HTTP API (funciona em Railway e outros
-             ambientes que bloqueiam conexões SMTP de saída).
+          1. Adapter HTTP global conforme EMAIL_PROVIDER (mailtrap|sendgrid) —
+             funciona em Railway e outros ambientes que bloqueiam SMTP de saída.
           2. IntegrationCredential provider=SMTP do tenant.
           3. SMTP_* de settings (fallback global).
         """
@@ -270,37 +270,17 @@ class CommunicationService:
         subject = context.get("email_subject", "Mensagem Paladino")
         from_email = app_settings.SMTP_FROM_EMAIL or "noreply@paladino.app"
 
-        # ── Caminho 1: Mailtrap HTTP API ──────────────────────────────────────
-        if app_settings.MAILTRAP_API_TOKEN:
-            import requests
+        # ── Caminho 1: adapter HTTP global (EMAIL_PROVIDER) ──────────────────
+        from app.modules.communication.email_adapters import get_email_adapter
 
-            if app_settings.MAILTRAP_SANDBOX_INBOX_ID:
-                url = f"https://sandbox.api.mailtrap.io/api/send/{app_settings.MAILTRAP_SANDBOX_INBOX_ID}"
-            else:
-                url = "https://send.api.mailtrap.io/api/send"
-
-            payload = {
-                "from": {"email": from_email, "name": "Paladino"},
-                "to": [{"email": recipient_email}],
-                "subject": subject,
-                "text": rendered_body,
-            }
-            # Sandbox usa "Api-Token"; produção usa "Authorization: Bearer"
-            if app_settings.MAILTRAP_SANDBOX_INBOX_ID:
-                auth_header = {"Api-Token": app_settings.MAILTRAP_API_TOKEN}
-            else:
-                auth_header = {"Authorization": f"Bearer {app_settings.MAILTRAP_API_TOKEN}"}
-
-            resp = requests.post(
-                url,
-                json=payload,
-                headers=auth_header,
-                timeout=10,
+        adapter = get_email_adapter()
+        if adapter is not None:
+            adapter.send(
+                to=recipient_email,
+                subject=subject,
+                body=rendered_body,
+                from_email=from_email,
             )
-            if not resp.ok:
-                raise RuntimeError(
-                    f"Mailtrap HTTP API erro {resp.status_code}: {resp.text}"
-                )
             return
 
         # ── Caminho 2 e 3: SMTP ───────────────────────────────────────────────

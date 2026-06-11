@@ -102,11 +102,20 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
 
-    # Mailtrap HTTP API — alternativa ao SMTP quando a plataforma bloqueia conexões SMTP
-    # (ex: Railway). Quando MAILTRAP_API_TOKEN está preenchido, _send_email() usa a
-    # HTTP API em vez de smtplib. MAILTRAP_SANDBOX_INBOX_ID=0 → usa a API de envio real.
+    # Email — provider transacional plugável (Sprint I).
+    # EMAIL_PROVIDER escolhe o adapter HTTP global em email_adapters.py:
+    #   mailtrap (default) → Mailtrap HTTP API (requer MAILTRAP_API_TOKEN)
+    #   sendgrid           → SendGrid API v3 (requer SENDGRID_API_KEY)
+    #   smtp               → força smtplib (credencial do tenant ou SMTP_* acima)
+    # Se a credencial do provider HTTP estiver ausente → fallback SMTP.
+    # Railway bloqueia SMTP de saída — em produção usar mailtrap ou sendgrid.
+    EMAIL_PROVIDER: str = "mailtrap"
+    SENDGRID_API_KEY: str = ""
+
+    # Mailtrap HTTP API. MAILTRAP_SANDBOX_INBOX_ID=0 → API de envio real (produção);
+    # > 0 → sandbox (testing).
     MAILTRAP_API_TOKEN: str = ""
-    MAILTRAP_SANDBOX_INBOX_ID: int = 0  # 0 = produção; > 0 = sandbox (testing)
+    MAILTRAP_SANDBOX_INBOX_ID: int = 0
 
     class Config:
         env_file = ".env"
