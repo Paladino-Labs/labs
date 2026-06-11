@@ -1,11 +1,16 @@
-"""NullProvider — provider para testes unitários.
+"""NullProvider — provider para testes unitários e dev.
 
 Implementa todos os métodos de PaymentProvider sem chamar serviços externos.
 Funciona como spy: registra cada chamada em self.calls.
 
 outcome="success" (padrão) → operações bem-sucedidas.
 outcome="error"           → levanta AsaasError em create_subaccount.
+
+refund(): a env var NULLPROVIDER_REFUND_OUTCOME=success|error (default: success)
+sobrepõe o outcome do construtor — permite simular falha de gateway no estorno
+sem alterar código.
 """
+import os
 from uuid import uuid4
 
 from app.modules.payments.providers.base import PaymentProvider
@@ -57,7 +62,8 @@ class NullProvider(PaymentProvider):
             "method": "refund",
             "args": {"external_charge_id": external_charge_id},
         })
-        if self.outcome == "error":
+        outcome = os.getenv("NULLPROVIDER_REFUND_OUTCOME", self.outcome)
+        if outcome == "error":
             raise AsaasError("null_provider_error")
         return {"id": external_charge_id, "status": "REFUNDED"}
 

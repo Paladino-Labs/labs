@@ -581,18 +581,30 @@ def refund(
     actor_id: UUID,
     company_id: UUID,
     db: Session,
+    force_local: bool = False,
+    actor_role: str = "OWNER",
 ) -> Payment:
     """Estorna pagamento confirmado.
 
     Ordem garantida:
       1. provider.refund() para pagamentos não-manual com external_charge_id.
-         Se falhar: exceção propagada, banco não alterado.
+         Se falhar: HTTP 502, banco não alterado (nenhum Movement/Entry).
       2. FinancialCoreEngine.handle_payment_refunded (Movement OUTFLOW + Entry ESTORNO).
       3. payment.status = REFUNDED, record_sensitive_action, commit.
     Após commit: EventBus.publish("payment.refunded") best-effort.
 
     Pagamentos CASH/manual (provider="manual"): sem chamada ao provider.
+
+    force_local=True (apenas OWNER — verificado no router): pula o gateway e faz
+    apenas o estorno contábil local. Para estornos já processados fora do sistema.
+    Exige reason; auditado como "refund_payment_forced_local".
     """
+    if force_local and not reason:
+        raise HTTPException(
+            status_code=422,
+            detail="reason é obrigatório para estorno com force_local",
+        )
+
     payment = _get_payment(payment_id, company_id, db)
 
     if payment.status != "CONFIRMED":
@@ -602,7 +614,7 @@ def refund(
         )
 
     _is_manual = payment.provider == "manual"
-    if not _is_manual and payment.external_charge_id:
+    if not force_local and not _is_manual and payment.external_charge_id:
         if payment.provider == "pagseguro":
             logger.warning(
                 "pagseguro_refund_blocked",
@@ -619,10 +631,23 @@ def refund(
                 ),
             )
         prov = get_payment_provider(company_id=company_id, db=db)
-        prov.refund(
-            payment.external_charge_id,
-            reason.value if isinstance(reason, RefundReason) else str(reason),
-        )
+        try:
+            prov.refund(
+                payment.external_charge_id,
+                reason.value if isinstance(reason, RefundReason) else str(reason),
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # Gateway falhou — nada foi persistido (nenhum Movement/Entry).
+            logger.error(
+                "gateway_refund_failed",
+                extra={"payment_id": str(payment.payment_id), "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gateway recusou o estorno: {exc}",
+            ) from exc
 
     # Movement OUTFLOW + Entry ESTORNO (mesma transação)
     financial_core.handle_payment_refunded(
@@ -640,13 +665,17 @@ def refund(
     record_sensitive_action(
         SensitiveAuditContext(
             actor_id=actor_id,
-            actor_role="OWNER",
-            action="refund_payment",
+            actor_role=actor_role,
+            action="refund_payment_forced_local" if force_local else "refund_payment",
             resource_type="Payment",
             resource_id=payment.payment_id,
             company_id=company_id,
             reason=reason.value if isinstance(reason, RefundReason) else str(reason),
             amount=payment.net_charged_amount,
+            after_snapshot=(
+                {"force_local": True, "note": "estorno forçado sem gateway"}
+                if force_local else None
+            ),
         ),
         db,
     )

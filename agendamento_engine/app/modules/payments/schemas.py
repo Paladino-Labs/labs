@@ -116,6 +116,8 @@ class ConfirmManualResponse(PaymentResponse):
 
 class RefundRequest(BaseModel):
     reason: RefundReason
+    # Estorno apenas contábil, sem chamada ao gateway — restrito a OWNER.
+    force_local: bool = False
 
 
 # ── DepositPolicy ─────────────────────────────────────────────────────────────

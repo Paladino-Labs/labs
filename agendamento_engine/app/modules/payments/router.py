@@ -186,12 +186,19 @@ def refund_payment(
     user=Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
+    if body.force_local and user.role not in ("OWNER", "PLATFORM_OWNER"):
+        raise HTTPException(
+            status_code=403,
+            detail="force_local restrito a OWNER",
+        )
     return payment_service.refund(
         payment_id=payment_id,
         reason=body.reason,
         actor_id=user.id,
         company_id=user.company_id,
         db=db,
+        force_local=body.force_local,
+        actor_role=user.role,
     )
 
 

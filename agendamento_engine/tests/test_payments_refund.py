@@ -171,7 +171,9 @@ def test_refund_manual_provider_does_not_call_provider():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_refund_provider_exception_does_not_update_payment():
-    """Se provider.refund() lançar exceção, payment.status não deve ser alterado."""
+    """Se provider.refund() lançar exceção, refund() responde 502 e payment.status não muda."""
+    from fastapi import HTTPException
+
     payment = _make_payment(provider="asaas", external_charge_id="cha_fail123")
     original_status = payment.status
     db = _make_db()
@@ -187,7 +189,7 @@ def test_refund_provider_exception_does_not_update_payment():
     ):
         from app.modules.payments.service import refund
 
-        with pytest.raises(AsaasError):
+        with pytest.raises(HTTPException) as exc_info:
             refund(
                 payment_id=payment.payment_id,
                 reason=RefundReason.SERVICE_FAILURE,
@@ -196,6 +198,7 @@ def test_refund_provider_exception_does_not_update_payment():
                 db=db,
             )
 
+    assert exc_info.value.status_code == 502
     assert payment.status == original_status, "Status não deve mudar após falha no provider"
     mock_fc.handle_payment_refunded.assert_not_called()
     mock_audit.assert_not_called()
@@ -353,3 +356,152 @@ def test_refund_asaas_not_affected_by_pagseguro_guard():
         "cha_ok123",
         RefundReason.SERVICE_FAILURE.value,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. force_local — Sprint I
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_refund_force_local_skips_provider_and_audits():
+    """force_local=True pula o gateway e grava audit refund_payment_forced_local."""
+    payment = _make_payment(provider="asaas", external_charge_id="cha_forced")
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider") as mock_factory,
+        patch("app.modules.payments.service.financial_core") as mock_fc,
+        patch("app.modules.payments.service.record_sensitive_action") as mock_audit,
+        patch("app.modules.payments.service.event_bus"),
+    ):
+        from app.modules.payments.service import refund
+
+        refund(
+            payment_id=payment.payment_id,
+            reason=RefundReason.OTHER,
+            actor_id=uuid.uuid4(),
+            company_id=payment.company_id,
+            db=db,
+            force_local=True,
+        )
+
+    mock_factory.assert_not_called()
+    mock_fc.handle_payment_refunded.assert_called_once()
+    ctx = mock_audit.call_args.args[0]
+    assert ctx.action == "refund_payment_forced_local"
+    assert ctx.after_snapshot == {"force_local": True, "note": "estorno forçado sem gateway"}
+    assert payment.status == "REFUNDED"
+
+
+def test_refund_force_local_without_reason_raises_422():
+    """force_local sem reason → 422, nada persiste."""
+    from fastapi import HTTPException
+
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment") as mock_get,
+        patch("app.modules.payments.service.financial_core") as mock_fc,
+    ):
+        from app.modules.payments.service import refund
+
+        with pytest.raises(HTTPException) as exc_info:
+            refund(
+                payment_id=uuid.uuid4(),
+                reason=None,
+                actor_id=uuid.uuid4(),
+                company_id=uuid.uuid4(),
+                db=db,
+                force_local=True,
+            )
+
+    assert exc_info.value.status_code == 422
+    mock_get.assert_not_called()
+    mock_fc.handle_payment_refunded.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_refund_force_local_works_even_with_pagseguro():
+    """force_local permite estorno contábil mesmo para provider pagseguro (guard pulado)."""
+    payment = _make_payment(
+        provider="pagseguro",
+        payment_method="MAQUININHA",
+        external_charge_id="psg_forced",
+    )
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider") as mock_factory,
+        patch("app.modules.payments.service.financial_core") as mock_fc,
+        patch("app.modules.payments.service.record_sensitive_action"),
+        patch("app.modules.payments.service.event_bus"),
+    ):
+        from app.modules.payments.service import refund
+
+        refund(
+            payment_id=payment.payment_id,
+            reason=RefundReason.SERVICE_FAILURE,
+            actor_id=uuid.uuid4(),
+            company_id=payment.company_id,
+            db=db,
+            force_local=True,
+        )
+
+    mock_factory.assert_not_called()
+    mock_fc.handle_payment_refunded.assert_called_once()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. NullProvider — NULLPROVIDER_REFUND_OUTCOME
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_null_provider_refund_outcome_env_var(monkeypatch):
+    """NULLPROVIDER_REFUND_OUTCOME=error sobrepõe o outcome do construtor."""
+    from app.modules.payments.providers.null_provider import NullProvider
+
+    provider = NullProvider(outcome="success")
+    monkeypatch.setenv("NULLPROVIDER_REFUND_OUTCOME", "error")
+    with pytest.raises(AsaasError):
+        provider.refund("null_charge_1", "OTHER")
+
+    monkeypatch.setenv("NULLPROVIDER_REFUND_OUTCOME", "success")
+    result = provider.refund("null_charge_1", "OTHER")
+    assert result["status"] == "REFUNDED"
+
+    monkeypatch.delenv("NULLPROVIDER_REFUND_OUTCOME")
+    result = provider.refund("null_charge_1", "OTHER")
+    assert result["status"] == "REFUNDED"
+
+
+def test_refund_with_null_provider_error_nothing_persists():
+    """refund com NullProvider outcome=error → 502 e nenhum Movement/Entry."""
+    from fastapi import HTTPException
+    from app.modules.payments.providers.null_provider import NullProvider
+
+    payment = _make_payment(provider="asaas", external_charge_id="null_charge_x")
+    db = _make_db()
+    provider = NullProvider(outcome="error")
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.get_payment_provider", return_value=provider),
+        patch("app.modules.payments.service.financial_core") as mock_fc,
+        patch("app.modules.payments.service.record_sensitive_action") as mock_audit,
+    ):
+        from app.modules.payments.service import refund
+
+        with pytest.raises(HTTPException) as exc_info:
+            refund(
+                payment_id=payment.payment_id,
+                reason=RefundReason.SERVICE_FAILURE,
+                actor_id=uuid.uuid4(),
+                company_id=payment.company_id,
+                db=db,
+            )
+
+    assert exc_info.value.status_code == 502
+    assert provider.calls[-1]["method"] == "refund"
+    mock_fc.handle_payment_refunded.assert_not_called()
+    mock_audit.assert_not_called()
+    db.commit.assert_not_called()
