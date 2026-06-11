@@ -158,7 +158,7 @@ function NovoPageContent() {
 
       const confirmed = await api.post<ConfirmResult>(
         `/payments/${created.payment_id}/confirm-manual`,
-        {}
+        { payment_submethod: cfg.payment_submethod }
       )
 
       setConfirmResult(confirmed)

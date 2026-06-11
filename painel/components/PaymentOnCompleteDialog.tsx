@@ -114,7 +114,7 @@ export function PaymentOnCompleteDialog({
 
       const confirmed = await api.post<ConfirmResult>(
         `/payments/${created.payment_id}/confirm-manual`,
-        {}
+        { payment_submethod: cfg.payment_submethod }
       )
 
       await api.patch(`/appointments/${appointment.id}/complete`, {})
