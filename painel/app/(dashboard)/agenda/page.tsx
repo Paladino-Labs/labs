@@ -137,8 +137,15 @@ export default function AppointmentsPage() {
   async function fetchAll() {
     try {
       setLoading(true)
+      // Busca a semana exibida — cobre o dia selecionado, as contagens do
+      // day picker e a visão semanal do calendário.
+      const params = new URLSearchParams({
+        start_after:  weekStart.toISOString(),
+        start_before: weekEnd.toISOString(),
+        page_size:    "200",
+      })
       const [appts, profs] = await Promise.all([
-        api.get<Appointment[]>("/appointments/"),
+        api.get<Appointment[]>(`/appointments/?${params}`),
         api.get<Professional[]>("/professionals/"),
       ])
       setAppointments(appts)
@@ -150,7 +157,8 @@ export default function AppointmentsPage() {
     }
   }
 
-  useEffect(() => { fetchAll() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAll() }, [currentDate])
 
   const filtered = useMemo(() => {
     return appointments

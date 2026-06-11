@@ -31,16 +31,6 @@ function greeting(): string {
   return "Boa noite"
 }
 
-function isToday(isoStr: string): boolean {
-  const d = new Date(isoStr)
-  const now = new Date()
-  return (
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear()
-  )
-}
-
 function fmtHour(isoStr: string): string {
   return new Date(isoStr).toLocaleTimeString("pt-BR", {
     hour: "2-digit",
@@ -53,7 +43,8 @@ export default function DashboardPage() {
   const router = useRouter()
   const { email, name } = useAuth()
 
-  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [todayAppts, setTodayAppts] = useState<Appointment[]>([])
+  const [monthAppts, setMonthAppts] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,8 +57,35 @@ export default function DashboardPage() {
   async function fetchAll() {
     try {
       setLoading(true)
-      const appts = await api.get<Appointment[]>("/appointments/")
-      setAppointments(appts)
+      const now = new Date()
+
+      const startOfDay = new Date(now)
+      startOfDay.setHours(0, 0, 0, 0)
+      const endOfDay = new Date(now)
+      endOfDay.setHours(23, 59, 59, 999)
+
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      const endOfMonth = new Date(
+        now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999,
+      )
+
+      const dayParams = new URLSearchParams({
+        start_after:  startOfDay.toISOString(),
+        start_before: endOfDay.toISOString(),
+        page_size:    "200",
+      })
+      const monthParams = new URLSearchParams({
+        start_after:  startOfMonth.toISOString(),
+        start_before: endOfMonth.toISOString(),
+        page_size:    "200",
+      })
+
+      const [day, month] = await Promise.all([
+        api.get<Appointment[]>(`/appointments/?${dayParams}`),
+        api.get<Appointment[]>(`/appointments/?${monthParams}`),
+      ])
+      setTodayAppts(day)
+      setMonthAppts(month)
     } catch {
       setError("Não foi possível carregar os dados.")
     } finally {
@@ -78,11 +96,6 @@ export default function DashboardPage() {
   useEffect(() => { fetchAll() }, [])
 
   // ── KPI derivations ──────────────────────────────────────────────────────────
-  const todayAppts = useMemo(
-    () => appointments.filter((a) => isToday(a.start_at)),
-    [appointments],
-  )
-
   const todayRevenue = useMemo(
     () =>
       todayAppts
@@ -104,25 +117,16 @@ export default function DashboardPage() {
   )
 
   const topServices = useMemo(() => {
-    const now = new Date()
     const counts: Record<string, number> = {}
-    appointments
-      .filter((a) => {
-        const d = new Date(a.start_at)
-        return (
-          d.getMonth() === now.getMonth() &&
-          d.getFullYear() === now.getFullYear()
-        )
+    monthAppts.forEach((a) => {
+      a.services.forEach((s) => {
+        counts[s.service_name] = (counts[s.service_name] ?? 0) + 1
       })
-      .forEach((a) => {
-        a.services.forEach((s) => {
-          counts[s.service_name] = (counts[s.service_name] ?? 0) + 1
-        })
-      })
+    })
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-  }, [appointments])
+  }, [monthAppts])
 
   const maxServiceCount = topServices[0]?.[1] ?? 1
 
