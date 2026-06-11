@@ -7,12 +7,10 @@ API pública (queries):
 Handlers públicos (chamados por outros módulos/eventos):
     handle_payment_confirmed
     handle_commission_paid
+    handle_expense_paid
 
 API privada (apenas handlers internos):
     _record_movement, _record_entry
-
-NÃO implementados neste sprint (adiados):
-    handle_expense_paid  → Sprint 17/18 (Expense module)
 """
 from __future__ import annotations
 
@@ -593,6 +591,85 @@ def create_manual_adjustment(
     db.refresh(movement)
     db.refresh(entry)
     return movement, entry
+
+
+# ── Expense handler ───────────────────────────────────────────────────────────
+
+# Categorias permitidas para Entry DESPESA (derivadas do enum canônico)
+DESPESA_CATEGORIES: set[str] = {
+    category for category, entry_type in CATEGORY_TO_ENTRY_TYPE.items()
+    if entry_type == "DESPESA"
+}
+
+
+def handle_expense_paid(
+    expense_id: UUID,
+    amount: Decimal,
+    category: str,
+    company_id: UUID,
+    db: Session,
+    account_id: Optional[UUID] = None,
+) -> tuple[Movement, Entry]:
+    """Cria atomicamente Movement OUTFLOW + Entry DESPESA para uma despesa paga.
+
+    Mesmo padrão de handle_payment_confirmed: Movement primeiro, Entry
+    referencia o Movement; flush sem commit — commit é responsabilidade
+    do chamador (permite composição na transação do pay_expense).
+
+    account_id None → resolve a conta padrão (is_default_inflow=True) do tenant.
+    category validada contra as categorias DESPESA de entry_category.py (422).
+    """
+    if category not in DESPESA_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Categoria '{category}' não é uma categoria DESPESA válida. "
+                f"Permitidas: {sorted(DESPESA_CATEGORIES)}"
+            ),
+        )
+
+    if account_id is None:
+        account = (
+            db.query(Account)
+            .filter(Account.company_id == company_id, Account.is_default_inflow == True)  # noqa: E712
+            .first()
+        )
+        if not account:
+            raise HTTPException(
+                status_code=422,
+                detail="Nenhuma conta padrão (is_default_inflow) configurada para a empresa",
+            )
+        account_id = account.account_id
+
+    now = datetime.now(timezone.utc)
+    source_type = "expense"
+    source_id = expense_id
+
+    outflow = _record_movement(
+        account_id=account_id,
+        type="OUTFLOW",
+        amount=amount,
+        source_type=source_type,
+        source_id=source_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    despesa_entry = _record_entry(
+        type="DESPESA",
+        direction="SUBTRACTS",
+        amount=amount,
+        category=category,
+        source_type=source_type,
+        source_id=source_id,
+        movement_id=outflow.movement_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    return outflow, despesa_entry
 
 
 # ── Commission handler ────────────────────────────────────────────────────────

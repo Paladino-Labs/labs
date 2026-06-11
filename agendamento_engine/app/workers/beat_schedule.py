@@ -43,4 +43,12 @@ beat_schedule = {
         "task": "app.workers.tasks.subscription_overdue.subscription_overdue_worker",
         "schedule": crontab(hour=8, minute=0),
     },
+    "expense-recurrence": {
+        "task": "app.workers.tasks.expense_recurrence.expense_recurrence_worker",
+        "schedule": crontab(hour=6, minute=0),
+    },
+    "expense-due-soon": {
+        "task": "app.workers.tasks.expense_due_soon.expense_due_soon_worker",
+        "schedule": crontab(hour=7, minute=30),
+    },
 }

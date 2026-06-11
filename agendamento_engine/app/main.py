@@ -72,6 +72,7 @@ from app.modules.commission.router import router as commission_router
 from app.modules.customer_credit.router import router as customer_credit_router
 from app.modules.packages.router import router as packages_router
 from app.modules.subscriptions.router import router as subscriptions_router
+from app.modules.expenses.router import router as expenses_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -195,6 +196,7 @@ app.include_router(commission_router)
 app.include_router(customer_credit_router)
 app.include_router(packages_router)
 app.include_router(subscriptions_router)
+app.include_router(expenses_router)
 
 
 @app.get("/health")

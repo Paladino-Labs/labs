@@ -41,6 +41,7 @@ from .direct_occupancy import DirectOccupancy
 from .commission import CommissionPolicy, CommissionPayout, Commission
 from .customer_credit import CustomerCredit, CustomerCreditConsumption
 from .package import Package, PackagePurchase
+from .expense import Expense
 
 __all__ = [
     "Company",
@@ -102,4 +103,5 @@ __all__ = [
     "CustomerCreditConsumption",
     "Package",
     "PackagePurchase",
+    "Expense",
 ]
