@@ -76,6 +76,7 @@ from app.modules.expenses.router import router as expenses_router
 from app.modules.suppliers.router import router as suppliers_router
 from app.modules.stock.router import router as stock_router
 from app.modules.payables.router import router as payables_router
+from app.modules.promotions.router import router as promotions_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -136,6 +137,7 @@ async def lifespan(app: FastAPI):
     from app.workers.handlers.commission_handler import register_handlers as register_commission_handlers
     from app.workers.handlers.package_handler import register_handlers as register_package_handlers
     from app.workers.handlers.subscription_payment_handler import register_handlers as register_subscription_handlers
+    from app.workers.handlers.promotion_payment_handler import register_handlers as register_promotion_handlers
     register_booking_handlers()
     register_reminder_handlers()
     register_communication_handlers()
@@ -143,6 +145,7 @@ async def lifespan(app: FastAPI):
     register_commission_handlers()
     register_package_handlers()
     register_subscription_handlers()
+    register_promotion_handlers()
 
     yield  # aplicação em execução
 
@@ -203,6 +206,7 @@ app.include_router(expenses_router)
 app.include_router(suppliers_router)
 app.include_router(stock_router)
 app.include_router(payables_router)
+app.include_router(promotions_router)
 
 
 @app.get("/health")

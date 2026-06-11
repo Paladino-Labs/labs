@@ -17,4 +17,7 @@ import app.workers.tasks.customer_credit_expiry  # noqa: F401
 import app.workers.tasks.subscription_renewal  # noqa: F401
 import app.workers.tasks.subscription_overdue  # noqa: F401
 
+# Sprint 16 — registra scanner de expiração de promoções/cupons
+import app.workers.tasks.promotions_expiry  # noqa: F401
+
 celery_app.conf.beat_schedule = beat_schedule

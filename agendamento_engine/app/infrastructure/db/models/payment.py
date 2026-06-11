@@ -46,6 +46,9 @@ class Payment(Base):
 
     status = Column(String(20), nullable=False, default="PENDING")
     manual_override_count = Column(Integer, nullable=False, default=0)
+    # Cupom informado na criação — transportado no payload de payment.confirmed
+    # para o promotion_payment_handler efetivar (Sprint 16)
+    coupon_code = Column(String(50), nullable=True)
 
     created_at = Column(sa.TIMESTAMP(timezone=True), nullable=False,
                         default=lambda: datetime.now(timezone.utc))

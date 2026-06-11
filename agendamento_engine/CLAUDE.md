@@ -1,4 +1,35 @@
-**Fase 2 concluída.** Sprint 18 concluído (2026-06-11 — Despesas + recorrência). Próximo: Sprint 17 (Estoque + Fornecedores + Payables).
+**Fase 2 concluída.** Sprint 16 concluído (2026-06-11 — Promoções e Cupons). Próximo: Sprint E (ExternalStatementEntry).
+
+## Sprint 16 — Promoções e Cupons (2026-06-11)
+- Tabelas `promotions`, `coupons`, `coupon_redemptions`, `discount_applications`
+  (RLS canônico) + `payments.coupon_code` — migration `e0s16a_promotions_coupons`
+  ⚠ `discount_applications.promotion_id` é NULLABLE (manual-discount usa NULL)
+  ⚠ `manual_override_count` já existia desde w1x2y3z4a5b6 — não recriado
+- `modules/promotions/service.py`:
+  `compute_preview()` ZERO efeito colateral; `effectuate()` revalida tudo com
+  SELECT FOR UPDATE em coupons.uses_count; `revert_for_refund()` no refund
+- Seleção: exclusivas (cumulative=false) → a de maior desconto
+  (CUSTOMER_FAVORABLE); cumulativas em priority DESC sobre o residual
+- Revalidação falhou (modo STRICT) → publica `promotion.effectuation_failed`,
+  NÃO bloqueia o pagamento (decisão de produto — supersede "refund automático"
+  do DoD original do plano)
+- `promotion_payment_handler`: 5º listener de payment.confirmed
+  (+ payment.refunded para reverter redenções); registrado no lifespan
+- payload de payment.confirmed agora inclui `coupon_code`
+- `create_payment(coupon_code=...)`: aplica preview na criação —
+  net_charged_amount nasce com desconto → Entry RECEITA reflete o líquido
+  (desconto reduz receita no DRE; NÃO existe categoria DESCONTO)
+- `POST /payments/{id}/manual-discount` (OWNER/ADMIN): reason obrigatório,
+  só PENDING, audit `manual_discount_override`, manual_override_count++
+- Rotas `/promotions` (CRUD + activate/pause/cancel + /preview + /coupons)
+- Worker `promotions_expiry_scanner` (00:05): Promotion ACTIVE vencida →
+  EXPIRED; Coupon ACTIVE vencido → CANCELLED
+- `coupon_reopen_policy`: NEVER_REOPEN (default) | REOPEN_ON_REFUND
+- Testes: tests/test_sprint16_promotions.py (27 + 1 skip PostgreSQL)
+  ⚠ NÃO importar app.main em arquivos de teste que rodem antes de
+  test_sprint2_rbac (quebra o monkey-patch de modelos daquele arquivo)
+
+**HEAD migration:** e0s16a_promotions_coupons
 
 ## Sprint 18 — Despesas + recorrência (2026-06-11)
 - Modelo `Expense` (tabela `expenses`, RLS padrão `app.current_company_id`):

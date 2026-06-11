@@ -43,6 +43,7 @@ from app.modules.payments import service as payment_service
 from app.modules.payments.schemas import (
     ConfirmManualRequest,
     ConfirmManualResponse,
+    ManualDiscountRequest,
     DepositPolicyCreate,
     DepositPolicyResponse,
     DepositPolicyUpdate,
@@ -135,6 +136,7 @@ def create_payment(
         payment_source_id=body.payment_source_id,
         customer_cpf_cnpj=body.customer_cpf_cnpj,
         due_date=body.due_date,
+        coupon_code=body.coupon_code,
         db=db,
     )
 
@@ -177,6 +179,29 @@ def confirm_manual_payment(
     if fee_warning_data:
         response = response.model_copy(update={"fee_warning": FeeWarning(**fee_warning_data)})
     return response
+
+
+@router.post("/payments/{payment_id}/manual-discount", response_model=PaymentResponse)
+def manual_discount_payment(
+    payment_id: UUID,
+    body: ManualDiscountRequest,
+    user=Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Desconto manual auditado (Sprint 16) — OWNER/ADMIN apenas.
+
+    reason obrigatório; registra DiscountApplication manual (promotion_id=None),
+    incrementa manual_override_count e audita via record_sensitive_action.
+    """
+    return payment_service.apply_manual_discount(
+        payment_id=payment_id,
+        company_id=user.company_id,
+        discount_amount=body.discount_amount,
+        reason=body.reason,
+        actor_id=user.id,
+        db=db,
+        actor_role=user.role,
+    )
 
 
 @router.post("/payments/{payment_id}/refund", response_model=PaymentResponse)

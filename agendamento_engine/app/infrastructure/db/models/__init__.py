@@ -45,6 +45,7 @@ from .expense import Expense
 from .supplier import Supplier, SupplierOrder
 from .stock_movement import StockMovement
 from .payable import Payable, PayableInstallment
+from .promotion import Promotion, Coupon, CouponRedemption, DiscountApplication
 
 __all__ = [
     "Company",
@@ -112,4 +113,8 @@ __all__ = [
     "StockMovement",
     "Payable",
     "PayableInstallment",
+    "Promotion",
+    "Coupon",
+    "CouponRedemption",
+    "DiscountApplication",
 ]

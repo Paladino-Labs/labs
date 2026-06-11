@@ -218,18 +218,36 @@ def create_payment(
     payment_source_id: Optional[UUID] = None,
     customer_cpf_cnpj: Optional[str] = None,
     due_date=None,          # date | None — padrão: hoje
+    coupon_code: Optional[str] = None,
     db: Optional[Session] = None,
 ) -> Payment:
     # Resolve a conta de destino se não informada
     if target_account_id is None:
         target_account_id = _resolve_target_account(company_id, db)
+
+    # Cupom informado: aplica preview de promoções na criação (422 se inválido).
+    # net_charged_amount nasce com o desconto — a Entry RECEITA do confirm
+    # refletirá o valor líquido (desconto reduz receita no DRE).
+    discount_amount = Decimal("0")
+    if coupon_code:
+        from app.modules.promotions import service as promotion_service
+        preview = promotion_service.compute_preview(
+            db=db,
+            company_id=company_id,
+            gross_amount=gross_amount,
+            customer_id=customer_id,
+            coupon_code=coupon_code,
+        )
+        discount_amount = Decimal(preview["discount_total"])
+
     payment = Payment(
         company_id=company_id,
         customer_id=customer_id,
         appointment_id=appointment_id,
         gross_catalog_amount=gross_amount,
-        discount_amount=Decimal("0"),
-        net_charged_amount=gross_amount,
+        discount_amount=discount_amount,
+        net_charged_amount=gross_amount - discount_amount,
+        coupon_code=coupon_code.upper() if coupon_code else None,
         payment_method=payment_method,
         payment_submethod=payment_submethod,
         payment_source_id=payment_source_id,
@@ -414,6 +432,7 @@ def confirm(
                 "customer_id": str(payment.customer_id) if payment.customer_id else None,
                 "amount": str(payment.net_charged_amount),
                 "company_id": str(company_id),
+                "coupon_code": payment.coupon_code,
             },
         ))
     except Exception:
@@ -696,6 +715,119 @@ def refund(
                 "payment_id": str(payment.payment_id),
                 "reason": reason.value if isinstance(reason, RefundReason) else str(reason),
                 "amount": str(payment.net_charged_amount),
+            },
+        ))
+    except Exception:
+        pass
+
+    return payment
+
+
+def apply_manual_discount(
+    payment_id: UUID,
+    company_id: UUID,
+    discount_amount: Decimal,
+    reason: str,
+    actor_id: UUID,
+    db: Session,
+    actor_role: str = "OWNER",
+) -> Payment:
+    """Desconto manual auditado — Sprint 16 (manual_discount_override).
+
+    Apenas pagamentos PENDING: após CONFIRMED a Entry RECEITA já foi lançada
+    com o net antigo e alterá-lo dessincronizaria o ledger (append-only).
+
+    1. reason obrigatório (422 se ausente/vazio).
+    2. record_sensitive_action com contexto (before/after snapshot).
+    3. DiscountApplication manual (promotion_id=None, discount_type=MANUAL).
+    4. payment.manual_override_count += 1.
+    5. discount_amount/net_charged_amount atualizados.
+    6. payment.manual_discount_applied publicado após commit.
+    """
+    if not reason or not reason.strip():
+        raise HTTPException(status_code=422, detail="reason é obrigatório para desconto manual")
+
+    discount = Decimal(str(discount_amount))
+    if discount <= 0:
+        raise HTTPException(status_code=422, detail="discount_amount deve ser maior que zero")
+
+    payment = _get_payment(payment_id, company_id, db)
+
+    if payment.status != "PENDING":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Desconto manual só é permitido em pagamentos PENDING. Status atual: {payment.status}",
+        )
+
+    base_amount = Decimal(str(payment.net_charged_amount))
+    if discount > base_amount:
+        raise HTTPException(
+            status_code=422,
+            detail=f"discount_amount ({discount}) excede o valor a cobrar ({base_amount})",
+        )
+
+    from app.infrastructure.db.models.promotion import DiscountApplication
+
+    existing_count = (
+        db.query(DiscountApplication)
+        .filter(
+            DiscountApplication.company_id == company_id,
+            DiscountApplication.payment_id == payment.payment_id,
+        )
+        .count()
+    )
+
+    db.add(DiscountApplication(
+        company_id=company_id,
+        payment_id=payment.payment_id,
+        promotion_id=None,
+        sequence=existing_count + 1,
+        discount_type="MANUAL",
+        base_amount_at_application=base_amount,
+        discount_amount=discount,
+    ))
+
+    payment.discount_amount = Decimal(str(payment.discount_amount)) + discount
+    payment.net_charged_amount = base_amount - discount
+    payment.manual_override_count = (payment.manual_override_count or 0) + 1
+
+    record_sensitive_action(
+        SensitiveAuditContext(
+            actor_id=actor_id,
+            actor_role=actor_role,
+            action="manual_discount_override",
+            resource_type="Payment",
+            resource_id=payment.payment_id,
+            company_id=company_id,
+            reason=reason,
+            amount=discount,
+            after_snapshot={
+                "discount_amount": str(payment.discount_amount),
+                "net_charged_amount": str(payment.net_charged_amount),
+                "manual_override_count": payment.manual_override_count,
+            },
+        ),
+        db,
+    )
+
+    db.commit()
+    db.refresh(payment)
+
+    # Após commit: best-effort
+    try:
+        event_bus.publish(DomainEvent(
+            event_id=uuid.uuid4(),
+            event_type="payment.manual_discount_applied",
+            occurred_at=datetime.now(timezone.utc),
+            company_id=company_id,
+            idempotency_key=f"manual_discount:{payment.payment_id}",
+            actor={"type": "TENANT_USER", "id": str(actor_id)},
+            payload={
+                "payment_id": str(payment.payment_id),
+                "company_id": str(company_id),
+                "discount_amount": str(discount),
+                "net_charged_amount": str(payment.net_charged_amount),
+                "reason": reason,
             },
         ))
     except Exception:

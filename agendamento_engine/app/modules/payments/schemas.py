@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.payments.service import RefundReason
 
@@ -58,6 +58,15 @@ class PaymentCreate(BaseModel):
     # CREDIT e DEBIT (legados) seguem aceitos → políticas *_OUTROS.
     # Submethod não reconhecido: confirma com fee=0 + fee_warning na resposta.
     payment_submethod: Optional[str] = None
+    # Cupom promocional (Sprint 16): validado na criação (422 se inválido);
+    # desconto aplicado em net_charged_amount; efetivado no payment.confirmed.
+    coupon_code: Optional[str] = None
+
+
+class ManualDiscountRequest(BaseModel):
+    """POST /payments/{id}/manual-discount — Sprint 16."""
+    discount_amount: Decimal = Field(gt=0)
+    reason: str = Field(min_length=1)
 
 
 class ConfirmManualRequest(BaseModel):
@@ -85,6 +94,7 @@ class PaymentResponse(BaseModel):
     external_charge_id: Optional[str] = None
     status: str
     manual_override_count: int
+    coupon_code: Optional[str] = None
     created_at: datetime
     paid_at: Optional[datetime] = None
     refunded_at: Optional[datetime] = None

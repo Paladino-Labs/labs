@@ -59,4 +59,8 @@ beat_schedule = {
         "task": "app.workers.tasks.payable_due.payable_due_worker",
         "schedule": crontab(hour=7, minute=30),
     },
+    "promotions-expiry-scan": {
+        "task": "app.workers.tasks.promotions_expiry.promotions_expiry_scanner",
+        "schedule": crontab(hour=0, minute=5),
+    },
 }
