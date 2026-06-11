@@ -19,6 +19,8 @@ export interface Appointment {
 interface AgendaCalendarProps {
   appointments: Appointment[]
   professionals: { id: string; name: string; color: string }[]
+  date: Date
+  onDateChange: (date: Date) => void
   companyTimezone?: string
   onAppointmentClick?: (appt: Appointment) => void
   onSlotClick?: (date: Date, professionalId?: string) => void
@@ -497,17 +499,14 @@ function ApptModal({
 export default function AgendaCalendar({
   appointments,
   professionals,
+  date: currentDate,
+  onDateChange,
   onAppointmentClick,
   onSlotClick,
 }: AgendaCalendarProps) {
   type ViewMode = "week" | "day"
 
   const [view, setView]         = useState<ViewMode>("day")
-  const [currentDate, setCurrentDate] = useState(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -522,19 +521,19 @@ export default function AgendaCalendar({
   const weekStart = useMemo(() => startOfWeek(currentDate), [currentDate])
 
   function prevPeriod() {
-    if (view === "week") setCurrentDate(addDays(currentDate, -7))
-    else setCurrentDate(addDays(currentDate, -1))
+    if (view === "week") onDateChange(addDays(currentDate, -7))
+    else onDateChange(addDays(currentDate, -1))
   }
 
   function nextPeriod() {
-    if (view === "week") setCurrentDate(addDays(currentDate, 7))
-    else setCurrentDate(addDays(currentDate, 1))
+    if (view === "week") onDateChange(addDays(currentDate, 7))
+    else onDateChange(addDays(currentDate, 1))
   }
 
   function goToday() {
     const d = new Date()
     d.setHours(0, 0, 0, 0)
-    setCurrentDate(d)
+    onDateChange(d)
   }
 
   const headerLabel = useMemo(() => {

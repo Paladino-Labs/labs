@@ -119,6 +119,13 @@ export default function AppointmentsPage() {
     setSelectedDay(d)
   }
 
+  // Navegação interna do AgendaCalendar — mantém selectedDay em sincronia
+  // para o day picker e a visão em lista
+  function handleCalendarDateChange(d: Date) {
+    setCurrentDate(d)
+    setSelectedDay(d)
+  }
+
   // Filtros
   const [profFilter,   setProfFilter]   = useState("todos")
   const [statusFilter, setStatusFilter] = useState("todos")
@@ -330,6 +337,8 @@ export default function AppointmentsPage() {
           <AgendaCalendar
             appointments={calendarAppts}
             professionals={calendarProfessionals}
+            date={currentDate}
+            onDateChange={handleCalendarDateChange}
             onAppointmentClick={handleCalendarApptClick}
             onSlotClick={handleCalendarSlotClick}
           />
