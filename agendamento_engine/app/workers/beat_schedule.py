@@ -51,4 +51,12 @@ beat_schedule = {
         "task": "app.workers.tasks.expense_due_soon.expense_due_soon_worker",
         "schedule": crontab(hour=7, minute=30),
     },
+    "stock-alert": {
+        "task": "app.workers.tasks.stock_alert.stock_alert_worker",
+        "schedule": crontab(hour=7, minute=0),
+    },
+    "payable-due": {
+        "task": "app.workers.tasks.payable_due.payable_due_worker",
+        "schedule": crontab(hour=7, minute=30),
+    },
 }

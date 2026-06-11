@@ -672,6 +672,97 @@ def handle_expense_paid(
     return outflow, despesa_entry
 
 
+# ── Stock handlers (Sprint 17) ────────────────────────────────────────────────
+
+# Categorias permitidas para Entry de custo de estoque (Financial-1)
+STOCK_COST_CATEGORIES: set[str] = {
+    category for category, entry_type in CATEGORY_TO_ENTRY_TYPE.items()
+    if entry_type == "CUSTO"
+} | {"CONTAGEM_ESTOQUE"}
+
+
+def handle_stock_cost_entry(
+    movement_id: UUID,
+    amount: Decimal,
+    category: str,
+    company_id: UUID,
+    db: Session,
+    direction: str = "SUBTRACTS",
+) -> Entry:
+    """Cria Entry de custo de estoque SEM Movement (Financial-1).
+
+    O cash flow ocorreu na compra (Payable/installment) — consumir, vender
+    ou perder estoque reconhece o custo sem mexer no caixa.
+
+    category: PRODUTO_VENDIDO | INSUMOS_USO_INTERNO | PERDA_ESTOQUE |
+              CONTAGEM_ESTOQUE (AJUSTE) — validada contra entry_category.py.
+    Flush sem commit — commit é responsabilidade do chamador (record_movement).
+    """
+    if category not in STOCK_COST_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Categoria '{category}' não é válida para custo de estoque. "
+                f"Permitidas: {sorted(STOCK_COST_CATEGORIES)}"
+            ),
+        )
+
+    entry_type = CATEGORY_TO_ENTRY_TYPE.get(category, "AJUSTE")
+
+    return _record_entry(
+        type=entry_type,
+        direction=direction,
+        amount=amount,
+        category=category,
+        source_type="stock_movement",
+        source_id=movement_id,
+        movement_id=None,
+        occurred_at=datetime.now(timezone.utc),
+        company_id=company_id,
+        db=db,
+    )
+
+
+def handle_payable_installment_paid(
+    installment_id: UUID,
+    amount: Decimal,
+    company_id: UUID,
+    db: Session,
+    account_id: Optional[UUID] = None,
+) -> Movement:
+    """Cria Movement OUTFLOW SEM Entry para parcela de Payable paga (Financial-1).
+
+    O custo já foi (ou será) reconhecido pelos movimentos de estoque —
+    pagar a parcela é só saída de caixa.
+
+    account_id None → resolve a conta padrão (is_default_inflow=True) do tenant.
+    Flush sem commit — commit é responsabilidade do chamador (pay_installment).
+    """
+    if account_id is None:
+        account = (
+            db.query(Account)
+            .filter(Account.company_id == company_id, Account.is_default_inflow == True)  # noqa: E712
+            .first()
+        )
+        if not account:
+            raise HTTPException(
+                status_code=422,
+                detail="Nenhuma conta padrão (is_default_inflow) configurada para a empresa",
+            )
+        account_id = account.account_id
+
+    return _record_movement(
+        account_id=account_id,
+        type="OUTFLOW",
+        amount=amount,
+        source_type="payable_installment",
+        source_id=installment_id,
+        occurred_at=datetime.now(timezone.utc),
+        company_id=company_id,
+        db=db,
+    )
+
+
 # ── Commission handler ────────────────────────────────────────────────────────
 
 def handle_commission_paid(

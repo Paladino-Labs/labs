@@ -73,6 +73,9 @@ from app.modules.customer_credit.router import router as customer_credit_router
 from app.modules.packages.router import router as packages_router
 from app.modules.subscriptions.router import router as subscriptions_router
 from app.modules.expenses.router import router as expenses_router
+from app.modules.suppliers.router import router as suppliers_router
+from app.modules.stock.router import router as stock_router
+from app.modules.payables.router import router as payables_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -197,6 +200,9 @@ app.include_router(customer_credit_router)
 app.include_router(packages_router)
 app.include_router(subscriptions_router)
 app.include_router(expenses_router)
+app.include_router(suppliers_router)
+app.include_router(stock_router)
+app.include_router(payables_router)
 
 
 @app.get("/health")

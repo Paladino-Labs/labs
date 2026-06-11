@@ -28,6 +28,7 @@ class TenantConfig(Base):
     no_show_threshold_min = Column(Integer, nullable=False, default=30)
     no_penalty_cancel_h = Column(Integer, nullable=False, default=12)
     require_payment_upfront = Column(Boolean, nullable=False, default=False)
+    allow_negative_stock = Column(Boolean, nullable=False, default=False)
     default_commission_pct = Column(Numeric(5, 2), nullable=False, default=Decimal("40.00"))
 
     # fee_routing_policy_id removido na migration l1m2n3o4p5q6 (Sprint 6)

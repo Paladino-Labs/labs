@@ -18,5 +18,8 @@ class Product(Base, TimestampMixin):
     image_url = Column(String(500), nullable=True)
     active = Column(Boolean, default=True, nullable=False)
     stock = Column(Integer, default=0, nullable=True)
+    stock_min_alert = Column(Numeric(15, 2), nullable=True)
+    unit = Column(String(20), nullable=True, default="un")
+    avg_cost = Column(Numeric(15, 2), nullable=True)
 
     company = relationship("Company", back_populates="products")

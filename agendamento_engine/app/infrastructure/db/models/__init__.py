@@ -42,6 +42,9 @@ from .commission import CommissionPolicy, CommissionPayout, Commission
 from .customer_credit import CustomerCredit, CustomerCreditConsumption
 from .package import Package, PackagePurchase
 from .expense import Expense
+from .supplier import Supplier, SupplierOrder
+from .stock_movement import StockMovement
+from .payable import Payable, PayableInstallment
 
 __all__ = [
     "Company",
@@ -104,4 +107,9 @@ __all__ = [
     "Package",
     "PackagePurchase",
     "Expense",
+    "Supplier",
+    "SupplierOrder",
+    "StockMovement",
+    "Payable",
+    "PayableInstallment",
 ]
