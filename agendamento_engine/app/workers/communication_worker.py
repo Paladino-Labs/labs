@@ -10,9 +10,10 @@ Todos os 4 fluxos de appointment são críticos: Celery task direta (não EventB
 O evento publicado para lembretes é único (reminder_due); o handler deriva
 o nome do template (reminder_24h ou reminder_2h) via payload["interval"].
 
-Coexistência Sprint 5: reminder_worker ainda envia diretamente.
-Este módulo adiciona a via CommunicationService em paralelo, controlada
-por feature flag TenantConfig.permission_overrides["use_communication_service"].
+Sprint I: chamadas diretas ao evolution_client foram removidas — todo envio
+passa pelo CommunicationService. A flag
+TenantConfig.permission_overrides["use_communication_service"] é kill-switch
+(ausente → True).
 """
 import logging
 from uuid import UUID
@@ -61,8 +62,7 @@ def send_appointment_communication(
     """
     Envia comunicação para um evento de agendamento via CommunicationService.
 
-    Somente executa quando TenantConfig.permission_overrides["use_communication_service"] = True.
-    Fallback: chamada direta ao evolution_client (via notifications.py) permanece ativa.
+    Executa salvo opt-out explícito: permission_overrides["use_communication_service"] = False.
     """
     db = SessionLocal()
     try:
@@ -74,10 +74,10 @@ def send_appointment_communication(
         company_uuid = UUID(company_id)
         appt_uuid = UUID(appointment_id)
 
-        # Feature flag: apenas se habilitado no TenantConfig
+        # Feature flag (kill-switch): ausente → True (default Sprint I)
         config = db.query(TenantConfig).filter(TenantConfig.company_id == company_uuid).first()
         overrides = (config.permission_overrides or {}) if config else {}
-        if not overrides.get("use_communication_service"):
+        if not overrides.get("use_communication_service", True):
             logger.debug(
                 "communication_worker: flag use_communication_service desligado company=%s",
                 company_id,

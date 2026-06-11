@@ -8,11 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
 from app.core.deps import get_current_user, get_current_company_id
-from app.infrastructure.db.models import User, WhatsAppConnection
+from app.infrastructure.db.models import User
 from app.modules.appointments import schemas, service as svc
 from app.modules.appointments.polices import PolicyViolationError
-from app.modules.whatsapp import evolution_client
-from app.modules.whatsapp import messages as wa_messages
 from app.modules.whatsapp.helpers import first_name as _first_name
 
 logger = logging.getLogger(__name__)
@@ -92,20 +90,42 @@ def reschedule_appointment(
 
 def _send_pos_atendimento(
     company_id: UUID,
-    instance_name: str,
+    customer_id: UUID,
     phone: str,
     customer_name: str,
     service_name: str,
 ) -> None:
-    """Envia mensagem pós-atendimento via WhatsApp (chamada em background task)."""
+    """Envia mensagem pós-atendimento via CommunicationService (background task).
+
+    Abre sessão própria — background task roda após o response, fora do get_db().
+    """
+    from app.infrastructure.db.session import SessionLocal
+
+    db = SessionLocal()
     try:
-        text = wa_messages.pos_atendimento(_first_name(customer_name), service_name)
-        evolution_client.send_text(instance_name, phone, text)
+        from app.core.db_rls import set_rls_context
+        set_rls_context(db, str(company_id))
+        from app.modules.communication.service import communication_service
+        communication_service.dispatch(
+            event_type="appointment.completed",
+            company_id=company_id,
+            context={
+                "cliente_nome": _first_name(customer_name),
+                "servico": service_name,
+                "empresa_nome": "",
+                "recipient_phone": phone,
+            },
+            recipient_id=customer_id,
+            recipient_type="CLIENT",
+            db=db,
+        )
     except Exception:
         logger.warning(
             "pos_atendimento notification failed company_id=%s phone=%s",
             company_id, phone,
         )
+    finally:
+        db.close()
 
 
 @router.patch("/{appointment_id}/complete", response_model=schemas.AppointmentResponse)
@@ -121,17 +141,9 @@ def complete_appointment(
     """
     appointment = svc.complete_appointment(db, user.company_id, appointment_id, user.id)
 
-    # Notificação WhatsApp em background (falha silenciosa — não afeta o complete)
+    # Notificação em background (falha silenciosa — não afeta o complete)
     try:
-        conn = (
-            db.query(WhatsAppConnection)
-            .filter(
-                WhatsAppConnection.company_id == user.company_id,
-                WhatsAppConnection.status == "CONNECTED",
-            )
-            .first()
-        )
-        if conn and appointment.customer:
+        if appointment.customer and appointment.customer.phone:
             svc_name = (
                 appointment.services[0].service_name
                 if appointment.services
@@ -140,7 +152,7 @@ def complete_appointment(
             background_tasks.add_task(
                 _send_pos_atendimento,
                 company_id=user.company_id,
-                instance_name=conn.instance_name,
+                customer_id=appointment.customer.id,
                 phone=appointment.customer.phone,
                 customer_name=appointment.customer.name,
                 service_name=svc_name,

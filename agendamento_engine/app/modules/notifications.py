@@ -2,20 +2,20 @@
 Notificações transacionais de agendamento.
 
 Responsabilidades:
-  - Enviar confirmação de agendamento via WhatsApp ao cliente
-  - Enviar confirmação de reagendamento via WhatsApp ao cliente
+  - Enviar confirmação de agendamento ao cliente (via CommunicationService)
+  - Enviar confirmação de reagendamento ao cliente (via CommunicationService)
 
 Contrato:
   - Todas as funções são fire-and-forget: erros são logados, nunca propagados.
     O fluxo de negócio não deve ser interrompido por falha de notificação.
   - Recebem db + Appointment já commitado e refreshado.
-  - Buscam a conexão WhatsApp da empresa internamente.
   - Convertem start_at de UTC para o fuso da empresa antes de formatar.
 
-Feature flag Sprint 5:
-  TenantConfig.permission_overrides["use_communication_service"] = true
-  → despacha via CommunicationService.dispatch (paralelo à chamada direta durante validação).
-  → Após validação em produção: remover chamadas diretas ao evolution_client.
+Sprint I:
+  Chamadas diretas ao evolution_client foram removidas — todo envio passa por
+  CommunicationService.dispatch (template + CommunicationLog).
+  Feature flag TenantConfig.permission_overrides["use_communication_service"]
+  funciona como kill-switch: default True (ausente = habilitado).
 """
 import logging
 from datetime import datetime, timezone
@@ -23,22 +23,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
-from app.infrastructure.db.models import Appointment, WhatsAppConnection, Customer
+from app.infrastructure.db.models import Appointment, Customer
 from app.infrastructure.db.models.company_settings import CompanySettings
-from app.modules.whatsapp import evolution_client
 
 logger = logging.getLogger(__name__)
 
 
 def _use_communication_service(db: Session, company_id) -> bool:
-    """Retorna True se o tenant optou por usar CommunicationService."""
+    """Kill-switch do CommunicationService. Flag ausente → True (default Sprint I)."""
     try:
         from app.infrastructure.db.models.tenant_config import TenantConfig
         config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
         overrides = (config.permission_overrides or {}) if config else {}
-        return bool(overrides.get("use_communication_service"))
+        return bool(overrides.get("use_communication_service", True))
     except Exception:
-        return False
+        return True
 
 _DEFAULT_TZ = "America/Sao_Paulo"
 
@@ -46,13 +45,6 @@ MONTHS_PT = [
     "janeiro", "fevereiro", "março", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ]
-
-
-def _get_whatsapp_conn(db: Session, company_id) -> "WhatsAppConnection | None":
-    return db.query(WhatsAppConnection).filter(
-        WhatsAppConnection.company_id == company_id,
-        WhatsAppConnection.status == "CONNECTED",
-    ).first()
 
 
 def _get_company_tz(db: Session, company_id) -> ZoneInfo:
@@ -84,110 +76,51 @@ def _fmt_datetime(dt: datetime, tz: ZoneInfo) -> tuple[str, str]:
 
 def send_booking_confirmation(db: Session, appointment: Appointment) -> None:
     """
-    Envia confirmação de agendamento ao cliente via WhatsApp.
+    Envia confirmação de agendamento ao cliente via CommunicationService.
     Fire-and-forget: erros são apenas logados.
     """
-    try:
-        customer = db.query(Customer).filter(
-            Customer.id == appointment.client_id
-        ).first()
-        if not customer or not customer.phone:
-            logger.debug(
-                "send_booking_confirmation: cliente sem phone appt_id=%s", appointment.id
-            )
-            return
-
-        conn = _get_whatsapp_conn(db, appointment.company_id)
-        if not conn:
-            logger.debug(
-                "send_booking_confirmation: empresa sem WhatsApp conectado company_id=%s",
-                appointment.company_id,
-            )
-            return
-
-        tz          = _get_company_tz(db, appointment.company_id)
-        data, hora  = _fmt_datetime(appointment.start_at, tz)
-        first_name  = customer.name.split()[0]
-        svc_name    = appointment.services[0].service_name if appointment.services else "serviço"
-        prof_name   = appointment.professional.name if appointment.professional else "profissional"
-
-        msg = (
-            f"Olá, {first_name}! ✅\n\n"
-            f"Seu agendamento foi confirmado:\n\n"
-            f"✂️  *{svc_name}*\n"
-            f"👤  {prof_name}\n"
-            f"📅  {data} às {hora}\n\n"
-            f"Te esperamos! Qualquer dúvida, é só responder aqui. 😊"
-        )
-
-        evolution_client.send_text(conn.instance_name, customer.phone, msg)
-
-        logger.info(
-            "send_booking_confirmation: enviado appt_id=%s phone=%s",
-            appointment.id, customer.phone,
-        )
-
-        # Feature flag Sprint 5: dispatch paralelo via CommunicationService
-        if _use_communication_service(db, appointment.company_id):
-            _dispatch_via_comm_service(
-                db, appointment, customer, "appointment.confirmed", "CLIENT", tz,
-            )
-
-    except Exception:
-        # Nunca propagar — notificação não deve derrubar o fluxo de negócio
-        logger.exception(
-            "send_booking_confirmation: falha ao enviar appt_id=%s", appointment.id
-        )
+    _notify_appointment(db, appointment, "appointment.confirmed", "send_booking_confirmation")
 
 
 def send_reschedule_confirmation(db: Session, appointment: Appointment) -> None:
     """
-    Envia confirmação de reagendamento ao cliente via WhatsApp.
+    Envia confirmação de reagendamento ao cliente via CommunicationService.
     Fire-and-forget: erros são apenas logados.
     """
+    _notify_appointment(db, appointment, "appointment.confirmed", "send_reschedule_confirmation")
+
+
+def _notify_appointment(
+    db: Session,
+    appointment: Appointment,
+    event_type: str,
+    caller: str,
+) -> None:
     try:
         customer = db.query(Customer).filter(
             Customer.id == appointment.client_id
         ).first()
         if not customer or not customer.phone:
+            logger.debug("%s: cliente sem phone appt_id=%s", caller, appointment.id)
             return
 
-        conn = _get_whatsapp_conn(db, appointment.company_id)
-        if not conn:
+        if not _use_communication_service(db, appointment.company_id):
+            logger.debug(
+                "%s: use_communication_service desligado company_id=%s",
+                caller, appointment.company_id,
+            )
             return
 
-        tz         = _get_company_tz(db, appointment.company_id)
-        data, hora = _fmt_datetime(appointment.start_at, tz)
-        first_name = customer.name.split()[0]
-        svc_name   = appointment.services[0].service_name if appointment.services else "serviço"
-        prof_name  = appointment.professional.name if appointment.professional else "profissional"
-
-        msg = (
-            f"Olá, {first_name}! 🔄\n\n"
-            f"Seu agendamento foi remarcado:\n\n"
-            f"✂️  *{svc_name}*\n"
-            f"👤  {prof_name}\n"
-            f"📅  {data} às {hora}\n\n"
-            f"Qualquer dúvida, é só responder aqui. 😊"
-        )
-
-        evolution_client.send_text(conn.instance_name, customer.phone, msg)
+        tz = _get_company_tz(db, appointment.company_id)
+        _dispatch_via_comm_service(db, appointment, customer, event_type, "CLIENT", tz)
 
         logger.info(
-            "send_reschedule_confirmation: enviado appt_id=%s phone=%s",
-            appointment.id, customer.phone,
+            "%s: dispatch enviado appt_id=%s phone=%s",
+            caller, appointment.id, customer.phone,
         )
-
-        # Feature flag Sprint 5: dispatch paralelo via CommunicationService
-        if _use_communication_service(db, appointment.company_id):
-            _dispatch_via_comm_service(
-                db, appointment, customer, "appointment.confirmed", "CLIENT", tz,
-            )
-
     except Exception:
-        logger.exception(
-            "send_reschedule_confirmation: falha ao enviar appt_id=%s", appointment.id
-        )
+        # Nunca propagar — notificação não deve derrubar o fluxo de negócio
+        logger.exception("%s: falha ao enviar appt_id=%s", caller, appointment.id)
 
 
 def _dispatch_via_comm_service(
@@ -198,7 +131,7 @@ def _dispatch_via_comm_service(
     recipient_type: str,
     tz: ZoneInfo,
 ) -> None:
-    """Dispatch paralelo via CommunicationService (fire-and-forget)."""
+    """Dispatch via CommunicationService (fire-and-forget)."""
     try:
         data, hora = _fmt_datetime(appointment.start_at, tz)
         svc_name = appointment.services[0].service_name if appointment.services else "serviço"

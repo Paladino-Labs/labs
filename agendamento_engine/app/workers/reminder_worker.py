@@ -21,9 +21,8 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.celery_app import celery_app
 from app.infrastructure.db.session import SessionLocal
-from app.infrastructure.db.models import Appointment, WhatsAppConnection, Customer
+from app.infrastructure.db.models import Appointment, Customer
 from app.infrastructure.db.models.company_settings import CompanySettings
-from app.modules.whatsapp import evolution_client
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -138,45 +137,47 @@ def _process_2h(db: Session, now: datetime) -> None:
 
 
 def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
+    """Envia lembrete via CommunicationService (Sprint I — sem chamada direta).
+
+    O dispatch grava CommunicationLog (SENT/SCHEDULED/FAILED/SKIPPED_*).
+    O flag reminder_*_sent só é marcado quando o dispatch NÃO falhou —
+    FAILED deixa o flag em False para retry no próximo scan da janela.
+    """
     try:
         customer = db.query(Customer).filter(Customer.id == appt.client_id).first()
         if not customer or not customer.phone:
             logger.warning("reminder_worker: cliente sem phone appt_id=%s", appt.id)
             return
 
-        conn = db.query(WhatsAppConnection).filter(
-            WhatsAppConnection.company_id == appt.company_id,
-            WhatsAppConnection.status == "CONNECTED",
-        ).first()
-        if not conn:
-            logger.debug(
-                "reminder_worker: empresa sem WhatsApp conectado company_id=%s",
-                appt.company_id,
-            )
-            return
-
         tz = _company_tz(db, appt.company_id)
         start_local = _localize(appt.start_at, tz)
         service_name = appt.services[0].service_name if appt.services else "serviço"
         prof_name = appt.professional.name if appt.professional else "profissional"
-        hora = start_local.strftime("%H:%M")
-        data = start_local.strftime("%d/%m")
 
-        if kind == "24h":
-            msg = (
-                f"Olá, {customer.name}! 👋\n\n"
-                f"Lembrete: você tem *{service_name}* com *{prof_name}* "
-                f"amanhã, {data} às {hora}. 💈\n\n"
-                f"Responda _Ver agendamentos_ para gerenciar."
-            )
-        else:
-            msg = (
-                f"Olá, {customer.name}! 😊\n\n"
-                f"Seu *{service_name}* começa em 2 horas, às {hora}. "
-                f"Te esperamos! 💈"
-            )
+        from app.modules.communication.service import communication_service
+        log_entry = communication_service.dispatch(
+            event_type=f"appointment.reminder_{kind}",
+            company_id=appt.company_id,
+            context={
+                "cliente_nome": customer.name,
+                "horario": start_local.strftime("%H:%M"),
+                "data": start_local.strftime("%d/%m"),
+                "servico": service_name,
+                "profissional": prof_name,
+                "empresa_nome": "",
+                "recipient_phone": customer.phone,
+            },
+            recipient_id=customer.id,
+            recipient_type="CLIENT",
+            db=db,
+        )
 
-        evolution_client.send_text(conn.instance_name, customer.phone, msg)
+        if log_entry.status == "FAILED":
+            logger.warning(
+                "reminder_worker: dispatch FAILED lembrete %s appt_id=%s — retry no próximo scan",
+                kind, appt.id,
+            )
+            return
 
         if kind == "24h":
             appt.reminder_24h_sent = True
@@ -185,8 +186,8 @@ def _send_reminder(db: Session, appt: Appointment, kind: str) -> None:
         db.commit()
 
         logger.info(
-            "reminder_worker: lembrete %s enviado appt_id=%s phone=%s",
-            kind, appt.id, customer.phone,
+            "reminder_worker: lembrete %s despachado status=%s appt_id=%s phone=%s",
+            kind, log_entry.status, appt.id, customer.phone,
         )
 
     except Exception:

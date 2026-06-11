@@ -118,6 +118,17 @@ _DEFAULT_TEMPLATES: list[dict] = [
         ),
     },
     {
+        "event_type": "appointment.completed",
+        "channel": "WHATSAPP",
+        "audience": "CLIENT",
+        "body_template": (
+            "Olá, {{cliente_nome}}! Obrigado por nos visitar! ✂️\n\n"
+            "Esperamos que tenha ficado satisfeito com o *{{servico}}*. "
+            "Qualquer dúvida ou para agendar novamente, é só mandar uma mensagem. "
+            "Até a próxima! 🙌"
+        ),
+    },
+    {
         "event_type": "appointment.no_show",
         "channel": "WHATSAPP",
         "audience": "PROFESSIONAL",

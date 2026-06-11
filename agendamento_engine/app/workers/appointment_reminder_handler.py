@@ -4,9 +4,9 @@ Handler para appointment.reminder_due — Sprint 5.
 Idempotency key: appointment.reminder_due:{appointment_id}:{interval}  (Padrão B)
 Consumer: "appointment_reminder"
 
-Sprint 5: handler usa CommunicationService quando flag use_communication_service está ativa.
-Enquanto a flag está desligada (padrão), reminder_worker Celery continua enviando
-diretamente via Evolution API (coexistência).
+Sprint I: flag use_communication_service é kill-switch (ausente → True).
+reminder_worker Celery também envia via CommunicationService — não há mais
+chamadas diretas à Evolution API fora do CommunicationService.
 
 O evento NÃO passa pelo EventBus (fluxo crítico) — é publicado diretamente
 pelo Celery Beat / reminder_worker via envio direto. Este handler é registrado
@@ -46,7 +46,7 @@ def handle_appointment_reminder_due(event) -> None:
             TenantConfig.company_id == company_id
         ).first()
         overrides = (config.permission_overrides or {}) if config else {}
-        if not overrides.get("use_communication_service"):
+        if not overrides.get("use_communication_service", True):
             return
 
         from app.infrastructure.db.models import Appointment, Customer
