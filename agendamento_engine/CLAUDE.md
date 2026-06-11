@@ -1,4 +1,28 @@
-**Fase 2 concluída.** Sprint I concluído (2026-06-11 — dívidas críticas de pagamento e comunicação). Próximo: Sprint 18 (plano Estágio 0 completo).
+**Fase 2 concluída.** Sprint 18 concluído (2026-06-11 — Despesas + recorrência). Próximo: Sprint 17 (Estoque + Fornecedores + Payables).
+
+## Sprint 18 — Despesas + recorrência (2026-06-11)
+- Modelo `Expense` (tabela `expenses`, RLS padrão `app.current_company_id`):
+  lifecycle PENDENTE → PAGA | CANCELLED; categoria validada contra
+  `DESPESA_CATEGORIES` (derivado de entry_category.py — CUSTO → 422)
+- `handle_expense_paid` em financial_core/service.py: Movement OUTFLOW +
+  Entry DESPESA atômicos (flush sem commit, padrão handle_payment_confirmed);
+  resolve conta `is_default_inflow` se account_id não informado
+- Recorrência MONTHLY em JSONB (`recurrence_rule`) com clamp de fim de mês
+  (`next_occurrence` usa dateutil.relativedelta); instâncias encadeadas via
+  `parent_expense_id`; geração FORA da transação de pagamento (falha não
+  desfaz o pagamento); `generate_next_instance` idempotente
+- `supplier_id` UUID SEM FK — Sprint 17 adiciona a FK via ALTER TABLE
+- Rotas `/expenses/` (POST, GET, GET/{id}, PATCH/{id}/pay, PATCH/{id}/cancel)
+- Workers: `expense_due_soon` (07:30, janela 3 dias, também publica
+  expense.overdue; dedup via processed_idempotency_keys) e
+  `expense_recurrence` (06:00) no beat_schedule
+- Eventos: expense.created/due_soon/overdue/paid/cancelled com keys canônicos
+- ⚠ Categorias da visão FOLHA_PAGAMENTO/IMPOSTOS/OUTROS_DESPESAS não existem
+  no enum — usar SALARIO/DESPESA_OUTROS (entry_category.py é fonte de verdade)
+- python-dateutil==2.9.0.post0 explicitado no requirements.txt
+- Testes: tests/test_sprint18_expenses.py (28 testes)
+
+**HEAD migration:** e0s18a_expenses
 
 ## Sprint I — Dívidas críticas (2026-06-11)
 - `refund()`: gateway ANTES da contabilidade; falha do provider → HTTP 502, nenhum Movement/Entry
