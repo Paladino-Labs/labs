@@ -78,6 +78,7 @@ class PaymentResponse(BaseModel):
     net_charged_amount: Decimal
     provider_fee: Decimal
     payment_method: str
+    payment_submethod: Optional[str] = None
     payment_source_id: Optional[UUID] = None
     provider: str
     target_account_id: UUID

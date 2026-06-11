@@ -128,6 +128,7 @@ def create_payment(
         customer_id=body.customer_id,
         gross_amount=body.gross_amount,
         payment_method=body.payment_method,
+        payment_submethod=body.payment_submethod,
         provider=body.provider,
         target_account_id=body.target_account_id,
         appointment_id=body.appointment_id,

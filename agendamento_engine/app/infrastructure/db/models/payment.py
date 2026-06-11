@@ -33,6 +33,9 @@ class Payment(Base):
     # Método de pagamento (separado de payment_source)
     # Presenciais: CASH | CHAVE_PIX | MAQUININHA — online (Asaas): PIX | BOLETO | CARD_CREDIT | CARD_DEBIT
     payment_method = Column(String(50), nullable=False)
+    # Submethod para MAQUININHA genérico (PIX, CREDIT_ELO, DEBIT_VISA_MASTER, ...)
+    # — usado por confirm_manual quando o body não envia o submethod
+    payment_submethod = Column(String(50), nullable=True)
     # Nulo para CASH/PIX/BOLETO; preenchido para cartão salvo
     payment_source_id = Column(UUID(as_uuid=True), ForeignKey("payment_sources.source_id"), nullable=True)
 

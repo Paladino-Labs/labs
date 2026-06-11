@@ -211,6 +211,7 @@ def create_payment(
     customer_id: Optional[UUID],
     gross_amount: Decimal,
     payment_method: str,
+    payment_submethod: Optional[str] = None,
     provider: str = "manual",
     target_account_id: Optional[UUID] = None,
     appointment_id: Optional[UUID] = None,
@@ -230,6 +231,7 @@ def create_payment(
         discount_amount=Decimal("0"),
         net_charged_amount=gross_amount,
         payment_method=payment_method,
+        payment_submethod=payment_submethod,
         payment_source_id=payment_source_id,
         provider=provider,
         target_account_id=target_account_id,
@@ -542,7 +544,13 @@ def confirm_manual(
             detail=f"Pagamento deve estar PENDING para confirmação manual. Status atual: {payment.status}",
         )
 
-    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=payment_submethod)
+    # Prioridade do submethod:
+    #   1. body do confirm-manual (fluxo PaymentOnCompleteDialog)
+    #   2. persistido no Payment (criado com submethod)
+    #   3. None → fallback em _calc_manual_fee (MAQUININHA_CREDIT_OUTROS)
+    effective_submethod = payment_submethod or payment.payment_submethod
+
+    fee, warning_fee_source = _calc_manual_fee(payment, db, payment_submethod=effective_submethod)
 
     fee_warning: Optional[dict] = None
     if warning_fee_source:

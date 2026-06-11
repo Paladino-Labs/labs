@@ -38,6 +38,7 @@ def _make_payment(
     company_id=None,
     status="PENDING",
     payment_method="CASH",
+    payment_submethod=None,
     provider="manual",
     net_charged_amount=Decimal("100.00"),
     gross_catalog_amount=None,
@@ -50,6 +51,7 @@ def _make_payment(
     p.company_id = company_id or uuid.uuid4()
     p.status = status
     p.payment_method = payment_method
+    p.payment_submethod = payment_submethod
     p.provider = provider
     p.net_charged_amount = Decimal(str(net_charged_amount))
     # gross_catalog_amount defaults to net_charged_amount (sem desconto)
@@ -825,6 +827,132 @@ def test_confirm_manual_chave_pix_uses_chave_pix_policy():
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "1.00"
     assert fee_warning is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# payment_submethod persistido no Payment: usado quando o body não envia
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_create_payment_persists_submethod():
+    """create_payment deve persistir payment_submethod no Payment criado."""
+    company_id = uuid.uuid4()
+    account_id = uuid.uuid4()
+    db = _make_db()
+    db.refresh.side_effect = lambda obj: None
+
+    with patch("app.modules.payments.service.Payment") as MockPayment:
+        MockPayment.return_value = _make_payment(
+            company_id=company_id,
+            payment_method="MAQUININHA",
+            payment_submethod="CREDIT_ELO",
+            target_account_id=account_id,
+        )
+        from app.modules.payments.service import create_payment
+
+        create_payment(
+            company_id=company_id,
+            customer_id=None,
+            gross_amount=Decimal("50.00"),
+            payment_method="MAQUININHA",
+            payment_submethod="CREDIT_ELO",
+            provider="manual",
+            target_account_id=account_id,
+            db=db,
+        )
+
+    assert MockPayment.call_args.kwargs["payment_submethod"] == "CREDIT_ELO"
+
+
+def test_confirm_manual_uses_persisted_submethod_when_body_empty():
+    """confirm_manual sem submethod no body deve usar o persistido no Payment.
+
+    Payment criado com payment_submethod="CREDIT_ELO" e sem política cadastrada
+    → warning_fee_source revela que MAQUININHA_CREDIT_ELO foi consultado
+    (não o fallback MAQUININHA_CREDIT_OUTROS).
+    """
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        payment_submethod="CREDIT_ELO",
+        provider="manual",
+        gross_catalog_amount=Decimal("100.00"),
+    )
+    db = _make_db()
+    # Nenhuma política cadastrada → warning revela o fee_source consultado
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment),
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+            payment_submethod=None,  # body vazio
+        )
+
+    assert fee_warning is not None
+    assert fee_warning["fee_source"] == "MAQUININHA_CREDIT_ELO"
+
+
+def test_confirm_manual_body_submethod_overrides_persisted():
+    """Submethod do body tem prioridade sobre o persistido no Payment."""
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        payment_submethod="CREDIT_ELO",
+        provider="manual",
+        gross_catalog_amount=Decimal("100.00"),
+    )
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment),
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+            payment_submethod="DEBIT_VISA_MASTER",
+        )
+
+    assert fee_warning is not None
+    assert fee_warning["fee_source"] == "MAQUININHA_DEBIT_VISA_MASTER"
+
+
+def test_confirm_manual_no_submethod_anywhere_falls_back_to_credit_outros():
+    """Sem submethod no body nem no Payment → fallback MAQUININHA_CREDIT_OUTROS."""
+    payment = _make_payment(
+        status="PENDING",
+        payment_method="MAQUININHA",
+        payment_submethod=None,
+        provider="manual",
+        gross_catalog_amount=Decimal("100.00"),
+    )
+    db = _make_db()
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment),
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=payment.company_id,
+            db=db,
+        )
+
+    assert fee_warning is not None
+    assert fee_warning["fee_source"] == "MAQUININHA_CREDIT_OUTROS"
 
 
 def test_calc_manual_fee_chave_pix_without_policy_returns_warning():

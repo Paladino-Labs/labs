@@ -183,6 +183,7 @@ def test_confirm_manual_uses_updated_fee_percentage():
     payment.company_id = company_id
     payment.status = "PENDING"
     payment.payment_method = "MAQUININHA"
+    payment.payment_submethod = None
     payment.provider = "manual"
     payment.net_charged_amount = gross
     payment.gross_catalog_amount = gross
@@ -260,6 +261,7 @@ def test_confirm_manual_maquininha_pix_after_patch_no_warning():
     payment.company_id = company_id
     payment.status = "PENDING"
     payment.payment_method = "MAQUININHA_PIX"
+    payment.payment_submethod = None
     payment.provider = "manual"
     payment.net_charged_amount = gross
     payment.gross_catalog_amount = gross
@@ -286,3 +288,54 @@ def test_confirm_manual_maquininha_pix_after_patch_no_warning():
     call_kwargs = mock_confirm.call_args.kwargs
     assert call_kwargs["webhook_data"]["fee"] == "0.99"
     assert fee_warning is None  # taxa configurada → sem aviso
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. confirm_manual sem body usa o submethod persistido no Payment
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_confirm_manual_without_body_uses_persisted_submethod_policy():
+    """Payment com payment_submethod=CREDIT_ELO persistido + política ELO 2.5%
+    → confirm_manual sem body calcula fee pela política ELO (não fallback OUTROS)."""
+    gross = Decimal("100.00")
+    company_id = uuid.uuid4()
+
+    policy = _make_policy(
+        fee_source="MAQUININHA_CREDIT_ELO",
+        fee_percentage=Decimal("2.5"),
+        company_id=company_id,
+    )
+
+    payment = MagicMock()
+    payment.payment_id = uuid.uuid4()
+    payment.company_id = company_id
+    payment.status = "PENDING"
+    payment.payment_method = "MAQUININHA"
+    payment.payment_submethod = "CREDIT_ELO"
+    payment.provider = "manual"
+    payment.net_charged_amount = gross
+    payment.gross_catalog_amount = gross
+    payment._sa_instance_state = MagicMock()
+    payment._sa_instance_state.has_identity = False
+
+    db = _make_db()
+    db.query.return_value.filter.return_value.first.return_value = policy
+
+    with (
+        patch("app.modules.payments.service._get_payment", return_value=payment),
+        patch("app.modules.payments.service.is_processed", return_value=False),
+        patch("app.modules.payments.service.confirm", return_value=payment) as mock_confirm,
+    ):
+        from app.modules.payments.service import confirm_manual
+
+        _confirmed, fee_warning = confirm_manual(
+            payment_id=payment.payment_id,
+            company_id=company_id,
+            db=db,
+            payment_submethod=None,  # body não envia — usa o persistido
+        )
+
+    # fee = 100.00 * 2.5 / 100 = 2.50 (política ELO, não OUTROS)
+    call_kwargs = mock_confirm.call_args.kwargs
+    assert call_kwargs["webhook_data"]["fee"] == "2.50"
+    assert fee_warning is None
