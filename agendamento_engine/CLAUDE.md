@@ -21,7 +21,7 @@
 - DirectOccupancy com overbooking auditado
 - Appointment: DRAFT, FAILED, operation_type
 
-**HEAD migration:** l4m5n6o7p8q9 (expand_fee_sources_bandeiras)
+**HEAD migration:** m5n6o7p8q9r0 (add_payment_submethod)
 **Total migrations Fase 2 + alinhamento + Sprint Integrações + pré-req frontend + Ajuste 9 + correções:** 27 (k1→d1→e1→psg→f2→g3→h2→i3→j2)
 **Total testes:** 142/142 (+ 2 skips PostgreSQL real)
 
