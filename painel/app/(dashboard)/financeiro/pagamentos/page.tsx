@@ -122,10 +122,15 @@ export default function PagamentosPage() {
     return true
   })
 
-  async function handleConfirm(paymentId: string) {
-    setConfirming(paymentId)
+  async function handleConfirm(payment: Payment) {
+    setConfirming(payment.payment_id)
     try {
-      const res = await api.post<ConfirmManualResponse>(`/payments/${paymentId}/confirm-manual`, {})
+      // Envia o submethod persistido no Payment — o backend também usa o
+      // persistido como fallback quando o body não o traz.
+      const res = await api.post<ConfirmManualResponse>(
+        `/payments/${payment.payment_id}/confirm-manual`,
+        { payment_submethod: payment.payment_submethod }
+      )
       if (res.fee_warning) {
         setFeeWarning(res.fee_warning)
       }
@@ -290,7 +295,7 @@ export default function PagamentosPage() {
                             size="sm"
                             variant="outline"
                             disabled={confirming === p.payment_id}
-                            onClick={() => handleConfirm(p.payment_id)}
+                            onClick={() => handleConfirm(p)}
                             className="h-7 gap-1.5 px-2 text-xs"
                           >
                             <CheckCircle className="h-3.5 w-3.5" />
