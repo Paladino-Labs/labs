@@ -86,6 +86,7 @@ def _publish_operation_completed(appointment: Appointment) -> None:
                 "appointment_id": str(appointment.id),
                 "professional_id": str(appointment.professional_id) if appointment.professional_id else None,
                 "service_id": str(service_id) if service_id else None,
+                "customer_id": str(appointment.client_id) if appointment.client_id else None,
                 "gross_amount": str(gross_amount),
                 "provider_fee": "0",
                 "company_id": str(appointment.company_id),

@@ -82,6 +82,8 @@ from app.modules.promotions.router import router as promotions_router
 from app.modules.identity.router import router as identity_router
 from app.modules.portal.router import router as portal_router
 from app.modules.platform.router import router as platform_router
+from app.modules.nps.router import router as nps_router
+from app.modules.waitlist.router import router as waitlist_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -143,6 +145,8 @@ async def lifespan(app: FastAPI):
     from app.workers.handlers.package_handler import register_handlers as register_package_handlers
     from app.workers.handlers.subscription_payment_handler import register_handlers as register_subscription_handlers
     from app.workers.handlers.promotion_payment_handler import register_handlers as register_promotion_handlers
+    from app.workers.handlers.nps_handler import register_handlers as register_nps_handlers
+    from app.workers.handlers.waitlist_handler import register_handlers as register_waitlist_handlers
     register_booking_handlers()
     register_reminder_handlers()
     register_communication_handlers()
@@ -151,6 +155,8 @@ async def lifespan(app: FastAPI):
     register_package_handlers()
     register_subscription_handlers()
     register_promotion_handlers()
+    register_nps_handlers()
+    register_waitlist_handlers()
 
     yield  # aplicação em execução
 
@@ -220,6 +226,8 @@ app.include_router(promotions_router)
 app.include_router(identity_router)
 app.include_router(portal_router)
 app.include_router(platform_router)
+app.include_router(nps_router)
+app.include_router(waitlist_router)
 
 
 @app.get("/health")

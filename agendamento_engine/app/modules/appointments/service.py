@@ -27,6 +27,41 @@ from app.modules.notifications import (
 from app.core.config import settings
 
 
+def _publish_slot_released(appointment: Appointment, event_type: str) -> None:
+    """Emite appointment.cancelled/rescheduled via EventBus — best-effort,
+    consumido pela fila de espera (Sprint G). Falha não afeta a operação."""
+    import logging
+    import uuid as _uuid
+
+    from app.infrastructure.event_bus import DomainEvent, event_bus
+
+    try:
+        service_ids = [
+            str(svc.service_id) for svc in (appointment.services or [])
+            if svc.service_id is not None
+        ]
+        event_bus.publish(DomainEvent(
+            event_id=_uuid.uuid4(),
+            event_type=event_type,
+            occurred_at=datetime.now(timezone.utc),
+            company_id=appointment.company_id,
+            idempotency_key=f"{event_type}.slot_released:{appointment.id}:{appointment.version}",
+            actor={"type": "SYSTEM", "id": None},
+            payload={
+                "appointment_id": str(appointment.id),
+                "professional_id": str(appointment.professional_id) if appointment.professional_id else None,
+                "service_ids": service_ids,
+                "customer_id": str(appointment.client_id) if appointment.client_id else None,
+                "company_id": str(appointment.company_id),
+            },
+        ))
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "_publish_slot_released: falha ao publicar %s appointment_id=%s",
+            event_type, appointment.id,
+        )
+
+
 def _assert_slot_available(
     db: Session,
     company_id: UUID,
@@ -282,6 +317,10 @@ def cancel_appointment(
     appointment.cancel_reason = reason
     db.commit()
     db.refresh(appointment)
+
+    # Slot liberado → fila de espera (Sprint G)
+    _publish_slot_released(appointment, "appointment.cancelled")
+
     return appointment
 
 
@@ -324,6 +363,9 @@ def reschedule_appointment(
 
     # Disparar confirmação de reagendamento — fire-and-forget
     send_reschedule_confirmation(db, appointment, manage_token=manage_token)
+
+    # Slot anterior liberado → fila de espera (Sprint G)
+    _publish_slot_released(appointment, "appointment.rescheduled")
 
     return appointment
 

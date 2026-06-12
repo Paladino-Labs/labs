@@ -36,6 +36,8 @@ _QUIET_HOURS_SCHEDULED_EVENTS = {
     "appointment.reminder_2h",
     "appointment.reminder_due",
     "appointment.no_show",
+    "nps.survey_request",
+    "waitlist.slot_available",
 }
 
 # Eventos transacionais: bypass completo de quiet_hours.

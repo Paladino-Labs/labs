@@ -53,6 +53,8 @@ from .portal_credential import PortalCredential, PortalMagicToken
 from .payment_source_authorization import PaymentSourceAuthorization
 from .impersonation_grant import ImpersonationGrant
 from .platform_setting import PlatformSetting
+from .nps import NpsConfig, NpsSurvey, NpsResponse
+from .waitlist import WaitlistConfig, WaitlistEntry
 
 __all__ = [
     "Company",
@@ -132,4 +134,9 @@ __all__ = [
     "PaymentSourceAuthorization",
     "ImpersonationGrant",
     "PlatformSetting",
+    "NpsConfig",
+    "NpsSurvey",
+    "NpsResponse",
+    "WaitlistConfig",
+    "WaitlistEntry",
 ]

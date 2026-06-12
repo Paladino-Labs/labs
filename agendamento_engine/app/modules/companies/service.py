@@ -180,6 +180,46 @@ _DEFAULT_TEMPLATES: list[dict] = [
             "Se você não solicitou a redefinição, ignore este e-mail."
         ),
     },
+    {
+        "event_type": "nps.survey_request",
+        "channel": "WHATSAPP",
+        "audience": "CLIENT",
+        "body_template": (
+            "Olá, {{cliente_nome}}! Como foi sua experiência conosco? "
+            "De 0 a 10, o quanto você nos recomendaria? "
+            "Responda em: {{nps_url}}"
+        ),
+    },
+    {
+        "event_type": "nps.low_score_alert",
+        "channel": "WHATSAPP",
+        "audience": "OWNER",
+        "body_template": (
+            "Alerta de avaliação baixa: {{cliente_nome}} deu nota {{nota}}. "
+            "Comentário: {{comentario}}"
+        ),
+    },
+    {
+        "event_type": "nps.low_score_alert",
+        "channel": "EMAIL",
+        "audience": "OWNER",
+        "body_template": (
+            "Alerta de avaliação baixa no NPS.\n\n"
+            "Cliente: {{cliente_nome}}\n"
+            "Nota: {{nota}}\n"
+            "Comentário: {{comentario}}\n\n"
+            "Responda ao feedback pelo painel."
+        ),
+    },
+    {
+        "event_type": "waitlist.slot_available",
+        "channel": "WHATSAPP",
+        "audience": "CLIENT",
+        "body_template": (
+            "Boa notícia, {{cliente_nome}}! Abriu uma vaga que você estava "
+            "esperando. Agende agora — a vaga é de quem agir primeiro."
+        ),
+    },
 ]
 
 

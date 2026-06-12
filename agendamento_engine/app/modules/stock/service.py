@@ -228,6 +228,7 @@ def receive_order(
             "company_id": str(company_id),
             "total_amount": str(payable.total_amount),
             "items": len(items),
+            "product_ids": [str(item["product_id"]) for item in items],
         },
     )
 

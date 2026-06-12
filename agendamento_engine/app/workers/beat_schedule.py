@@ -63,4 +63,16 @@ beat_schedule = {
         "task": "app.workers.tasks.promotions_expiry.promotions_expiry_scanner",
         "schedule": crontab(hour=0, minute=5),
     },
+    "nps-send-pending": {
+        "task": "app.workers.tasks.nps_worker.nps_send_pending_worker",
+        "schedule": crontab(minute="*/15"),
+    },
+    "nps-expire-surveys": {
+        "task": "app.workers.tasks.nps_worker.nps_expire_surveys_worker",
+        "schedule": crontab(hour=1, minute=0),
+    },
+    "waitlist-expire-entries": {
+        "task": "app.workers.tasks.waitlist_worker.waitlist_expire_entries_worker",
+        "schedule": crontab(minute="*/30"),
+    },
 }
