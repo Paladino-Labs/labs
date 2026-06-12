@@ -1,4 +1,32 @@
-**Fase 2 concluída.** Sprint 16 concluído (2026-06-11 — Promoções e Cupons). Próximo: Sprint E (ExternalStatementEntry).
+**Fase 2 concluída.** Sprint E concluído (2026-06-11 — ExternalStatementEntry). Próximo: Sprint B (Link de gestão com token único).
+
+## Sprint E — ExternalStatementEntry (2026-06-11)
+- Tabela `external_statement_entries` (RLS canônico) — migration
+  `e0sE1_external_statement_entries`; UNIQUE (company_id, line_hash)
+  garante idempotência de re-upload (line_hash = SHA-256 da linha crua)
+- `modules/financial_core/statement_service.py`: import_csv, suggest_match,
+  confirm_match, dismiss_entry, list_statement_entries, list_batches
+- `modules/financial_core/statement_router.py` (prefixo /financial/statement,
+  registrado em main.py): POST /import (multipart: file + account_id +
+  column_mapping JSON), GET /, GET /batches, GET /{id}/suggestions,
+  POST /{id}/match, POST /{id}/dismiss
+- **Movement NUNCA é alterado** — vínculo unidirecional em
+  entry.matched_movement_id (append-only preservado)
+- `auto_matched` no import = entries com candidato encontrado; é APENAS
+  sugestão — nada persiste como MATCHED (confirmação manual via /match)
+- Match: mesmo account, |amount| ±0.01, occurred_at ±2 dias, direção
+  compatível (INFLOW→INFLOW/TRANSFER_IN), movement não casado; critérios
+  revalidados em Python (defesa em profundidade + testável com mocks)
+- direction inferido pelo sinal do valor (negativo → OUTFLOW) ou coluna
+  explícita (D/DEBIT/SAIDA → OUTFLOW); amount armazenado sempre positivo
+- dismiss: reason obrigatório (422); só entries PENDING (422); audit completo
+- **Primeiro uso real de `require_action()`** (deps.py): writes exigem
+  OWNER/ADMIN; OPERATOR só com permission_overrides["OPERATOR"]["statement_*"]
+  (actions: statement_import, statement_match, statement_dismiss)
+- Eventos: statement.batch_imported / entry_matched / entry_dismissed
+- Testes: tests/test_sprint_e_statement.py (30 testes)
+
+**HEAD migration:** e0sE1_external_statement_entries
 
 ## Sprint 16 — Promoções e Cupons (2026-06-11)
 - Tabelas `promotions`, `coupons`, `coupon_redemptions`, `discount_applications`

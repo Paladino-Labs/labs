@@ -46,6 +46,7 @@ from .supplier import Supplier, SupplierOrder
 from .stock_movement import StockMovement
 from .payable import Payable, PayableInstallment
 from .promotion import Promotion, Coupon, CouponRedemption, DiscountApplication
+from .external_statement_entry import ExternalStatementEntry
 
 __all__ = [
     "Company",
@@ -117,4 +118,5 @@ __all__ = [
     "Coupon",
     "CouponRedemption",
     "DiscountApplication",
+    "ExternalStatementEntry",
 ]

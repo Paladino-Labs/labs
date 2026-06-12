@@ -63,6 +63,7 @@ from app.modules.categories.router import router as categories_router
 from app.modules.integrations.router import router as integrations_router
 from app.modules.communication.router import router as communication_router
 from app.modules.financial_core.router import router as financial_router
+from app.modules.financial_core.statement_router import router as statement_router
 from app.modules.payments.router import router as payments_router
 from app.modules.payments.router import financial_router as payments_financial_router
 from app.modules.agenda.router import router as agenda_router
@@ -193,6 +194,7 @@ app.include_router(categories_router)
 app.include_router(integrations_router)
 app.include_router(communication_router)
 app.include_router(financial_router)
+app.include_router(statement_router)
 app.include_router(payments_router)
 app.include_router(payments_financial_router)
 app.include_router(agenda_router)

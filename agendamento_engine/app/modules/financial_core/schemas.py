@@ -1,7 +1,7 @@
 """Schemas Pydantic do módulo Financial Core."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -276,3 +276,50 @@ class CashCountResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── External Statement (Sprint E) ─────────────────────────────────────────────
+
+class StatementEntryResponse(BaseModel):
+    id: UUID
+    company_id: UUID
+    account_id: UUID
+    occurred_at: date
+    amount: Decimal
+    direction: str
+    description: Optional[str] = None
+    status: str
+    matched_movement_id: Optional[UUID] = None
+    dismissed_reason: Optional[str] = None
+    dismissed_at: Optional[datetime] = None
+    dismissed_by: Optional[UUID] = None
+    imported_at: Optional[datetime] = None
+    import_batch_id: UUID
+
+    model_config = {"from_attributes": True}
+
+
+class StatementImportResponse(BaseModel):
+    imported: int
+    skipped_duplicates: int
+    skipped_invalid: int
+    auto_matched: int
+    batch_id: UUID
+
+
+class StatementMatchBody(BaseModel):
+    movement_id: UUID
+
+
+class StatementDismissBody(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=255)
+
+
+class StatementBatchSummary(BaseModel):
+    batch_id: UUID
+    account_id: UUID
+    imported_at: Optional[datetime] = None
+    total: int
+    matched: int
+    pending: int
+    dismissed: int
