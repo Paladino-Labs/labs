@@ -1,4 +1,35 @@
-**Fase 2 concluída.** Sprint G concluído (2026-06-12 — NPS + Fila de espera). Próximo: Sprint H (CRM básico) — down_revision=e0sG2_waitlist.
+**Fase 2 concluída.** Sprint H concluído (2026-06-12 — CRM básico). Próximo: Sprint 2.0 (IntentClassifier) — down_revision=e0sH1_crm.
+
+## Sprint H — CRM básico (2026-06-12)
+- Migration `e0sH1_crm`: crm_configs (thresholds 1:1 por tenant),
+  customer_classifications (APPEND por recomputação — histórico preservado;
+  atual = linha mais recente via idx_customer_classifications_current),
+  customers.custom_fields JSONB (notes já existia — IF NOT EXISTS). RLS canônico.
+- `modules/crm/service.py`: compute_customer_metrics (dinâmico, ZERO persistência
+  — visita = Appointment COMPLETED; gasto = Payment CONFIRMED net_charged_amount;
+  FK é client_id), classify_customer (puro/determinístico, prioridade
+  VIP > RECUPERADO > EM_RISCO > FREQUENTE > NOVO > REGULAR; EM_RISCO usa
+  max(risk_min_days, avg_freq × risk_multiplier); RECUPERADO = previous EM_RISCO
+  e não está mais em risco), recompute_all_classifications (insere se mudou OU
+  última > 24h; commit em lote a cada 100), get_customer_insights (heurísticas
+  SEM ML: churn_risk HIGH=EM_RISCO / MEDIUM=days>avg×1.5; RESCHEDULE = cancel
+  < 7d sem SCHEDULED; PACKAGE = mesmo serviço 3×/60d sem purchase ACTIVE que
+  cubra — pacote sem service_id é genérico e cobre qualquer um; PRODUCT = mais
+  vendido em VENDA com source_id nos appointments do serviço preferido),
+  get_crm_alerts (dedupe pela linha mais recente por customer)
+- Filtros de status/escopo aplicados em Python sobre a query company+customer
+  (compatível com FakeDB; volumes por cliente são pequenos)
+- Rotas: /crm/alerts (OWNER/ADMIN), /crm/classifications (filtros
+  classification+date_from), /crm/config GET (OPERATOR ok) / PUT (só OWNER);
+  /customers/{id}/insights e /customers/{id}/classification (última + 5)
+  com require_role — PATCH /customers/{id} pré-existente ganhou custom_fields
+- Worker beat: crm-recompute-classifications (03:00) —
+  workers/tasks/crm_recompute.py aceita company_id opcional p/ forçar 1 tenant
+- SEM ML/IA; SEM sugestão automática ao cliente (deferidos pela visão)
+- Testes: tests/test_sprint_h_crm.py (30 testes + 1 skip celery-ausente-no-venv,
+  FakeDB in-memory)
+
+**HEAD migration:** e0sH1_crm
 
 ## Sprint G — NPS + Fila de espera (2026-06-12)
 - 2 migrations: `e0sG1_nps` (nps_configs 1:1 por tenant; nps_surveys
