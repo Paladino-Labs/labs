@@ -57,6 +57,7 @@ from app.modules.booking.router import router as booking_router
 from app.modules.products.router import router as products_router
 from app.modules.uploads.router import router as uploads_router
 from app.modules.public.router import router as public_router
+from app.modules.public.manage_router import router as manage_router
 from app.modules.audit.router import router as audit_router
 from app.modules.tenant.router import router as tenant_router
 from app.modules.categories.router import router as categories_router
@@ -188,6 +189,7 @@ app.include_router(booking_router)
 app.include_router(products_router)
 app.include_router(uploads_router)
 app.include_router(public_router)
+app.include_router(manage_router)
 app.include_router(audit_router)
 app.include_router(tenant_router)
 app.include_router(categories_router)

@@ -52,6 +52,10 @@ class Appointment(Base, TimestampMixin):
     reminder_24h_sent = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))
     reminder_2h_sent  = Column(Boolean, nullable=False, server_default=sa.text("FALSE"))
 
+    # Link de gestão sem login (Sprint B) — SHA-256 do token cru; cru nunca persiste
+    manage_token_hash = Column(String(64), nullable=True, unique=True)
+    manage_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+
     # Relacionamentos
     professional = relationship("Professional", back_populates="appointments")
     customer = relationship("Customer", back_populates="appointments", foreign_keys=[client_id])

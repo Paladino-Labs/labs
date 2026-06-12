@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Exemplo: https://app.seudominio.com
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Base do link de gestão de agendamento enviado ao cliente (Sprint B).
+    # Vazio → usa FRONTEND_URL. Exemplo: https://app.meupaladino.com.br
+    FRONTEND_BASE_URL: str = ""
+
     # Bot — sessão e UX
     BOT_SESSION_TTL_MINUTES: int = 30           # TTL da sessão, resetado a cada mensagem
     BOT_PREDICTIVE_OFFER_TTL_MINUTES: int = 5  # Expiração da oferta recorrente

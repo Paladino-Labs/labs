@@ -74,20 +74,30 @@ def _fmt_datetime(dt: datetime, tz: ZoneInfo) -> tuple[str, str]:
     return data, hora
 
 
-def send_booking_confirmation(db: Session, appointment: Appointment) -> None:
+def send_booking_confirmation(
+    db: Session, appointment: Appointment, manage_token: str | None = None
+) -> None:
     """
     Envia confirmação de agendamento ao cliente via CommunicationService.
     Fire-and-forget: erros são apenas logados.
     """
-    _notify_appointment(db, appointment, "appointment.confirmed", "send_booking_confirmation")
+    _notify_appointment(
+        db, appointment, "appointment.confirmed", "send_booking_confirmation",
+        manage_token=manage_token,
+    )
 
 
-def send_reschedule_confirmation(db: Session, appointment: Appointment) -> None:
+def send_reschedule_confirmation(
+    db: Session, appointment: Appointment, manage_token: str | None = None
+) -> None:
     """
     Envia confirmação de reagendamento ao cliente via CommunicationService.
     Fire-and-forget: erros são apenas logados.
     """
-    _notify_appointment(db, appointment, "appointment.confirmed", "send_reschedule_confirmation")
+    _notify_appointment(
+        db, appointment, "appointment.confirmed", "send_reschedule_confirmation",
+        manage_token=manage_token,
+    )
 
 
 def _notify_appointment(
@@ -95,6 +105,7 @@ def _notify_appointment(
     appointment: Appointment,
     event_type: str,
     caller: str,
+    manage_token: str | None = None,
 ) -> None:
     try:
         customer = db.query(Customer).filter(
@@ -112,7 +123,10 @@ def _notify_appointment(
             return
 
         tz = _get_company_tz(db, appointment.company_id)
-        _dispatch_via_comm_service(db, appointment, customer, event_type, "CLIENT", tz)
+        _dispatch_via_comm_service(
+            db, appointment, customer, event_type, "CLIENT", tz,
+            manage_token=manage_token,
+        )
 
         logger.info(
             "%s: dispatch enviado appt_id=%s phone=%s",
@@ -130,12 +144,16 @@ def _dispatch_via_comm_service(
     event_type: str,
     recipient_type: str,
     tz: ZoneInfo,
+    manage_token: str | None = None,
 ) -> None:
     """Dispatch via CommunicationService (fire-and-forget)."""
     try:
+        from app.modules.appointments.manage_tokens import build_manage_url
+
         data, hora = _fmt_datetime(appointment.start_at, tz)
         svc_name = appointment.services[0].service_name if appointment.services else "serviço"
         prof_name = appointment.professional.name if appointment.professional else "profissional"
+        manage_url = build_manage_url(manage_token) if manage_token else ""
 
         from app.modules.communication.service import communication_service
         communication_service.dispatch(
@@ -148,6 +166,7 @@ def _dispatch_via_comm_service(
                 "servico": svc_name,
                 "profissional": prof_name,
                 "empresa_nome": "",
+                "manage_url": manage_url,
                 "recipient_phone": customer.phone,
             },
             recipient_id=customer.id,

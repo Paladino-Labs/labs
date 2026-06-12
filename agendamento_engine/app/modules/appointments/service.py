@@ -19,6 +19,7 @@ from app.modules.appointments.polices import (
     CANCELLATION_TOO_LATE, RESCHEDULE_TOO_LATE,
     check_cancellation_policy, check_reschedule_policy,
 )
+from app.modules.appointments.manage_tokens import issue_manage_token
 from app.modules.notifications import (
     send_booking_confirmation,
     send_reschedule_confirmation,
@@ -240,6 +241,10 @@ def create_appointment(
     for snap in snapshots:
         appointment.services.append(snap)
 
+    # Link de gestão (Sprint B): hash persiste junto com o appointment;
+    # o token cru vai apenas na mensagem de confirmação
+    manage_token = issue_manage_token(appointment)
+
     db.add(appointment)
     try:
         db.commit()
@@ -250,7 +255,7 @@ def create_appointment(
     db.refresh(appointment)
 
     # Disparar confirmação via WhatsApp — fire-and-forget, nunca propaga erros
-    send_booking_confirmation(db, appointment)
+    send_booking_confirmation(db, appointment, manage_token=manage_token)
 
     return appointment
 
@@ -311,11 +316,14 @@ def reschedule_appointment(
     appointment.start_at = data.start_at
     appointment.end_at = new_end_at
 
+    # Novo token de gestão — o link anterior deixa de funcionar (Sprint B)
+    manage_token = issue_manage_token(appointment)
+
     db.commit()
     db.refresh(appointment)
 
     # Disparar confirmação de reagendamento — fire-and-forget
-    send_reschedule_confirmation(db, appointment)
+    send_reschedule_confirmation(db, appointment, manage_token=manage_token)
 
     return appointment
 

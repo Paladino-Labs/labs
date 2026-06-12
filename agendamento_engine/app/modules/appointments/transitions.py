@@ -43,6 +43,11 @@ def transition(
     appointment.status = to_status.value
     appointment.version += 1
 
+    # Estado terminal → link de gestão do cliente deixa de funcionar (Sprint B)
+    if to_status.is_terminal:
+        appointment.manage_token_hash = None
+        appointment.manage_token_expires_at = None
+
     # Publica operation.completed quando status → COMPLETED (best-effort, pós-flush)
     if to_status.value == "COMPLETED":
         _publish_operation_completed(appointment)

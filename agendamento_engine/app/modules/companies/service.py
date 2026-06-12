@@ -59,7 +59,7 @@ _DEFAULT_CATEGORIES: dict = {
 
 # Templates mínimos obrigatórios por company — is_default=True, is_active=True.
 # Variáveis disponíveis: {{cliente_nome}}, {{horario}}, {{data}}, {{servico}},
-#                        {{profissional}}, {{empresa_nome}}
+#                        {{profissional}}, {{empresa_nome}}, {{manage_url}}
 _DEFAULT_TEMPLATES: list[dict] = [
     {
         "event_type": "appointment.confirmed",
@@ -71,6 +71,7 @@ _DEFAULT_TEMPLATES: list[dict] = [
             "✂️  *{{servico}}*\n"
             "👤  {{profissional}}\n"
             "📅  {{data}} às {{horario}}\n\n"
+            "Para remarcar ou cancelar: {{manage_url}}\n\n"
             "Te esperamos! Qualquer dúvida, é só responder aqui. 😊"
         ),
     },
