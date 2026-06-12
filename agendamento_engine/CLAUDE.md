@@ -1,4 +1,50 @@
-**Fase 2 concluída.** Sprint C concluído (2026-06-12 — Painel Owner Paladino). Próximo: Sprint G (NPS + Fila) — down_revision=e0sC3_platform_settings.
+**Fase 2 concluída.** Sprint G concluído (2026-06-12 — NPS + Fila de espera). Próximo: Sprint H (CRM básico) — down_revision=e0sG2_waitlist.
+
+## Sprint G — NPS + Fila de espera (2026-06-12)
+- 2 migrations: `e0sG1_nps` (nps_configs 1:1 por tenant; nps_surveys
+  PENDING|SENT|RESPONDED|EXPIRED com UNIQUE(appointment_id) — idempotência;
+  nps_responses UNIQUE(survey_id), CHECK score 0–10) → `e0sG2_waitlist`
+  (waitlist_configs 1:1; waitlist_entries com CHECK check_waitlist_scope —
+  exatamente 1 de service_id/professional_id/product_id conforme scope_type).
+  RLS canônico em todas.
+- **NPS dispara APENAS após operation.completed** — handler
+  `workers/handlers/nps_handler.py` (idempotência dupla:
+  processed_idempotency_keys "nps.schedule:{appointment_id}" + UNIQUE no banco)
+- payload de operation.completed ganhou `customer_id` (transitions.py);
+  handler tem fallback que resolve via Appointment.client_id p/ eventos antigos
+- `modules/nps/service.py`: schedule (delay + min_interval_days por cliente),
+  send_pending (worker — dispatch trata consent/quiet hours; SCHEDULED conta
+  como sucesso; SKIPPED_CONSENT_REVOKED → survey EXPIRED; FAILED → retry),
+  expire (48h), record_response (público — survey_id é o token; só SENT → 422
+  caso contrário), add_tenant_response (nunca edita score — só adiciona)
+- Nota baixa (score <= low_score_threshold): publica nps.low_score_alert +
+  dispatch best-effort ao OWNER (User role=OWNER ativo; sem phone em User →
+  template EMAIL audience OWNER cobre; WHATSAPP existe mas falha sem phone)
+- **Slot liberado é implícito no domínio** — Sprint G adicionou
+  `_publish_slot_released` em appointments/service.py: cancel_appointment →
+  appointment.cancelled, reschedule_appointment → appointment.rescheduled
+  (best-effort, pós-commit, payload com service_ids[] + professional_id)
+- stock.entry_recorded payload ganhou `product_ids[]` (stock/service.py)
+- `modules/waitlist/service.py`: join (dup mesmo escopo → 409; operação ativa
+  equivalente → 422), notify_waitlist (priority DESC + created_at ASC;
+  PULA cliente com operação ativa e consent revogado; notifica APENAS o 1º
+  elegível — não reserva slot), expire (NOTIFIED vencida → EXPIRED + notifica
+  próximo). "Operação ativa" = Appointment SCHEDULED|IN_PROGRESS (não existe
+  CONFIRMED no enum); escopo PRODUCT nunca tem operação equivalente
+- Handlers em `workers/handlers/waitlist_handler.py`: appointment.cancelled,
+  appointment.rescheduled, stock.entry_recorded — registrados no lifespan
+- Workers beat: nps-send-pending (*/15), nps-expire-surveys (01:00),
+  waitlist-expire-entries (*/30)
+- Rotas: /nps/config (GET/PUT), /nps/surveys (lista/detalhe/respond tenant),
+  POST /nps/respond/{survey_id} PÚBLICO rate limit 3/min;
+  /waitlist/config (GET/PUT), /waitlist/entries (GET/POST/DELETE)
+- nps.survey_request e waitlist.slot_available adicionados a
+  _QUIET_HOURS_SCHEDULED_EVENTS (quiet hours → SCHEDULED, drain envia depois)
+- 5 templates novos em _DEFAULT_TEMPLATES. ⚠ Tenants pré-Sprint G não os têm —
+  inserir via SQL (mesmo caveat do Sprint I)
+- Testes: tests/test_sprint_g_nps_waitlist.py (35 testes, FakeDB in-memory)
+
+**HEAD migration:** e0sG2_waitlist
 
 ## Sprint C — Painel Owner Paladino (2026-06-12)
 - 3 migrations: `e0sC1_tenant_status` (companies.status TRIAL|ACTIVE|SUSPENDED|
