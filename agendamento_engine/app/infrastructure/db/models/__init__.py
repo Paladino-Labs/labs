@@ -47,6 +47,8 @@ from .stock_movement import StockMovement
 from .payable import Payable, PayableInstallment
 from .promotion import Promotion, Coupon, CouponRedemption, DiscountApplication
 from .external_statement_entry import ExternalStatementEntry
+from .paladino_identity import PaladinoIdentity
+from .consent_record import ConsentRecord
 
 __all__ = [
     "Company",
@@ -119,4 +121,6 @@ __all__ = [
     "CouponRedemption",
     "DiscountApplication",
     "ExternalStatementEntry",
+    "PaladinoIdentity",
+    "ConsentRecord",
 ]

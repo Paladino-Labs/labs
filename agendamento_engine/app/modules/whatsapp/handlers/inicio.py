@@ -87,6 +87,17 @@ def _identify_customer(
     phone = whatsapp_id.split("@")[0]
     customer = customer_svc.get_by_phone(db, company_id, phone)
 
+    # Sprint A: lazy backfill — cliente pré-Sprint A sem identity ganha o
+    # vínculo no primeiro contato (não-fatal; o resolver é a fonte canônica)
+    if customer is not None and getattr(customer, "identity_id", None) is None:
+        try:
+            from app.modules.identity.resolver import resolver
+            result = resolver.resolve(db, phone, name=customer.name)
+            customer.identity_id = result.identity_id
+            db.commit()
+        except Exception:  # noqa: BLE001 — identity nunca bloqueia o bot
+            pass
+
     # ─── Cliente novo ─────────────────────────────────────────────────────────
     if not customer:
         session.state = STATE_AGUARDANDO_NOME

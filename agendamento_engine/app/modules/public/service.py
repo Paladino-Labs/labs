@@ -214,11 +214,22 @@ def public_book(
     company = get_company_or_404(db, slug)
     _assert_booking_enabled(db, company.id)
 
-    # Upsert customer by phone
+    # Upsert customer by phone — Sprint A: resolver garante PaladinoIdentity
+    # global + Customer do tenant (mesma deduplicação de antes)
+    from app.modules.identity.resolver import resolver
+    from app.modules.identity import consent_service
+    from app.modules.identity.consent_service import ConsentType, SourceChannel
+
     normalized_phone = _normalize_phone(data.customer_phone)
-    customer = customer_svc.get_or_create_by_phone(
-        db, company.id, normalized_phone, data.customer_name.strip()
+    customer, is_new_customer = resolver.resolve_for_tenant(
+        db, normalized_phone, company.id, name=data.customer_name.strip()
     )
+    if is_new_customer:
+        consent_service.grant_consent(
+            db, customer.identity_id, company.id,
+            ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+            notes="Agendamento via link público",
+        )
 
     # Build idempotency key (phone + start_at + service)
     idempotency_key = f"web|{normalized_phone}|{data.service_id}|{data.start_at.isoformat()}"

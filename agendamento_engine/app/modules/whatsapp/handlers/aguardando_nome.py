@@ -46,8 +46,23 @@ def handle_confirmando_nome(
         return
 
     if resposta in ("1", "sim", "s", "ok", "isso", "confirmar"):
-        phone    = whatsapp_id.split("@")[0]  # extrai número do JID completo
-        customer = customer_svc.get_or_create_by_phone(db, company_id, phone, nome_temp)
+        phone = whatsapp_id.split("@")[0]  # extrai número do JID completo
+        # Sprint A: resolver garante PaladinoIdentity global + Customer do
+        # tenant (mesma deduplicação do get_or_create_by_phone anterior —
+        # sem mudança de comportamento visível para o cliente).
+        from app.modules.identity.resolver import resolver
+        from app.modules.identity import consent_service
+        from app.modules.identity.consent_service import ConsentType, SourceChannel
+
+        customer, is_new = resolver.resolve_for_tenant(
+            db, phone, company_id, name=nome_temp
+        )
+        if is_new:
+            consent_service.grant_consent(
+                db, customer.identity_id, company_id,
+                ConsentType.COMMUNICATION, None, SourceChannel.BOT,
+                notes="Cadastro via bot WhatsApp",
+            )
         ctx["customer_id"]   = str(customer.id)
         ctx["customer_name"] = customer.name
         ctx.pop("nome_temp", None)

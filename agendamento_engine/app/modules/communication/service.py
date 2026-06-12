@@ -182,7 +182,36 @@ class CommunicationService:
         if not template:
             return _log("SKIPPED_NO_TEMPLATE", channel=channel_preference[0])
 
-        # 4. Consent: Sprint 20 — skip gracioso
+        # 4. Consent (Sprint A): COMMUNICATION transacional é opt-out
+        #    (default GRANTED); MARKETING exige GRANTED explícito.
+        #    Sem identity_id resolvível → fallback: envia (não bloquear
+        #    transacionais — Customer pode não ter sido resolvido ainda).
+        if recipient_type == "CLIENT":
+            from app.modules.identity import consent_service
+            from app.modules.identity.consent_service import ConsentType
+
+            consent_type = (
+                ConsentType.MARKETING
+                if event_type.startswith("marketing.")
+                else ConsentType.COMMUNICATION
+            )
+            identity_id = self._resolve_identity_id(db, recipient_id)
+            if identity_id is not None:
+                if not consent_service.check_consent(
+                    db, identity_id, company_id, consent_type, channel
+                ):
+                    return _log(
+                        "SKIPPED_CONSENT_REVOKED",
+                        channel=channel,
+                        template_id=template.template_id,
+                    )
+            elif consent_type == ConsentType.MARKETING:
+                # MARKETING sem identity → impossível provar GRANTED → bloqueia
+                return _log(
+                    "SKIPPED_CONSENT_REVOKED",
+                    channel=channel,
+                    template_id=template.template_id,
+                )
 
         # 5. Renderiza
         rendered = _render_template(template.body_template, context)
@@ -214,6 +243,25 @@ class CommunicationService:
             rendered_body=rendered,
             sent_at=datetime.now(timezone.utc),
         )
+
+    def _resolve_identity_id(self, db: Session, recipient_id: UUID):
+        """
+        identity_id do Customer destinatário (recipient_type=CLIENT).
+        Retorna None quando o customer não existe, não tem identity vinculada
+        (pré-backfill) ou o valor não é um UUID real (db mockado em testes) —
+        nesses casos o dispatch segue sem bloquear (fallback transacional).
+        """
+        import uuid as _uuid
+        from app.infrastructure.db.models import Customer
+
+        try:
+            customer = (
+                db.query(Customer).filter(Customer.id == recipient_id).first()
+            )
+        except Exception:  # noqa: BLE001 — consent nunca derruba o dispatch
+            return None
+        identity_id = getattr(customer, "identity_id", None) if customer else None
+        return identity_id if isinstance(identity_id, _uuid.UUID) else None
 
     def _send_whatsapp(
         self,

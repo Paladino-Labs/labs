@@ -27,6 +27,13 @@ class Customer(Base, TimestampMixin):
     active = Column(Boolean, default=True, nullable=False)
     # ID do customer no Asaas (cus_...). Preenchido na primeira cobrança via Asaas.
     asaas_customer_id = Column(String(50), nullable=True)
+    # Vínculo com a identidade global Paladino (Sprint A). Nullable: clientes
+    # pré-Sprint A ficam NULL até o backfill (scripts/backfill_identity.py).
+    identity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("paladino_identities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     company = relationship("Company", back_populates="customers")
     appointments = relationship("Appointment", back_populates="customer", lazy="dynamic")

@@ -160,10 +160,39 @@ def create_customer(db: Session, company_id: UUID, data: CustomerCreate) -> Cust
     payload = data.model_dump()
     payload["phone"] = normalized
     customer = Customer(company_id=company_id, **payload)
+
+    # Sprint A: vincula identidade global + consent COMMUNICATION (PAINEL).
+    # Não-fatal: telefone sem DDD (legado/painel) cria o cliente sem identity —
+    # o backfill ou o próximo contato resolve o vínculo.
+    _attach_identity(db, customer, data.phone, company_id)
+
     db.add(customer)
     db.commit()
     db.refresh(customer)
     return customer
+
+
+def _attach_identity(db: Session, customer: Customer, raw_phone: str, company_id: UUID) -> None:
+    """Resolve PaladinoIdentity e captura consent COMMUNICATION GRANTED (source=PAINEL)."""
+    from fastapi import HTTPException as _HTTPException
+    from app.modules.identity.resolver import resolver
+    from app.modules.identity import consent_service
+    from app.modules.identity.consent_service import ConsentType, SourceChannel
+
+    try:
+        result = resolver.resolve(db, raw_phone, name=customer.name)
+    except _HTTPException as exc:
+        logger.warning(
+            "create_customer: identity não resolvida (%s) — cliente sem identity_id. "
+            "company_id=%s", exc.detail, company_id,
+        )
+        return
+    customer.identity_id = result.identity_id
+    consent_service.grant_consent(
+        db, result.identity_id, company_id,
+        ConsentType.COMMUNICATION, None, SourceChannel.PAINEL,
+        notes="Cadastro manual pelo painel",
+    )
 
 
 def get_by_phone(db: Session, company_id: UUID, phone: str) -> Optional[Customer]:

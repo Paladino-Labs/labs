@@ -1,4 +1,36 @@
-**Fase 2 concluída.** Sprint B concluído (2026-06-11 — Link de gestão com token único). Próximo: Sprint A (Identidade Paladino) — down_revision=e0sB1_appointment_manage_tokens.
+**Fase 2 concluída.** Sprint A concluído (2026-06-12 — Identidade Paladino). Próximo: Sprint D (Portal do Cliente) — down_revision=e0sA3_customers_identity_link.
+
+## Sprint A — Identidade Paladino (2026-06-12)
+- 3 migrations em cadeia: `e0sA1_paladino_identities` (tabela GLOBAL sem
+  company_id — RLS HABILITADO SEM POLICY, intencional; acesso só via service
+  layer) → `e0sA2_consent_records` (append-only, trigger
+  consent_records_no_update no banco; company_id NULL = consent global) →
+  `e0sA3_customers_identity_link` (customers.identity_id nullable + índice
+  parcial; backfill via script, NÃO na migration)
+- `modules/identity/resolver.py` — PhoneIdentityResolver:
+  normalize_phone_e164 ESTRITA (DDD obrigatório → 422; insere 9º dígito como
+  customers/service.normalize_phone — decisão: SEM phonenumbers, a lib não
+  insere o 9 e duplicaria identidades); resolve() create-if-new idempotente;
+  resolve_for_tenant() → (customer, is_new) com lazy-link de identity_id NULL
+- phone_e164 com '+' na identity; customers.phone continua SEM '+' (convenção)
+- `modules/identity/consent_service.py` — append-only; check_consent:
+  COMMUNICATION default True (opt-out), MARKETING/demais default False;
+  channel NULL vale p/ todos os canais; company_id NULL = global
+- Integrações: create_customer (PAINEL, não-fatal se telefone sem DDD),
+  bot aguardando_nome (BOT) e public_book (LINK) usam resolver + consent
+  GRANTED na criação; inicio.py faz lazy backfill no primeiro contato
+- dispatch() passo 4: consent verificado p/ CLIENT no canal escolhido →
+  SKIPPED_CONSENT_REVOKED; sem identity_id (UUID real) → envia (fallback
+  transacional); event_type `marketing.*` → ConsentType.MARKETING e
+  BLOQUEIA sem identity
+- Rotas: GET/POST /customers/{id}/consents[/grant|/revoke] (writes
+  OWNER/ADMIN, source=PAINEL); GET /identity/me → 501 até Sprint D
+- `scripts/backfill_identity.py` (--dry-run): agrupa por E.164, colisões de
+  nome → mais recente + backfill_collision_report.csv; idempotente;
+  **NÃO executado — operação de produção com janela de manutenção**
+- Testes: tests/test_sprint_a_identity.py (32 testes, FakeDB in-memory)
+
+**HEAD migration:** e0sA3_customers_identity_link
 
 ## Sprint B — Link de gestão com token único (2026-06-11)
 - `appointments.manage_token_hash` (SHA-256; cru NUNCA persiste) +
