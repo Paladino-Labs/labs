@@ -1,4 +1,39 @@
-**Fase 2 concluída.** Sprint A concluído (2026-06-12 — Identidade Paladino). Próximo: Sprint D (Portal do Cliente) — down_revision=e0sA3_customers_identity_link.
+**Fase 2 concluída.** Sprint D concluído (2026-06-12 — Portal do Cliente). Próximo: Sprint C (Painel Owner Paladino) — down_revision=e0sD2_payment_source_authorizations.
+
+## Sprint D — Portal do Cliente (2026-06-12)
+- 2 migrations: `e0sD1_portal_auth` (portal_credentials UNIQUE por identity e
+  por email, password_hash NULLABLE — magic-link-only; portal_magic_tokens
+  com SHA-256 do token, cru NUNCA persiste — padrão Sprint B) →
+  `e0sD2_payment_source_authorizations` (UNIQUE identity+company+token,
+  mode ALWAYS|ONCE). Tabelas GLOBAIS sem company_id — RLS HABILITADO SEM
+  POLICY (padrão e0sA1); acesso só via service layer
+- **JWT portal** (`modules/portal/auth_service.py`): claims
+  `{sub: identity_id, type: "portal", iat, exp 24h}` — SEM company_id.
+  `verify_portal_token` rejeita type != "portal" → 401.
+  `get_current_user` (deps.py) rejeita EXPLICITAMENTE payload com claim
+  `type` (JWT portal nunca autentica em endpoint tenant — antes do lookup)
+- `get_current_portal_identity` em core/deps.py → PaladinoIdentity
+- Auth: register (resolver por telefone — 422 sem DDD; identity existente →
+  has_existing_history=true = adoção de histórico), login email+senha,
+  magic link (15min, single-use, endpoint sempre 200 — não revela email).
+  Email enviado DIRETO (Mailtrap HTTP/SMTP, padrão _send_reset_email_direct)
+  — identity é global, CommunicationService.dispatch exige company_id
+- Rotas `/portal/*`: dashboard/history/credits/subscriptions cross-tenant
+  (identity → customers.identity_id → dados tenant-scoped); pause/cancel de
+  assinatura com config do tenant; consents (source=PORTAL); payment-sources
+  exigem consent PAYMENT_STORAGE (422); PATCH profile (phone re-resolve —
+  E.164 de outra identity → 409; email novo → email_verified=false +
+  verificação); GET /portal/identity/me e /identity/me (501 do Sprint A
+  resolvido — ambos usam o dependency portal)
+- B5: `allows_subscription_pause` (default False) /
+  `allows_subscription_cancel` (default True) em modules/tenant/service.py
+  via permission_overrides — SEM migration de coluna
+- Asaas NÃO tem tokenização de cartão no adapter — POST /portal/payment-sources
+  recebe source_token já tokenizado; tokenização no provider fica p/ sprint futura
+- Tabela legada payment_sources (tenant-scoped) NÃO foi tocada
+- Testes: tests/test_sprint_d_portal.py (48 testes, FakeDB in-memory)
+
+**HEAD migration:** e0sD2_payment_source_authorizations
 
 ## Sprint A — Identidade Paladino (2026-06-12)
 - 3 migrations em cadeia: `e0sA1_paladino_identities` (tabela GLOBAL sem
