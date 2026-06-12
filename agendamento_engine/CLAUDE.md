@@ -1,4 +1,29 @@
-**Fase 2 concluída.** Sprint E concluído (2026-06-11 — ExternalStatementEntry). Próximo: Sprint B (Link de gestão com token único).
+**Fase 2 concluída.** Sprint B concluído (2026-06-11 — Link de gestão com token único). Próximo: Sprint A (Identidade Paladino) — down_revision=e0sB1_appointment_manage_tokens.
+
+## Sprint B — Link de gestão com token único (2026-06-11)
+- `appointments.manage_token_hash` (SHA-256; cru NUNCA persiste) +
+  `manage_token_expires_at` (= start_at) + índice único parcial —
+  migration `e0sB1_appointment_manage_tokens`
+- `modules/appointments/manage_tokens.py`: issue_manage_token (gera UUID4 cru,
+  persiste hash), hash_token, invalidate_manage_token, build_manage_url
+  (FRONTEND_BASE_URL, vazio → fallback FRONTEND_URL)
+- Token gerado em create_appointment E reschedule_appointment (novo token
+  invalida o anterior); cru vai só na mensagem via context {{manage_url}}
+  (template appointment.confirmed CLIENT ganhou "Para remarcar ou cancelar: …")
+- `modules/public/manage_router.py` + `manage_service.py` — público, sem JWT:
+  GET /manage/{token} (10/min) · POST cancel (5/min) · POST reschedule (5/min)
+- **404 genérico SEMPRE** p/ token inválido/expirado/terminal (nunca 401/403)
+- **Janela decide CONSEQUÊNCIA, não permissão**: cancel via link usa
+  skip_policy=True; DepositPolicy (service-specific → global) + Payment
+  CONFIRMED no appointment → fora da janela cancela E deposit_retained=true
+  (retenção é informativa — refund continua manual/OWNER)
+- transitions.py: transição p/ estado terminal zera manage_token_hash/expires
+- Reschedule: 409 de conflito → 422 no contrato público
+- Tenants pré-Sprint B: appointments existentes sem token (manage_url vazio
+  na mensagem) — só novos agendamentos ganham link
+- Testes: tests/test_sprint_b_manage_token.py (21 testes)
+
+**HEAD migration:** e0sB1_appointment_manage_tokens
 
 ## Sprint E — ExternalStatementEntry (2026-06-11)
 - Tabela `external_statement_entries` (RLS canônico) — migration
