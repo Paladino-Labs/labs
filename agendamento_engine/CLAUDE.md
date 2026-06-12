@@ -1,4 +1,40 @@
-**Fase 2 concluída.** Sprint D concluído (2026-06-12 — Portal do Cliente). Próximo: Sprint C (Painel Owner Paladino) — down_revision=e0sD2_payment_source_authorizations.
+**Fase 2 concluída.** Sprint C concluído (2026-06-12 — Painel Owner Paladino). Próximo: Sprint G (NPS + Fila) — down_revision=e0sC3_platform_settings.
+
+## Sprint C — Painel Owner Paladino (2026-06-12)
+- 3 migrations: `e0sC1_tenant_status` (companies.status TRIAL|ACTIVE|SUSPENDED|
+  CHURNED, default ACTIVE) → `e0sC2_impersonation_grants` (tabela de PLATAFORMA
+  sem RLS; quase-append-only: trigger bloqueia DELETE e qualquer UPDATE que não
+  seja revogação revoked_at NULL→valor) → `e0sC3_platform_settings` (key/value
+  JSONB global, sem RLS, acesso só via service layer)
+- **Suspensão bloqueia login**: check em `auth/service.py::authenticate` após
+  credenciais — company.status==SUSPENDED → 403; PLATFORM_OWNER
+  (company_id=None) nunca passa pelo check
+- `app/middleware/impersonation.py` — ImpersonationMiddleware (header
+  `X-Impersonate-Grant: {grant_id}`): valida JWT PLATFORM_OWNER + grant ativo +
+  dono do grant; injeta request.state.{impersonating, impersonation_grant,
+  effective_company_id}; audita CADA request impersonada em audit_logs com
+  action="impersonated_request", resource_type="ImpersonationGrant",
+  resource_id=grant_id, company_id=tenant (audit_logs NÃO ganhou coluna nova).
+  READ_ONLY bloqueia métodos != GET/HEAD/OPTIONS já no middleware (defesa
+  dupla com a dependency `require_not_read_only`)
+- `modules/platform/` — service + router `/platform/*` (TODOS exigem
+  require_role("PLATFORM_OWNER")): tenants (list/get/health/PATCH status),
+  impersonation grants (POST/DELETE/GET — ELEVATED exige reason ≥20 chars,
+  default 30min), flags por tenant (permission_overrides — reatribuição, não
+  mutação in-place do JSONB), platform settings (upsert), GET /platform/audit
+  (acesso auditado com action="platform_audit_access" ANTES de retornar —
+  RBAC-4), redispatch
+- **Redispatch (D7)**: só logs FAILED; CommunicationLog NÃO persiste context →
+  re-renderizar via dispatch() é impossível — re-envia rendered_body direto
+  pelo canal (padrão drain_scheduled); cria NOVO log (original intocado)
+- `GET /audit/impersonation-accesses` (audit/router.py): tenant vê acessos
+  impersonados do próprio company_id; PLATFORM_OWNER → 403 (usa /platform/audit)
+- Notificação de suspensão ao OWNER do tenant: email DIRETO
+  (`modules/platform/emails.py`, padrão _send_reset_email_direct) — evento de
+  plataforma não passa pelo CommunicationService do tenant; best-effort
+- Testes: tests/test_sprint_c_platform.py (33 testes, FakeDB in-memory)
+
+**HEAD migration:** e0sC3_platform_settings
 
 ## Sprint D — Portal do Cliente (2026-06-12)
 - 2 migrations: `e0sD1_portal_auth` (portal_credentials UNIQUE por identity e
