@@ -55,6 +55,7 @@ from .impersonation_grant import ImpersonationGrant
 from .platform_setting import PlatformSetting
 from .nps import NpsConfig, NpsSurvey, NpsResponse
 from .waitlist import WaitlistConfig, WaitlistEntry
+from .crm import CrmConfig, CustomerClassification
 
 __all__ = [
     "Company",
@@ -139,4 +140,6 @@ __all__ = [
     "NpsResponse",
     "WaitlistConfig",
     "WaitlistEntry",
+    "CrmConfig",
+    "CustomerClassification",
 ]

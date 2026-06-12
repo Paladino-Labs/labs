@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id
+from app.core.deps import get_current_company_id, require_role
 from app.modules.customers import schemas, service
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -44,6 +44,49 @@ def update_customer(
     db: Session = Depends(get_db),
 ):
     return service.update_customer(db, company_id, customer_id, body)
+
+
+@router.get("/{customer_id}/insights")
+def get_customer_insights(
+    customer_id: UUID,
+    current_user=Depends(require_role("OWNER", "ADMIN", "OPERATOR")),
+    db: Session = Depends(get_db),
+):
+    """Insights heurísticos CRM (Sprint H) — exibição interna no painel."""
+    from app.modules.crm import service as crm_service
+    from app.modules.crm.schemas import InsightsResponse
+
+    service.get_customer_or_404(db, current_user.company_id, customer_id)
+    data = crm_service.get_customer_insights(db, customer_id, current_user.company_id)
+    return InsightsResponse(**data)
+
+
+@router.get("/{customer_id}/classification")
+def get_customer_classification(
+    customer_id: UUID,
+    current_user=Depends(require_role("OWNER", "ADMIN", "OPERATOR")),
+    db: Session = Depends(get_db),
+):
+    """Última classificação + histórico (últimas 5)."""
+    from app.infrastructure.db.models import CustomerClassification
+    from app.modules.crm.schemas import ClassificationOut, CustomerClassificationResponse
+
+    service.get_customer_or_404(db, current_user.company_id, customer_id)
+    history = (
+        db.query(CustomerClassification)
+        .filter(
+            CustomerClassification.company_id == current_user.company_id,
+            CustomerClassification.customer_id == customer_id,
+        )
+        .order_by(CustomerClassification.computed_at.desc())
+        .limit(5)
+        .all()
+    )
+    items = [ClassificationOut.model_validate(h) for h in history]
+    return CustomerClassificationResponse(
+        current=items[0] if items else None,
+        history=items,
+    )
 
 
 @router.get("/{customer_id}/appointments", response_model=List[schemas.CustomerAppointmentItem])

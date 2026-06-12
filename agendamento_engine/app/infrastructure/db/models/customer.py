@@ -1,6 +1,7 @@
 import uuid
+import sqlalchemy as sa
 from sqlalchemy import Column, String, ForeignKey, Boolean, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.infrastructure.db.base import Base, TimestampMixin
@@ -24,6 +25,9 @@ class Customer(Base, TimestampMixin):
     phone = Column(String(30), nullable=False)
     email = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)        # observações internas (visível apenas no painel)
+    # Campos custom por tenant (Sprint H — CRM); nunca vazam para outra empresa
+    custom_fields = Column(JSONB, nullable=False, default=dict,
+                           server_default=sa.text("'{}'::jsonb"))
     active = Column(Boolean, default=True, nullable=False)
     # ID do customer no Asaas (cus_...). Preenchido na primeira cobrança via Asaas.
     asaas_customer_id = Column(String(50), nullable=True)

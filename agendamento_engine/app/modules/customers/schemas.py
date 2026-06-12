@@ -14,6 +14,7 @@ class CustomerUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
     notes: Optional[str] = None
+    custom_fields: Optional[dict] = None
     active: Optional[bool] = None
 
 
@@ -24,6 +25,7 @@ class CustomerResponse(BaseModel):
     phone: str
     email: Optional[str] = None
     notes: Optional[str] = None
+    custom_fields: dict = {}
     active: bool
 
     model_config = ConfigDict(from_attributes=True)

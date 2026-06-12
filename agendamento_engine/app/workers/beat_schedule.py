@@ -75,4 +75,9 @@ beat_schedule = {
         "task": "app.workers.tasks.waitlist_worker.waitlist_expire_entries_worker",
         "schedule": crontab(minute="*/30"),
     },
+    "crm-recompute-classifications": {
+        "task": "app.workers.tasks.crm_recompute.crm_recompute_worker",
+        "schedule": crontab(hour=3, minute=0),
+        # 03:00 — fora do horário de pico
+    },
 }

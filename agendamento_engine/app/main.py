@@ -84,6 +84,7 @@ from app.modules.portal.router import router as portal_router
 from app.modules.platform.router import router as platform_router
 from app.modules.nps.router import router as nps_router
 from app.modules.waitlist.router import router as waitlist_router
+from app.modules.crm.router import router as crm_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -228,6 +229,7 @@ app.include_router(portal_router)
 app.include_router(platform_router)
 app.include_router(nps_router)
 app.include_router(waitlist_router)
+app.include_router(crm_router)
 
 
 @app.get("/health")
