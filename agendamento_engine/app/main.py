@@ -81,6 +81,7 @@ from app.modules.payables.router import router as payables_router
 from app.modules.promotions.router import router as promotions_router
 from app.modules.identity.router import router as identity_router
 from app.modules.portal.router import router as portal_router
+from app.modules.platform.router import router as platform_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -164,8 +165,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from app.middleware.impersonation import ImpersonationMiddleware
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(ImpersonationMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -215,6 +219,7 @@ app.include_router(payables_router)
 app.include_router(promotions_router)
 app.include_router(identity_router)
 app.include_router(portal_router)
+app.include_router(platform_router)
 
 
 @app.get("/health")

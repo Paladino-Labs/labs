@@ -14,6 +14,11 @@ class Company(Base, TimestampMixin):
     slug = Column(String(100), nullable=True, unique=True)
     active = Column(Boolean, default=True, nullable=False)
 
+    # Sprint C — lifecycle do tenant na plataforma:
+    # TRIAL | ACTIVE | SUSPENDED | CHURNED.
+    # SUSPENDED bloqueia login dos usuários do tenant (dados preservados).
+    status = Column(String(20), nullable=False, default="ACTIVE", server_default="ACTIVE")
+
     # Fuso horário da empresa (IANA, ex: "America/Sao_Paulo").
     # Obrigatório para geração correta de labels de data/hora e exibição no frontend.
     # Backfill padrão: "America/Sao_Paulo" (aplicado pela migration).

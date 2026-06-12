@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
@@ -89,6 +89,54 @@ def list_audit_logs(
         "page": page,
         "limit": limit,
         "items": [_row(item) for item in items],
+    }
+
+
+@router.get("/impersonation-accesses")
+def list_impersonation_accesses(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=500),
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Sprint C (B7): o tenant vê os acessos de impersonation no próprio audit.
+
+    Registros gravados pelo ImpersonationMiddleware com
+    action="impersonated_request" e company_id do tenant alvo.
+    Requer JWT de tenant — PLATFORM_OWNER pode usar /platform/audit.
+    """
+    if actor.company_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Endpoint de tenant — use /platform/audit",
+        )
+
+    q = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == "impersonated_request",
+            AuditLog.company_id == actor.company_id,
+        )
+        .order_by(AuditLog.occurred_at.desc())
+    )
+    total = q.count()
+    items = q.offset((page - 1) * limit).limit(limit).all()
+
+    def _access_row(log: AuditLog) -> dict:
+        return {
+            "audit_id": str(log.audit_id),
+            "grant_id": str(log.resource_id) if log.resource_id else None,
+            "actor_id": str(log.actor_id),
+            "reason": log.reason,
+            "request": log.after_snapshot,
+            "occurred_at": log.occurred_at.isoformat() if log.occurred_at else None,
+        }
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [_access_row(item) for item in items],
     }
 
 

@@ -71,6 +71,18 @@ def authenticate(db: Session, email: str, password: str) -> dict:
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
 
+    # Sprint C: tenant SUSPENDED bloqueia login de todos os seus usuários.
+    # PLATFORM_OWNER (company_id=None) nunca passa por este check.
+    if user.company_id is not None:
+        from app.infrastructure.db.models import Company
+
+        company = db.query(Company).filter(Company.id == user.company_id).first()
+        if company is not None and company.status == "SUSPENDED":
+            raise HTTPException(
+                status_code=403,
+                detail="Tenant suspenso. Entre em contato com o suporte.",
+            )
+
     token = create_access_token({
         "sub": str(user.id),
         "email": user.email,

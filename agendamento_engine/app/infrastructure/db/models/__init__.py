@@ -51,6 +51,8 @@ from .paladino_identity import PaladinoIdentity
 from .consent_record import ConsentRecord
 from .portal_credential import PortalCredential, PortalMagicToken
 from .payment_source_authorization import PaymentSourceAuthorization
+from .impersonation_grant import ImpersonationGrant
+from .platform_setting import PlatformSetting
 
 __all__ = [
     "Company",
@@ -128,4 +130,6 @@ __all__ = [
     "PortalCredential",
     "PortalMagicToken",
     "PaymentSourceAuthorization",
+    "ImpersonationGrant",
+    "PlatformSetting",
 ]
