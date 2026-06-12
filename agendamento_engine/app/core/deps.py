@@ -30,6 +30,11 @@ def get_current_user(
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Não autenticado")
 
+    # JWT portal (Sprint D, type="portal", sub=identity_id) NUNCA autentica
+    # em endpoints de tenant — rejeição explícita, não dependa do lookup falhar.
+    if payload.get("type") is not None:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+
     user = db.query(User).filter(User.id == user_id, User.active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="Não autenticado")
@@ -46,6 +51,32 @@ def get_current_user(
                 )
 
     return user
+
+
+def get_current_portal_identity(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: Session = Depends(get_db),
+):
+    """Autentica o cliente final do Portal (Sprint D).
+
+    Exige JWT com type="portal" (claims distintos do JWT de tenant — sem
+    company_id). JWT de tenant → 401. Retorna a PaladinoIdentity.
+    """
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+
+    from app.infrastructure.db.models import PaladinoIdentity
+    from app.modules.portal.auth_service import verify_portal_token
+
+    identity_id = verify_portal_token(credentials.credentials)
+    identity = (
+        db.query(PaladinoIdentity)
+        .filter(PaladinoIdentity.id == identity_id)
+        .first()
+    )
+    if not identity:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return identity
 
 
 def get_current_company_id(user: User = Depends(get_current_user)) -> Optional[UUID]:

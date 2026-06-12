@@ -49,6 +49,8 @@ from .promotion import Promotion, Coupon, CouponRedemption, DiscountApplication
 from .external_statement_entry import ExternalStatementEntry
 from .paladino_identity import PaladinoIdentity
 from .consent_record import ConsentRecord
+from .portal_credential import PortalCredential, PortalMagicToken
+from .payment_source_authorization import PaymentSourceAuthorization
 
 __all__ = [
     "Company",
@@ -123,4 +125,7 @@ __all__ = [
     "ExternalStatementEntry",
     "PaladinoIdentity",
     "ConsentRecord",
+    "PortalCredential",
+    "PortalMagicToken",
+    "PaymentSourceAuthorization",
 ]

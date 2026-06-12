@@ -80,6 +80,7 @@ from app.modules.stock.router import router as stock_router
 from app.modules.payables.router import router as payables_router
 from app.modules.promotions.router import router as promotions_router
 from app.modules.identity.router import router as identity_router
+from app.modules.portal.router import router as portal_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -213,6 +214,7 @@ app.include_router(stock_router)
 app.include_router(payables_router)
 app.include_router(promotions_router)
 app.include_router(identity_router)
+app.include_router(portal_router)
 
 
 @app.get("/health")

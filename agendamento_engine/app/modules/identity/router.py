@@ -8,10 +8,14 @@ a identity global nunca é consultada diretamente por query do tenant.
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_company_id, require_role
+from app.core.deps import (
+    get_current_company_id,
+    get_current_portal_identity,
+    require_role,
+)
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models import Customer, User
 from app.modules.customers.service import get_customer_or_404
@@ -99,13 +103,9 @@ def revoke_customer_consent(
 
 
 @router.get("/identity/me", response_model=IdentityResponse)
-def get_my_identity():
+def get_my_identity(identity=Depends(get_current_portal_identity)):
     """
-    Dados da própria identity (cliente final). Requer identity_id no JWT —
-    o JWT de cliente (claims separados, sem company_id) é entregue pelo
-    Sprint D (Portal). Até lá: 501.
+    Dados da própria identity (cliente final). Exige JWT portal
+    (type="portal", Sprint D) — JWT de tenant é rejeitado com 401.
     """
-    raise HTTPException(
-        status_code=501,
-        detail="Disponível no Sprint D (Portal do Cliente) — requer JWT de cliente",
-    )
+    return identity

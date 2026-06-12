@@ -91,6 +91,26 @@ def update_tenant_config(
     return config
 
 
+def allows_subscription_pause(config: Optional[TenantConfig]) -> bool:
+    """Tenant permite que o cliente pause a própria assinatura via Portal.
+
+    Default False (opt-in via permission_overrides — Sprint D, B5).
+    """
+    if config is None:
+        return False
+    return bool((config.permission_overrides or {}).get("allow_subscription_pause", False))
+
+
+def allows_subscription_cancel(config: Optional[TenantConfig]) -> bool:
+    """Tenant permite que o cliente cancele a própria assinatura via Portal.
+
+    Default True (opt-out via permission_overrides — Sprint D, B5).
+    """
+    if config is None:
+        return True
+    return bool((config.permission_overrides or {}).get("allow_subscription_cancel", True))
+
+
 # ── ModuleActivation ─────────────────────────────────────────────────────────
 
 def list_module_activations(db: Session, company_id: UUID) -> List[ModuleActivation]:
