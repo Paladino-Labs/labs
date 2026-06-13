@@ -1,4 +1,42 @@
-**Fase 2 concluída.** Sprint 2.0 concluído (2026-06-13 — IntentClassifier isolado). Próximo: Sprint 2.6 (integração FSM) — down_revision=e0s20a_intent_classifications.
+**Fase 2 concluída.** Sprint 2.6 concluído (2026-06-13 — ChainClassifier integrado ao FSM + compras). Próximo: Sprint 2.7 (inbox humano) — migration `e0s27a` ← `e0s20a`.
+
+## Sprint 2.6 — ChainClassifier integrado ao FSM + compras (2026-06-13)
+- **Sem migration** — estados novos usam a coluna `bot_sessions.state` existente.
+  HEAD permanece `e0s20a_intent_classifications`.
+- `bot_service._classify_and_route()`: texto livre em **INICIO/MENU_PRINCIPAL**
+  (cliente já identificado + input que não casa com opção do menu) → ChainClassifier
+  sugere; o FSM decide (invariante 1). Bloco roda APÓS comandos universais e só
+  para esses dois estados; `resolve_input(...) is None` garante que cliques de
+  botão não acionam o classificador (B6 — estados guiados por menu preservados).
+  Erro do classificador é capturado e cai no menu (não quebra o bot).
+- `INTENT_TO_STATE` (7 intenções). Roteamento real:
+  AGENDAR→ESCOLHENDO_SERVICO · CONSULTAR→VER_AGENDAMENTOS ·
+  FALAR_COM_HUMANO→HUMANO · COMPRAR_PRODUTO/PACOTE→fluxo de compra.
+  **CANCELAR** (`_route_cancelar`): 0 agendamentos→menu; **1→auto-seleciona e entra
+  em CANCELANDO**; >1→VER_AGENDAMENTOS. **REMARCAR** (`_route_remarcar`)→sempre
+  VER_AGENDAMENTOS (cliente escolhe e gerencia — REAGENDANDO exige agendamento).
+- **`is_universal_command` não trata mais "cancelar" como menu** — virou intenção
+  CANCELAR. Abortar fluxo continua via `0/menu/início/voltar/sair`.
+- Módulo inativo: ChainClassifier converte intenção fora do catálogo em FALLBACK
+  (sem mensagem). `_inactive_module_intent()` faz regex SEM filtro sobre ALL_INTENTS
+  e, se o texto pede produto/pacote com módulo desligado, envia `RECURSO_INDISPONIVEL`
+  em vez de só reexibir o menu.
+- **PRODUCT×SALE NÃO criado como Operation/Appointment** — `Appointment` exige
+  profissional+horário; o plano prevê "sem migration". A venda via bot é
+  representada pela primitiva real: **Payment (manual/CASH) + StockMovement VENDA**
+  (Sprint 17). `StockMovement.created_by` é NOT NULL → bot resolve o **OWNER** do
+  tenant como ator; sem owner, registra o Payment e pula a baixa (best-effort logado).
+  Checa estoque antes de cobrar (mensagem amigável se insuficiente).
+- `handlers/comprando_produto.py`: ESCOLHENDO_PRODUTO (stock>0, list se >3 / botões
+  se ≤3, máx 10) → CONFIRMANDO_QUANTIDADE_PRODUTO (parse de inteiro) →
+  CONFIRMANDO_PRODUTO ([Confirmar]/[Cancelar]) → `_finalize` (Payment + StockMovement).
+- `handlers/comprando_pacote.py`: ESCOLHENDO_PACOTE (is_active) → CONFIRMANDO_PACOTE
+  → `_finalize` reutiliza `packages.purchase(seller_user_id=None, payment_method=CASH)`
+  → PackagePurchase PENDING_PAYMENT + Payment PENDING.
+- Testes: tests/test_sprint26_bot_integration.py (12 testes, FakeDB + serviços
+  monkeypatched — não exercita webhook async nem Postgres).
+
+**HEAD migration:** e0s20a_intent_classifications
 
 ## Sprint 2.0 — IntentClassifier isolado (2026-06-13)
 - Migration `e0s20a_intent_classifications`: tabela append-only

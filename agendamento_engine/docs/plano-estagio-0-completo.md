@@ -145,12 +145,12 @@ Duas correções ao diagnóstico anterior, confirmadas por inspeção direta:
 **Dependências:** Sprint 2.0 · Pacotes ✅ (Sprint 14) · Produtos ✅ (Estoque/S17 recomendado antes, para baixa automática)
 **Arquivos principais:** `whatsapp/bot_service.py` · `whatsapp/handlers/` (novos: `comprando_produto.py`, `comprando_pacote.py`)
 **Migrations:** nenhuma prevista (estados novos em bot_sessions usam coluna state existente)
-**DoD mínimo:**
-- [ ] Texto livre no INICIO/MENU → classificador → FSM decide a transição (classificador nunca transiciona sozinho)
-- [ ] COMPRAR_PRODUTO: produto → quantidade → pagamento → Operation PRODUCT×SALE + Payment; **verificar se o caminho PRODUCT×SALE existe em appointments/transitions — se ausente, criá-lo neste sprint** (risco registrado)
-- [ ] COMPRAR_PACOTE: pacote → pagamento → `packages.purchase()` (fluxo Sprint 14 reutilizado)
-- [ ] FALAR_COM_HUMANO por texto livre → state HUMANO (rota de escape sempre disponível — invariante 4)
-- [ ] Formato WhatsApp respeitado: botões máx 3, listas até 10 linhas, paginação de slots
+**DoD mínimo:** ✅ CONCLUÍDO 2026-06-13
+- [x] Texto livre no INICIO/MENU → classificador → FSM decide a transição (classificador nunca transiciona sozinho) — `bot_service._classify_and_route`
+- [x] COMPRAR_PRODUTO: produto → quantidade → pagamento → **Payment (manual/CASH) + StockMovement VENDA**. **DECISÃO:** caminho PRODUCT×SALE como Operation/Appointment NÃO foi criado — `Appointment` exige profissional+horário e o plano prevê "sem migration". A venda usa a primitiva real do Sprint 17 (Payment + StockMovement VENDA). `created_by` = OWNER do tenant.
+- [x] COMPRAR_PACOTE: pacote → pagamento → `packages.purchase()` (fluxo Sprint 14 reutilizado) → PackagePurchase PENDING_PAYMENT
+- [x] FALAR_COM_HUMANO por texto livre → state HUMANO (rota de escape sempre disponível — invariante 4)
+- [x] Formato WhatsApp respeitado: botões ≤3, listas até 10 linhas, paginação (máx 10/list)
 **Testes obrigatórios:** texto "quero marcar um corte" → fluxo AGENDAR · compra de produto cria Operation + Payment · compra de pacote → PackagePurchase PENDING_PAYMENT · intent de módulo inativo → resposta de indisponível · escape humano de qualquer estado
 
 ---

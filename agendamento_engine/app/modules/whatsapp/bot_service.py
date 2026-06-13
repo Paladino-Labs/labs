@@ -44,6 +44,8 @@ from app.modules.whatsapp.handlers import ver_agendamentos as h_ver
 from app.modules.whatsapp.handlers import gerenciando_agendamento as h_gerenciando
 from app.modules.whatsapp.handlers import cancelando as h_cancelando
 from app.modules.whatsapp.handlers import reagendando as h_reagendando
+from app.modules.whatsapp.handlers import comprando_produto as h_comprar_produto
+from app.modules.whatsapp.handlers import comprando_pacote as h_comprar_pacote
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,26 @@ STATE_GERENCIANDO_AGENDAMENTO = "GERENCIANDO_AGENDAMENTO"
 STATE_CANCELANDO              = "CANCELANDO"
 STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
+
+# ── Compra de produto / pacote (Sprint 2.6) ───────────────────────────────────
+STATE_ESCOLHENDO_PRODUTO              = "ESCOLHENDO_PRODUTO"
+STATE_CONFIRMANDO_QUANTIDADE_PRODUTO  = "CONFIRMANDO_QUANTIDADE_PRODUTO"
+STATE_CONFIRMANDO_PRODUTO             = "CONFIRMANDO_PRODUTO"
+STATE_ESCOLHENDO_PACOTE               = "ESCOLHENDO_PACOTE"
+STATE_CONFIRMANDO_PACOTE              = "CONFIRMANDO_PACOTE"
+
+# Mapeamento intenção → estado FSM sugerido (Sprint 2.6).
+# O classificador SUGERE; o FSM DECIDE (invariante 1) — para CANCELAR/REMARCAR a
+# entrada real depende de haver agendamento selecionável (ver _route_*).
+INTENT_TO_STATE = {
+    "AGENDAR":          STATE_ESCOLHENDO_SERVICO,
+    "CONSULTAR":        STATE_VER_AGENDAMENTOS,
+    "REMARCAR":         STATE_REAGENDANDO,
+    "CANCELAR":         STATE_CANCELANDO,
+    "COMPRAR_PRODUTO":  STATE_ESCOLHENDO_PRODUTO,
+    "COMPRAR_PACOTE":   STATE_ESCOLHENDO_PACOTE,
+    "FALAR_COM_HUMANO": STATE_HUMANO,
+}
 
 # ── BookingEngine FSM — estados roteados pelo novo pipeline ───────────────────
 # Importado de input_parser para evitar duplicação
@@ -355,6 +377,166 @@ def _handle_booking_state(
     )
 
 
+# ─── Classificador de intenção → FSM (Sprint 2.6) ─────────────────────────────
+
+def _classify_and_route(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, text: str, company_name: str,
+    classifier=None,
+) -> bool:
+    """Classifica texto livre e sugere uma transição — FSM valida (invariante 1).
+
+    Retorna True se a mensagem foi roteada (estado/handler acionado), False se o
+    resultado é ambíguo/fallback (chamador exibe o menu — comportamento atual).
+
+    Só deve ser chamado em estados de entrada (INICIO/MENU_PRINCIPAL) com cliente
+    já identificado e input que não corresponde a uma opção do menu atual.
+    """
+    from app.infrastructure.db.models.module_activation import ModuleActivation
+    from app.modules.whatsapp.intent.classifier import ChainClassifier
+    from app.modules.whatsapp.intent.schemas import CONFIDENCE_THRESHOLD, FALLBACK_INTENT
+
+    module_activations = (
+        db.query(ModuleActivation)
+        .filter(ModuleActivation.company_id == company_id)
+        .all()
+    )
+
+    chain = classifier or ChainClassifier(db)
+    result = chain.classify(
+        company_id, text,
+        session_id=getattr(session, "id", None),
+        module_activations=module_activations,
+    )
+
+    # Fallback ou baixa confiança: intenção de compra de módulo INATIVO recebe
+    # mensagem de indisponibilidade; caso contrário, devolve ao menu.
+    if result.intent == FALLBACK_INTENT or result.confidence < CONFIDENCE_THRESHOLD:
+        if _inactive_module_intent(text, module_activations):
+            sender.send_text(instance, whatsapp_id, messages.RECURSO_INDISPONIVEL)
+            return True
+        return False
+
+    intent = result.intent
+
+    if intent == "AGENDAR":
+        session.state = STATE_ESCOLHENDO_SERVICO
+        _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
+        return True
+
+    if intent == "CONSULTAR":
+        _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+        return True
+
+    if intent == "FALAR_COM_HUMANO":
+        session.state = STATE_HUMANO
+        sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+        return True
+
+    if intent == "CANCELAR":
+        return _route_cancelar(db, session, company_id, instance, whatsapp_id, company_name)
+
+    if intent == "REMARCAR":
+        return _route_remarcar(db, session, company_id, instance, whatsapp_id, company_name)
+
+    if intent == "COMPRAR_PRODUTO":
+        h_comprar_produto.start(db, session, company_id, instance, whatsapp_id)
+        return True
+
+    if intent == "COMPRAR_PACOTE":
+        h_comprar_pacote.start(db, session, company_id, instance, whatsapp_id)
+        return True
+
+    return False
+
+
+def _inactive_module_intent(text: str, module_activations) -> bool:
+    """True se o texto pede claramente uma intenção de módulo INATIVO.
+
+    Usa regex SEM filtro de catálogo (o ChainClassifier já converteu a intenção
+    em FALLBACK) para detectar pedidos de produto/pacote quando o módulo está
+    desligado e responder "indisponível" em vez de só reexibir o menu.
+    """
+    from app.modules.whatsapp.intent.catalog import (
+        ALL_INTENTS, INTENT_MODULE_REQUIREMENTS, is_module_active,
+    )
+    from app.modules.whatsapp.intent.regex_classifier import RegexClassifier
+    from app.modules.whatsapp.intent.schemas import CONFIDENCE_THRESHOLD
+
+    raw = RegexClassifier().classify(text, ALL_INTENTS)
+    module = INTENT_MODULE_REQUIREMENTS.get(raw.intent)
+    return bool(
+        module
+        and raw.confidence >= CONFIDENCE_THRESHOLD
+        and not is_module_active(module_activations, module)
+    )
+
+
+def _route_cancelar(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, company_name: str,
+) -> bool:
+    """CANCELAR: 0 agendamentos → menu; 1 → CANCELANDO (auto-seleção); >1 → lista."""
+    from app.modules.booking.engine import booking_engine
+    from app.modules.whatsapp.helpers import first_name
+
+    ctx = session.context or {}
+    customer_id = ctx.get("customer_id")
+    if not customer_id:
+        return False
+
+    appts = booking_engine.get_customer_appointments(db, company_id, UUID(customer_id))
+
+    if not appts:
+        sender.send_text(
+            instance, whatsapp_id,
+            messages.sem_agendamentos_ativos(first_name(ctx.get("customer_name", ""))),
+        )
+        h_inicio.show_menu_principal(
+            session, dict(ctx), instance, whatsapp_id, company_name, ctx.get("customer_name"),
+        )
+        return True
+
+    if len(appts) == 1:
+        ctx = dict(ctx)
+        ctx["managing_appointment_id"] = str(appts[0].id)
+        session.context = ctx
+        session.state = STATE_CANCELANDO
+        _start_cancelando(db, session, company_id, whatsapp_id, instance)
+        return True
+
+    _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+    return True
+
+
+def _route_remarcar(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, company_name: str,
+) -> bool:
+    """REMARCAR: encaminha à lista de agendamentos (cliente escolhe e gerencia)."""
+    from app.modules.booking.engine import booking_engine
+    from app.modules.whatsapp.helpers import first_name
+
+    ctx = session.context or {}
+    customer_id = ctx.get("customer_id")
+    if not customer_id:
+        return False
+
+    appts = booking_engine.get_customer_appointments(db, company_id, UUID(customer_id))
+    if not appts:
+        sender.send_text(
+            instance, whatsapp_id,
+            messages.sem_agendamentos_ativos(first_name(ctx.get("customer_name", ""))),
+        )
+        h_inicio.show_menu_principal(
+            session, dict(ctx), instance, whatsapp_id, company_name, ctx.get("customer_name"),
+        )
+        return True
+
+    _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+    return True
+
+
 # ─── Entry point — webhook messages.upsert ────────────────────────────────────
 
 async def handle_inbound_message(db: Session, instance_name: str, data: dict) -> None:
@@ -481,6 +663,27 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             save_session(db, session)
             return
 
+    # ── Classificador de intenção (Sprint 2.6) ────────────────────────────────
+    # Texto livre em estados de entrada (INICIO/MENU_PRINCIPAL) → ChainClassifier
+    # sugere a intenção; o FSM decide a transição (invariante 1). Só ativa com
+    # cliente já identificado e input que não é uma opção do menu atual.
+    if state in (STATE_INICIO, STATE_MENU_PRINCIPAL):
+        _ctx = session.context or {}
+        if (
+            _ctx.get("customer_id")
+            and (user_input or "").strip()
+            and resolve_input(user_input, _ctx.get("last_list", [])) is None
+        ):
+            try:
+                if _classify_and_route(
+                    db, session, company_id, instance_name, whatsapp_id,
+                    user_input, company_name,
+                ):
+                    save_session(db, session)
+                    return
+            except Exception:
+                logger.exception("classify_and_route error whatsapp_id=%s", whatsapp_id)
+
     # ── Dispatcher principal ──────────────────────────────────────────────────
     try:
         if state == STATE_INICIO:
@@ -601,6 +804,37 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             _handle_booking_state(
                 db, session, company_id, instance_name, whatsapp_id,
                 user_input, company_timezone,
+            )
+
+        # ── Compra de produto (Sprint 2.6) ────────────────────────────────────
+        elif state == STATE_ESCOLHENDO_PRODUTO:
+            h_comprar_produto.handle_escolhendo_produto(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+                resolve_input=resolve_input,
+            )
+
+        elif state == STATE_CONFIRMANDO_QUANTIDADE_PRODUTO:
+            h_comprar_produto.handle_confirmando_quantidade(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+            )
+
+        elif state == STATE_CONFIRMANDO_PRODUTO:
+            h_comprar_produto.handle_confirmando_produto(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+                resolve_input=resolve_input,
+            )
+
+        # ── Compra de pacote (Sprint 2.6) ─────────────────────────────────────
+        elif state == STATE_ESCOLHENDO_PACOTE:
+            h_comprar_pacote.handle_escolhendo_pacote(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+                resolve_input=resolve_input,
+            )
+
+        elif state == STATE_CONFIRMANDO_PACOTE:
+            h_comprar_pacote.handle_confirmando_pacote(
+                db, session, company_id, whatsapp_id, instance_name, user_input,
+                resolve_input=resolve_input,
             )
 
         elif state == STATE_HUMANO:

@@ -104,9 +104,14 @@ def extract_user_text(data: dict) -> str:
 
 
 def is_universal_command(text: str) -> Optional[str]:
-    """Detecta comandos globais independente do estado atual."""
+    """Detecta comandos globais independente do estado atual.
+
+    Nota (Sprint 2.6): "cancelar" NÃO é mais um atalho de menu — passou a ser
+    intenção CANCELAR (cancelar agendamento) tratada pelo ChainClassifier nos
+    estados de texto livre. Abortar continua via "0"/"menu"/"voltar"/"sair".
+    """
     t = (text or "").strip().lower()
-    if t in ("0", "menu", "início", "inicio", "voltar", "sair", "cancelar"):
+    if t in ("0", "menu", "início", "inicio", "voltar", "sair"):
         return "menu"
     if t in ("ver agendamentos", "meus agendamentos", "agendamentos"):
         return "ver_agendamentos"

@@ -348,6 +348,90 @@ ERRO_GENERICO = (
 INPUT_INVALIDO = "Ops! Escolha uma das opções acima. 😊"
 
 
+# ─── Compra de produto / pacote (Sprint 2.6) ─────────────────────────────────
+
+RECURSO_INDISPONIVEL = (
+    "Esse recurso ainda não está disponível por aqui 😅\n\n"
+    "Digite *menu* para ver as opções."
+)
+
+SEM_PRODUTOS = (
+    "No momento não temos produtos disponíveis para venda. 😕\n\n"
+    "Digite *menu* para voltar."
+)
+
+SEM_PACOTES = (
+    "No momento não temos pacotes disponíveis. 😕\n\n"
+    "Digite *menu* para voltar."
+)
+
+
+def escolha_produto() -> str:
+    return "🛍️ *Nossos produtos*\n\nEscolha o produto que deseja comprar:"
+
+
+def pedir_quantidade(product_name: str) -> str:
+    return f"Quantas unidades de *{product_name}* você quer? 😊\n\n_Digite um número (ex: 1, 2, 3)._"
+
+
+QUANTIDADE_INVALIDA = (
+    "Não entendi a quantidade 😅\n\n_Digite apenas um número (ex: 1, 2, 3)._"
+)
+
+
+def confirmar_produto(product_name: str, quantity: int, total) -> str:
+    return (
+        f"Confirma o pedido?\n\n"
+        f"*{product_name}* × {quantity} = R$ {total}\n\n"
+        f"O pagamento é feito presencialmente."
+    )
+
+
+def produto_estoque_insuficiente(product_name: str, disponivel) -> str:
+    return (
+        f"😕 Não temos *{product_name}* suficiente em estoque "
+        f"(disponível: {disponivel}).\n\nDigite *menu* para voltar."
+    )
+
+
+def produto_comprado(product_name: str, quantity: int, total) -> str:
+    return (
+        f"✅ Pedido registrado!\n\n"
+        f"*{product_name}* × {quantity} = R$ {total}\n\n"
+        f"É só passar aqui para retirar e pagar. Até já! 🙌"
+    )
+
+
+def escolha_pacote() -> str:
+    return "🎁 *Nossos pacotes*\n\nEscolha o pacote que deseja contratar:"
+
+
+def descricao_pacote(name: str, total_cotas: int, validity_days, price) -> str:
+    validade = f"{validity_days} dias" if validity_days else "sem prazo de validade"
+    return f"{total_cotas} sessões · validade {validade} · R$ {price}"
+
+
+def confirmar_pacote(name: str, total_cotas: int, validity_days, price) -> str:
+    validade = f"{validity_days} dias" if validity_days else "sem prazo de validade"
+    return (
+        f"Confirma a contratação?\n\n"
+        f"*{name}*\n"
+        f"{total_cotas} sessões · validade {validade}\n"
+        f"Total: R$ {price}"
+    )
+
+
+def pacote_contratado(name: str) -> str:
+    return (
+        f"🎉 Pacote *{name}* contratado!\n\n"
+        f"Seus créditos serão liberados após a confirmação do pagamento. "
+        f"Qualquer dúvida, é só chamar. 🙌"
+    )
+
+
+COMPRA_CANCELADA = "Tudo bem, compra cancelada. 😊\n\nDigite *menu* para ver as opções."
+
+
 # ─── Pós-atendimento ─────────────────────────────────────────────────────────
 
 def pos_atendimento(first_name: str, service_name: str) -> str:
