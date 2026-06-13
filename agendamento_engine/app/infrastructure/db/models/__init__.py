@@ -11,6 +11,7 @@ from .availability_slot import WorkingHour, ScheduleBlock
 from .company_settings import CompanySettings
 from .company_profile import CompanyProfile
 from .bot_session import BotSession
+from .conversation_message import ConversationMessage
 from .whatsapp_connection import WhatsAppConnection
 from .web_booking_session import WebBookingSession
 from .booking_session import BookingSession
@@ -82,6 +83,7 @@ __all__ = [
     "CompanySettings",
     "CompanyProfile",
     "BotSession",
+    "ConversationMessage",
     "WhatsAppConnection",
     "WebBookingSession",
     "BookingSession",

@@ -85,6 +85,7 @@ from app.modules.platform.router import router as platform_router
 from app.modules.nps.router import router as nps_router
 from app.modules.waitlist.router import router as waitlist_router
 from app.modules.crm.router import router as crm_router
+from app.modules.conversations.router import router as conversations_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -148,6 +149,7 @@ async def lifespan(app: FastAPI):
     from app.workers.handlers.promotion_payment_handler import register_handlers as register_promotion_handlers
     from app.workers.handlers.nps_handler import register_handlers as register_nps_handlers
     from app.workers.handlers.waitlist_handler import register_handlers as register_waitlist_handlers
+    from app.workers.handlers.conversation_handler import register_handlers as register_conversation_handlers
     register_booking_handlers()
     register_reminder_handlers()
     register_communication_handlers()
@@ -158,6 +160,7 @@ async def lifespan(app: FastAPI):
     register_promotion_handlers()
     register_nps_handlers()
     register_waitlist_handlers()
+    register_conversation_handlers()
 
     yield  # aplicação em execução
 
@@ -230,6 +233,7 @@ app.include_router(platform_router)
 app.include_router(nps_router)
 app.include_router(waitlist_router)
 app.include_router(crm_router)
+app.include_router(conversations_router)
 
 
 @app.get("/health")

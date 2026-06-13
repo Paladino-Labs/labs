@@ -66,6 +66,10 @@ STATE_GERENCIANDO_AGENDAMENTO = "GERENCIANDO_AGENDAMENTO"
 STATE_CANCELANDO              = "CANCELANDO"
 STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
+# Marcador terminal de atendimento humano encerrado (Sprint 2.7).
+# Permite listar conversas resolvidas; o dispatcher converte para
+# MENU_PRINCIPAL na próxima mensagem (bot reassume — não silencia).
+STATE_RESOLVIDA               = "RESOLVIDA"
 
 # ── Compra de produto / pacote (Sprint 2.6) ───────────────────────────────────
 STATE_ESCOLHENDO_PRODUTO              = "ESCOLHENDO_PRODUTO"
@@ -90,6 +94,108 @@ INTENT_TO_STATE = {
 # ── BookingEngine FSM — estados roteados pelo novo pipeline ───────────────────
 # Importado de input_parser para evitar duplicação
 from app.modules.whatsapp.input_parser import BOOKING_STATES  # noqa: E402
+
+
+# ─── Persistência de mensagens + escalada humana (Sprint 2.7) ─────────────────
+
+def _persist_message(
+    db: Session,
+    session: BotSession,
+    direction: str,
+    content: str,
+    sender_type: str,
+    content_type: str = "TEXT",
+    agent_user_id: UUID | None = None,
+    whatsapp_message_id: str | None = None,
+) -> None:
+    """Persiste uma ConversationMessage da sessão (best-effort).
+
+    Usada no inbox de atendimento humano. Nunca derruba o fluxo do bot — uma
+    falha de persistência é logada e ignorada (a conversa continua).
+    """
+    from app.infrastructure.db.models import ConversationMessage
+
+    try:
+        db.add(ConversationMessage(
+            company_id=session.company_id,
+            session_id=session.id,
+            direction=direction,
+            content=content or "",
+            content_type=content_type,
+            sender_type=sender_type,
+            agent_user_id=agent_user_id,
+            whatsapp_message_id=whatsapp_message_id,
+        ))
+        db.flush()
+    except Exception:
+        logger.exception("persist_message falhou session_id=%s", getattr(session, "id", None))
+
+
+def _escalate_to_human(
+    db: Session,
+    session: BotSession,
+    company_id: UUID,
+    instance: str,
+    whatsapp_id: str,
+    text: str,
+    trigger: str,
+    whatsapp_message_id: str | None = None,
+) -> None:
+    """Transiciona a sessão para HUMANO e notifica o OWNER (Sprint 2.7).
+
+    Centraliza os dois gatilhos de escalada (comando universal e intenção
+    FALAR_COM_HUMANO):
+      1. Persiste a mensagem que disparou a escalada (contexto p/ o atendente)
+      2. Seta state=HUMANO
+      3. Envia + persiste a mensagem de "chamando atendente"
+      4. Publica conversation.escalated (handler notifica OWNER best-effort)
+    """
+    # 1. Contexto p/ o atendente — a mensagem que motivou a escalada
+    if (text or "").strip():
+        _persist_message(
+            db, session, direction="INBOUND", content=text,
+            sender_type="CLIENT", whatsapp_message_id=whatsapp_message_id,
+        )
+
+    # 2. Transição
+    session.state = STATE_HUMANO
+
+    # 3. Resposta ao cliente (também registrada no inbox)
+    sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+    _persist_message(
+        db, session, direction="OUTBOUND",
+        content=messages.HUMANO_CHAMADO, sender_type="BOT",
+    )
+
+    # 4. Evento → notifica OWNER
+    _publish_conversation_escalated(session, company_id, trigger)
+
+
+def _publish_conversation_escalated(session: BotSession, company_id: UUID, trigger: str) -> None:
+    """Publica conversation.escalated best-effort — falha nunca derruba o bot."""
+    import uuid as _uuid
+    from app.infrastructure.event_bus import event_bus, DomainEvent
+
+    ctx = session.context or {}
+    customer_id = ctx.get("customer_id")
+    try:
+        event_bus.publish(DomainEvent(
+            event_id=_uuid.uuid4(),
+            event_type="conversation.escalated",
+            occurred_at=datetime.now(timezone.utc),
+            company_id=company_id,
+            idempotency_key=f"conversation.escalated:{session.id}",
+            actor={"type": "CLIENT", "id": customer_id},
+            payload={
+                "session_id": str(session.id),
+                "company_id": str(company_id),
+                "customer_id": str(customer_id) if customer_id else None,
+                "phone": session.whatsapp_id,
+                "trigger": trigger,
+            },
+        ))
+    except Exception:
+        logger.exception("falha ao publicar conversation.escalated session_id=%s", session.id)
 
 
 # ─── Wrappers locais (evitam repetir db/session nos handlers) ─────────────────
@@ -429,8 +535,10 @@ def _classify_and_route(
         return True
 
     if intent == "FALAR_COM_HUMANO":
-        session.state = STATE_HUMANO
-        sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+        _escalate_to_human(
+            db, session, company_id, instance, whatsapp_id,
+            text=text, trigger="INTENT",
+        )
         return True
 
     if intent == "CANCELAR":
@@ -641,6 +749,21 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     state = session.state
     logger.info("dispatcher: state=%s whatsapp_id=%s input=%r", state, whatsapp_id, user_input[:60])
 
+    # ── Atendimento humano encerrado (Sprint 2.7) ─────────────────────────────
+    # Sessão em RESOLVIDA → o bot reassume no MENU_PRINCIPAL na primeira mensagem
+    # seguinte (não silencia). RESOLVIDA é apenas um marcador terminal para
+    # listagem no inbox; aqui ele é consumido e a conversa volta ao fluxo normal.
+    if state == STATE_RESOLVIDA:
+        reset_session(session, keep_customer=True)
+        session.state = STATE_MENU_PRINCIPAL
+        ctx = session.context or {}
+        h_inicio.show_menu_principal(
+            session, ctx, instance_name, whatsapp_id,
+            company_name, ctx.get("customer_name"),
+        )
+        save_session(db, session)
+        return
+
     # ── Comandos universais (exceto AGUARDANDO_NOME, CONFIRMAR_NOME e HUMANO) ──
     if state not in (STATE_AGUARDANDO_NOME, STATE_CONFIRMAR_NOME, STATE_HUMANO):
         cmd = is_universal_command(user_input)
@@ -658,8 +781,10 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 save_session(db, session)
                 return
         if cmd == "humano":
-            session.state = STATE_HUMANO
-            sender.send_text(instance_name, whatsapp_id, messages.HUMANO_CHAMADO)
+            _escalate_to_human(
+                db, session, company_id, instance_name, whatsapp_id,
+                text=user_input, trigger="MENU", whatsapp_message_id=message_id,
+            )
             save_session(db, session)
             return
 
@@ -838,7 +963,12 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             )
 
         elif state == STATE_HUMANO:
-            pass  # Silêncio — atendente assume a conversa
+            # Atendente assume — bot silencia ao cliente, mas persiste a
+            # mensagem recebida para que o atendente a veja no inbox.
+            _persist_message(
+                db, session, direction="INBOUND", content=user_input,
+                sender_type="CLIENT", whatsapp_message_id=message_id,
+            )
 
         else:
             logger.warning("estado desconhecido state=%s, resetando sessão", state)

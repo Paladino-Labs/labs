@@ -220,6 +220,27 @@ _DEFAULT_TEMPLATES: list[dict] = [
             "esperando. Agende agora — a vaga é de quem agir primeiro."
         ),
     },
+    {
+        "event_type": "conversation.escalated",
+        "channel": "WHATSAPP",
+        "audience": "OWNER",
+        "body_template": (
+            "Nova conversa escalada para atendimento humano.\n"
+            "Cliente: {{customer_name}} ({{phone}}).\n"
+            "Acesse o painel para responder: {{panel_url}}"
+        ),
+    },
+    {
+        "event_type": "conversation.escalated",
+        "channel": "EMAIL",
+        "audience": "OWNER",
+        "body_template": (
+            "Nova conversa escalada para atendimento humano.\n\n"
+            "Cliente: {{customer_name}}\n"
+            "Telefone: {{phone}}\n\n"
+            "Acesse o painel para responder: {{panel_url}}"
+        ),
+    },
 ]
 
 

@@ -115,6 +115,12 @@ ESCOLHA_OPCAO_OPS = "Não entendi 😅\n\nEscolhe uma das opções ali em cima �
 
 HUMANO_CHAMADO = "Ok! Vou chamar um atendente agora. Aguarde um momento… ☎️"
 
+# Enviado ao cliente quando o atendente encerra o atendimento humano (Sprint 2.7).
+ATENDIMENTO_ENCERRADO = (
+    "Atendimento encerrado. Continuando com o assistente virtual 🤖\n\n"
+    "Se precisar, é só me chamar de novo!"
+)
+
 
 # ─── MENU_PRINCIPAL ───────────────────────────────────────────────────────
 

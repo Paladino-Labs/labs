@@ -1,4 +1,42 @@
-**Fase 2 concluída.** Sprint 2.6 concluído (2026-06-13 — ChainClassifier integrado ao FSM + compras). Próximo: Sprint 2.7 (inbox humano) — migration `e0s27a` ← `e0s20a`.
+**Fase 2 concluída.** Sprint 2.7 concluído (2026-06-13 — inbox de atendimento humano + estado RESOLVIDA). Próximo: Sprint 25 — migration `e0s25...` ← `e0s27a`.
+
+## Sprint 2.7 — Inbox de atendimento humano + estado RESOLVIDA (2026-06-13)
+- Migration `e0s27a_conversation_messages` (HEAD ← e0s20a): tabela
+  `conversation_messages` (RLS canônico) — id, company_id FK, session_id FK
+  bot_sessions, direction (INBOUND|OUTBOUND), content, content_type, sender_type
+  (CLIENT|BOT|AGENT), agent_user_id FK users nullable, whatsapp_message_id,
+  created_at. Índices (session_id, created_at ASC) e (company_id, created_at DESC).
+  A migration também faz **seed idempotente** do template conversation.escalated
+  (WHATSAPP+EMAIL, OWNER) para tenants existentes (padrão g1h2i3j4k5l6).
+- **STATE_RESOLVIDA** (bot_service.py): marcador terminal. `resolve` seta RESOLVIDA;
+  o dispatcher consome RESOLVIDA na próxima mensagem → reset_session(keep_customer)
+  + MENU_PRINCIPAL + show_menu_principal (**bot reassume, não silencia**). Permite
+  `GET /conversations?status=resolved` listar conversas resolvidas por estado.
+- bot_service: `_persist_message` (best-effort, db.add+flush), `_escalate_to_human`
+  centraliza os 2 gatilhos de escalada (comando universal "humano"/"atendente"/
+  "ajuda"/"suporte" + intenção FALAR_COM_HUMANO): persiste INBOUND do gatilho →
+  state=HUMANO → envia+persiste HUMANO_CHAMADO (OUTBOUND BOT) → publica
+  conversation.escalated. Branch STATE_HUMANO **agora persiste INBOUND CLIENT** e
+  silencia (antes era `pass`). BotSession **não tem coluna customer_id** — vem de
+  `session.context["customer_id"]`.
+- `conversation.escalated` (trigger=INTENT|MENU) → handler
+  `workers/handlers/conversation_handler.py` notifica OWNER via
+  CommunicationService (template conversation.escalated). Registrado no lifespan.
+  `conversation.resolved` publicado no resolve (best-effort).
+- `modules/conversations/` — service + router `/conversations` (RBAC
+  OWNER/ADMIN/OPERATOR em TODOS): GET / (status=escalated|resolved), GET /{id},
+  GET /{id}/messages (asc), POST /{id}/reply (422 se != HUMANO; envia via
+  sender.send_text resolvendo instance via WhatsAppConnection.company_id; persiste
+  OUTBOUND AGENT), PATCH /{id}/resolve. Isolamento cross-tenant: sessão precisa
+  pertencer ao company_id → 404.
+- Template conversation.escalated (WHATSAPP+EMAIL, OWNER) em _DEFAULT_TEMPLATES.
+  ⚠ Tenants pré-2.7: já cobertos pelo seed da migration (não precisa SQL manual).
+- messages.ATENDIMENTO_ENCERRADO nova.
+- Testes: tests/test_sprint27_inbox.py (12 testes, FakeDB com filtros reais +
+  order_by funcional; dispatcher via handle_inbound_message async).
+
+**HEAD migration:** e0s27a_conversation_messages
+
 
 ## Sprint 2.6 — ChainClassifier integrado ao FSM + compras (2026-06-13)
 - **Sem migration** — estados novos usam a coluna `bot_sessions.state` existente.
