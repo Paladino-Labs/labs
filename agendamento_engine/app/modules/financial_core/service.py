@@ -312,6 +312,54 @@ def handle_subscription_renewed(
     }
 
 
+def handle_deposit_balance_recognized(
+    appointment_id: UUID,
+    amount: Decimal,
+    target_account_id: UUID,
+    company_id: UUID,
+    db: Session,
+) -> dict:
+    """Reconhece o saldo restante de um agendamento com sinal ao concluir.
+
+    Usado pelo fluxo DEPOSIT (Sprint 25): ao COMPLETED, o saldo não coberto
+    pelo sinal já confirmado é reconhecido como receita.
+    Cria Movement INFLOW + Entry RECEITA (category SERVICOS).
+    Commit é responsabilidade do chamador.
+    """
+    now = datetime.now(timezone.utc)
+    source_type = "appointment_balance"
+    source_id = appointment_id
+
+    inflow = _record_movement(
+        account_id=target_account_id,
+        type="INFLOW",
+        amount=amount,
+        source_type=source_type,
+        source_id=source_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    entry = _record_entry(
+        type="RECEITA",
+        direction="ADDS",
+        amount=amount,
+        category="SERVICOS",
+        source_type=source_type,
+        source_id=source_id,
+        movement_id=inflow.movement_id,
+        occurred_at=now,
+        company_id=company_id,
+        db=db,
+    )
+
+    return {
+        "inflow_movement_id": inflow.movement_id,
+        "entry_id": entry.entry_id,
+    }
+
+
 # ── API pública — queries ─────────────────────────────────────────────────────
 
 def get_account(account_id: UUID, company_id: UUID, db: Session) -> Account:

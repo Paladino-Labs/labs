@@ -150,6 +150,7 @@ async def lifespan(app: FastAPI):
     from app.workers.handlers.nps_handler import register_handlers as register_nps_handlers
     from app.workers.handlers.waitlist_handler import register_handlers as register_waitlist_handlers
     from app.workers.handlers.conversation_handler import register_handlers as register_conversation_handlers
+    from app.workers.handlers.deposit_handler import register_handlers as register_deposit_handlers
     register_booking_handlers()
     register_reminder_handlers()
     register_communication_handlers()
@@ -161,6 +162,7 @@ async def lifespan(app: FastAPI):
     register_nps_handlers()
     register_waitlist_handlers()
     register_conversation_handlers()
+    register_deposit_handlers()
 
     yield  # aplicação em execução
 

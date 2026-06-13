@@ -318,6 +318,10 @@ def cancel_appointment(
     db.commit()
     db.refresh(appointment)
 
+    # Sinal: refund dentro da janela / retenção fora (Sprint 25) — best-effort,
+    # no-op sem DepositPolicy. Não afeta o cancelamento já commitado.
+    _apply_deposit_cancellation(db, appointment)
+
     # Slot liberado → fila de espera (Sprint G)
     _publish_slot_released(appointment, "appointment.cancelled")
 
@@ -379,4 +383,62 @@ def complete_appointment(
                note="Concluído pelo painel")
     db.commit()
     db.refresh(appointment)
+
+    # Sinal: reconhece o saldo restante como receita (Sprint 25) — best-effort,
+    # no-op sem pagamento parcial confirmado. Não afeta o complete já commitado.
+    _recognize_deposit_balance(db, appointment)
+
     return appointment
+
+
+def mark_no_show(
+    db: Session, company_id: UUID, appointment_id: UUID,
+    user_id: UUID | None = None,
+) -> Appointment:
+    appointment = get_appointment_or_404(db, company_id, appointment_id)
+    transition(db, appointment, AppointmentStatus.NO_SHOW, changed_by_id=user_id,
+               note="No-show")
+    db.commit()
+    db.refresh(appointment)
+
+    # Sinal: retém (default) ou estorna conforme DepositPolicy (Sprint 25) —
+    # best-effort, no-op sem DepositPolicy.
+    _apply_deposit_no_show(db, appointment)
+
+    return appointment
+
+
+def _recognize_deposit_balance(db: Session, appointment: Appointment) -> None:
+    try:
+        from app.modules.payments import deposit_service
+        deposit_service.recognize_balance_on_completion(appointment, db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "_recognize_deposit_balance: falha (best-effort) appointment_id=%s",
+            appointment.id,
+        )
+
+
+def _apply_deposit_cancellation(db: Session, appointment: Appointment) -> None:
+    try:
+        from app.modules.payments import deposit_service
+        deposit_service.handle_cancellation_deposit(appointment, db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "_apply_deposit_cancellation: falha (best-effort) appointment_id=%s",
+            appointment.id,
+        )
+
+
+def _apply_deposit_no_show(db: Session, appointment: Appointment) -> None:
+    try:
+        from app.modules.payments import deposit_service
+        deposit_service.handle_no_show_deposit(appointment, db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "_apply_deposit_no_show: falha (best-effort) appointment_id=%s",
+            appointment.id,
+        )

@@ -1,4 +1,56 @@
-**Fase 2 concluída.** Sprint 2.7 concluído (2026-06-13 — inbox de atendimento humano + estado RESOLVIDA). Próximo: Sprint 25 — migration `e0s25...` ← `e0s27a`.
+**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s25f_product_extras`.
+
+## Sprint 25 — Schema-only Estágio 1+ + suite de contrato + DEPOSIT (2026-06-13)
+- **6 migrations schema-only em cadeia** (← e0s27a), SEM endpoint/service/tela —
+  apenas estruturas para o Estágio 1+, RLS canônico `app.current_company_id`:
+  `e0s25a_locations` (multi-unidade) → `e0s25b_stock_batches` (FEFO/lotes) →
+  `e0s25c_encomenda` (encomenda_orders + encomenda_items, FSM em VARCHAR) →
+  `e0s25d_operation_professionals` (multi-profissional, UNIQUE appt+prof) →
+  `e0s25e_service_input_checklists` (insumos por serviço) →
+  `e0s25f_product_extras` (products.barcode + products.location_id FK locations
+  ON DELETE SET NULL; índice parcial idx_products_barcode).
+  **HEAD migration: e0s25f_product_extras** (próxima down_revision).
+- **Wiring DEPOSIT** (`modules/payments/deposit_service.py`) — conecta primitivas
+  que existiam isoladas, SEM nova coluna de schema:
+  - `resolve_deposit_policy` (service-specific → global) + `compute_deposit_amount`
+    (FIXED_AMOUNT | PERCENTAGE, nunca > total).
+  - `create_deposit_payment`: Payment PENDING (provider=manual) vinculado ao
+    appointment; no-op sem DepositPolicy.
+  - `payment.confirmed` → `deposit_handler` promove Reservation **SOFT→FIRME**
+    (vínculo pelo slot: professional + start/end, pois Payment não referencia
+    Reservation). Registrado no lifespan (`register_deposit_handlers`).
+  - `complete_appointment` → `recognize_balance_on_completion`: saldo restante
+    (total − sinal confirmado) → `financial_core.handle_deposit_balance_recognized`
+    (Movement INFLOW + Entry RECEITA/SERVICOS). No-op sem pagamento parcial.
+  - `mark_no_show` (nova função em appointments/service) → `handle_no_show_deposit`:
+    retém se `retain_on_no_show` (default True); estorna se False. Sinal retido
+    **NÃO gera comissão** salvo `commission_on_retained_deposit` (default False).
+  - `cancel_appointment` → `handle_cancellation_deposit`: refund dentro da janela
+    (`is_within_refund_window`: now ≤ start − refundable_until_hours_before),
+    retenção fora dela. Todas as chamadas no lifecycle são **best-effort
+    pós-commit** (try/except logado) — no-op sem DepositPolicy → zero regressão.
+- **Suite de contrato `tests/contract/`** (7 contratos, 54 testes SQLite/FakeDB +
+  2 gated → **56 verdes contra PostgreSQL real**). `conftest.py`: FakeDB que
+  avalia critérios reais do SQLAlchemy (eq/ne/is/ge/le/gt/lt/in_/notin_), `options`
+  passthrough, e `execute` mínimo replicando `processed_idempotency_keys`.
+  `requires_postgres` = skipif sem DATABASE_URL.
+  - C1 FSM (estados REAIS — não DRAFT/REQUESTED/CONFIRMED do enunciado);
+    C2 conflito (`_assert_slot_available` + EXCLUDE constraint real);
+    C3 DEPOSIT (deposit_service ponta a ponta); C4 comissão dois eixos
+    (BARBERSHOP_PAYS=40,00 / SPLIT_50_50=38,50 / BARBER_PAYS=37,00);
+    C5 idempotência (mecanismo is_processed/mark_processed + guarda de domínio
+    do commission_handler via SessionLocal monkeypatched); C6 DRE; C7 multi-tenant
+    (+ RLS real gated).
+- **GAP documentado (Estágio 1+, não bloqueador):** eixos CUSTOM de comissão
+  (`professional_share`, `prior_commission_share`, `use_net_of_discount`) **não
+  existem** no modelo `commission_policies`. O modelo tem `commission_base`
+  (GROSS_SERVICE|NET_SERVICE|GROSS_OPERATION|CUSTOM_AMOUNT) e
+  `commission_fee_policy` (BARBERSHOP_PAYS|SPLIT_50_50|BARBER_PAYS; legado
+  BEFORE_FEES|AFTER_FEES). Implementar os eixos CUSTOM é trabalho de Estágio 1+.
+- Sem migração de dados (apenas wiring de lógica). Suite completa: 951 passed,
+  6 skipped, 1 xfailed (zero regressões).
+
+**HEAD migration:** e0s25f_product_extras
 
 ## Sprint 2.7 — Inbox de atendimento humano + estado RESOLVIDA (2026-06-13)
 - Migration `e0s27a_conversation_messages` (HEAD ← e0s20a): tabela
