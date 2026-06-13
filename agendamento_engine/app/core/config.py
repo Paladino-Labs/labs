@@ -121,6 +121,13 @@ class Settings(BaseSettings):
     MAILTRAP_API_TOKEN: str = ""
     MAILTRAP_SANDBOX_INBOX_ID: int = 0
 
+    # LLM — fallback do IntentClassifier quando regex tem baixa confiança (Sprint 2.0, D8).
+    # anthropic é o único provider implementado nesta sprint.
+    LLM_PROVIDER: str = "anthropic"
+    LLM_MODEL: str = "claude-haiku-4-5"
+    LLM_API_KEY: str = ""
+    LLM_TIMEOUT_SECONDS: float = 5.0
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

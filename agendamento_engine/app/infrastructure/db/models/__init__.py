@@ -56,6 +56,7 @@ from .platform_setting import PlatformSetting
 from .nps import NpsConfig, NpsSurvey, NpsResponse
 from .waitlist import WaitlistConfig, WaitlistEntry
 from .crm import CrmConfig, CustomerClassification
+from .intent_classification import IntentClassification
 
 __all__ = [
     "Company",
@@ -142,4 +143,5 @@ __all__ = [
     "WaitlistEntry",
     "CrmConfig",
     "CustomerClassification",
+    "IntentClassification",
 ]

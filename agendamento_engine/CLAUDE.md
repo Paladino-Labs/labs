@@ -1,4 +1,40 @@
-**Fase 2 concluída.** Sprint H concluído (2026-06-12 — CRM básico). Próximo: Sprint 2.0 (IntentClassifier) — down_revision=e0sH1_crm.
+**Fase 2 concluída.** Sprint 2.0 concluído (2026-06-13 — IntentClassifier isolado). Próximo: Sprint 2.6 (integração FSM) — down_revision=e0s20a_intent_classifications.
+
+## Sprint 2.0 — IntentClassifier isolado (2026-06-13)
+- Migration `e0s20a_intent_classifications`: tabela append-only
+  `intent_classifications` (RLS canônico) — toda classificação (REGEX | LLM |
+  FALLBACK) é persistida, sem dedup. Colunas: confidence NUMERIC(4,3),
+  entities JSONB, llm_provider/llm_model/llm_latency_ms (NULL fora de LLM)
+- Novo pacote `modules/whatsapp/intent/` — **ZERO integração com
+  bot_service.py ou handlers/** (deferido ao Sprint 2.6)
+  - `schemas.py`: `IntentResult` (intent, confidence, entities, source,
+    raw_input), `FALLBACK_INTENT="MENU_PRINCIPAL"`, `CONFIDENCE_THRESHOLD=0.7`
+  - `catalog.py`: `ALL_INTENTS` (7 intenções), `INTENT_MODULE_REQUIREMENTS`
+    (COMPRAR_PRODUTO→ESTOQUE, COMPRAR_PACOTE→PACOTES — valores reais do enum
+    `modulename`, não placeholders em inglês), `get_active_intents()` —
+    catálogo dinâmico por tenant (FALAR_COM_HUMANO sempre ativo)
+  - `regex_classifier.py`: `RegexClassifier` — confidence 0.9 (padrão
+    específico) / 0.75 (genérico) / 0.0+MENU_PRINCIPAL (sem match); filtra
+    por `active_intents`; ordem CANCELAR > REMARCAR > CONSULTAR >
+    COMPRAR_PRODUTO > COMPRAR_PACOTE > FALAR_COM_HUMANO > AGENDAR
+  - `llm_classifier.py`: `LLMClassifier` (Anthropic Claude Haiku 4.5, tool use
+    forçado — nunca texto livre; timeout 5s; qualquer falha → FALLBACK) +
+    `NullLLMClassifier` (test double, `NULL_LLM_OUTCOME=fallback|agendar|
+    falar_com_humano`, nunca chama API externa)
+  - `classifier.py`: `ChainClassifier` — regex primeiro; LLM só se
+    confidence < 0.7; resultado fora do catálogo ativo → MENU_PRINCIPAL;
+    persiste 100% das classificações; `known_intents` property
+- Modelo ORM `IntentClassification` em
+  `infrastructure/db/models/intent_classification.py`
+- `LLM_PROVIDER`/`LLM_MODEL`/`LLM_API_KEY`/`LLM_TIMEOUT_SECONDS` em config.py
+  (defaults: anthropic / claude-haiku-4-5 / "" / 5.0)
+- `anthropic==0.69.0` adicionado ao requirements.txt
+- Testes: tests/test_sprint20_intent_classifier.py (9 testes, FakeDB
+  in-memory) — cobre os 7 casos do DoD + invariantes 1/2/3/5
+- Ver decisão de provider LLM no commit "docs: escolha de provider LLM para
+  Sprint 2.0"
+
+**HEAD migration:** e0s20a_intent_classifications
 
 ## Sprint H — CRM básico (2026-06-12)
 - Migration `e0sH1_crm`: crm_configs (thresholds 1:1 por tenant),
