@@ -1,443 +1,318 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
-import { api } from "@/lib/api"
-import { formatBRL } from "@/lib/utils"
-import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
-import type { Appointment } from "@/types"
-import { Button } from "@/components/ui/button"
+import { useMemo } from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useAuth } from "@/hooks/useAuth"
-import { PaymentOnCompleteDialog } from "@/components/PaymentOnCompleteDialog"
+  Calendar,
+  DollarSign,
+  Activity,
+  AlertTriangle,
+  Clock,
+  Users,
+  ListOrdered,
+  MessageSquare,
+  CreditCard,
+  Landmark,
+  Play,
+  Pause,
+  CircleDollarSign,
+} from "lucide-react"
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts"
+import type { LucideIcon } from "lucide-react"
+import { useAuth } from "@/context/AuthContext"
+import { formatBRL } from "@/lib/utils"
 
-const TERMINAL = new Set(["CANCELLED", "NO_SHOW", "COMPLETED"])
-
-function greeting(): string {
-  const h = new Date().getHours()
-  if (h < 12) return "Bom dia"
-  if (h < 18) return "Boa tarde"
-  return "Boa noite"
+function firstName(name: string | null, email: string | null): string {
+  const raw = name?.split(" ")[0] ?? email?.split("@")[0]?.split(/[._]/)[0] ?? "Mestre"
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
 }
 
-function fmtHour(isoStr: string): string {
-  return new Date(isoStr).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+// ── Primitivos de layout ────────────────────────────────────────────────────
+function PageHeader({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-2">
+        <span className="label-eyebrow">{eyebrow}</span>
+        <h1 className="font-display text-4xl md:text-5xl tracking-tight">{title}</h1>
+      </div>
+      <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground border border-border rounded-sm px-2 py-1 whitespace-nowrap mt-2">
+        Mock · Fase 0
+      </span>
+    </div>
+  )
 }
 
-
-export default function DashboardPage() {
-  const router = useRouter()
-  const { email, name } = useAuth()
-
-  const [todayAppts, setTodayAppts] = useState<Appointment[]>([])
-  const [monthAppts, setMonthAppts] = useState<Appointment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
-  const [paymentTarget, setPaymentTarget] = useState<Appointment | null>(null)
-  const [rescheduleId, setRescheduleId] = useState<string | null>(null)
-  const [newStartAt, setNewStartAt] = useState("")
-  const [rescheduling, setRescheduling] = useState(false)
-
-  async function fetchAll() {
-    try {
-      setLoading(true)
-      const now = new Date()
-
-      const startOfDay = new Date(now)
-      startOfDay.setHours(0, 0, 0, 0)
-      const endOfDay = new Date(now)
-      endOfDay.setHours(23, 59, 59, 999)
-
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-      const endOfMonth = new Date(
-        now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999,
-      )
-
-      const dayParams = new URLSearchParams({
-        start_after:  startOfDay.toISOString(),
-        start_before: endOfDay.toISOString(),
-        page_size:    "200",
-      })
-      const monthParams = new URLSearchParams({
-        start_after:  startOfMonth.toISOString(),
-        start_before: endOfMonth.toISOString(),
-        page_size:    "200",
-      })
-
-      const [day, month] = await Promise.all([
-        api.get<Appointment[]>(`/appointments/?${dayParams}`),
-        api.get<Appointment[]>(`/appointments/?${monthParams}`),
-      ])
-      setTodayAppts(day)
-      setMonthAppts(month)
-    } catch {
-      setError("Não foi possível carregar os dados.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchAll() }, [])
-
-  // ── KPI derivations ──────────────────────────────────────────────────────────
-  const todayRevenue = useMemo(
-    () =>
-      todayAppts
-        .filter((a) => a.status === "COMPLETED")
-        .reduce((sum, a) => sum + Number(a.total_amount), 0),
-    [todayAppts],
+function Panel({ title, icon: Icon, children }: { title: string; icon?: LucideIcon; children: React.ReactNode }) {
+  return (
+    <section className="rounded-md border border-border bg-card">
+      <div className="flex items-center gap-2 px-6 py-4 border-b border-border">
+        {Icon && <Icon size={16} strokeWidth={1.5} className="text-primary" />}
+        <h2 className="font-display text-2xl tracking-wide">{title}</h2>
+      </div>
+      <div className="px-6 py-5">{children}</div>
+    </section>
   )
+}
 
-  const upcomingToday = useMemo(
-    () =>
-      todayAppts
-        .filter((a) => !TERMINAL.has(a.status))
-        .sort(
-          (a, b) =>
-            new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
-        )
-        .slice(0, 8),
-    [todayAppts],
+function KpiCard({ label, value, delta, icon: Icon }: { label: string; value: string; delta: string; icon: LucideIcon }) {
+  return (
+    <div className="bg-card px-7 py-6">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-[0.25em] text-primary/85">{label}</p>
+        <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
+      </div>
+      <p className="mt-3 font-display text-4xl leading-none tracking-tight">{value}</p>
+      <p className="mt-3 text-xs italic text-muted-foreground">{delta}</p>
+    </div>
   )
+}
 
-  const topServices = useMemo(() => {
-    const counts: Record<string, number> = {}
-    monthAppts.forEach((a) => {
-      a.services.forEach((s) => {
-        counts[s.service_name] = (counts[s.service_name] ?? 0) + 1
-      })
-    })
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-  }, [monthAppts])
+function KpiStrip({ items }: { items: { label: string; value: string; delta: string; icon: LucideIcon }[] }) {
+  return (
+    <section
+      className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-3"
+    >
+      {items.map((k) => (
+        <KpiCard key={k.label} {...k} />
+      ))}
+    </section>
+  )
+}
 
-  const maxServiceCount = topServices[0]?.[1] ?? 1
+function BulletList({ items, tone = "default" }: { items: string[]; tone?: "default" | "warning" }) {
+  return (
+    <ul className="space-y-2.5">
+      {items.map((item) => (
+        <li key={item} className="flex items-start gap-2.5 text-sm">
+          <span
+            className={
+              tone === "warning"
+                ? "mt-1.5 h-1.5 w-1.5 rounded-full bg-warning flex-shrink-0"
+                : "mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60 flex-shrink-0"
+            }
+          />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
-  // ── Actions ──────────────────────────────────────────────────────────────────
-  function handleComplete(appt: Appointment) {
-    setDetailAppt(null)
-    setPaymentTarget(appt)
-  }
+// ── OWNER / ADMIN ───────────────────────────────────────────────────────────
+const REVENUE_SERIES = [
+  { month: "Out", receita: 18200, despesa: 11800 },
+  { month: "Nov", receita: 19500, despesa: 12100 },
+  { month: "Dez", receita: 24800, despesa: 14300 },
+  { month: "Jan", receita: 21100, despesa: 13200 },
+  { month: "Fev", receita: 22600, despesa: 13900 },
+  { month: "Mar", receita: 24875, despesa: 14100 },
+].map((d) => ({ ...d, margem: d.receita - d.despesa }))
 
-  async function handleCancel(id: string) {
-    if (!confirm("Cancelar este agendamento?")) return
-    try {
-      await api.patch(`/appointments/${id}/cancel`, { reason: "Cancelado pelo painel" })
-      setDetailAppt(null)
-      fetchAll()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    }
-  }
-
-  function openReschedule(a: Appointment) {
-    setDetailAppt(null)
-    setRescheduleId(a.id)
-    const d = new Date(a.start_at)
-    const pad = (n: number) => String(n).padStart(2, "0")
-    setNewStartAt(
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-        `T${pad(d.getHours())}:${pad(d.getMinutes())}`,
-    )
-  }
-
-  async function handleReschedule() {
-    if (!rescheduleId || !newStartAt) return
-    setRescheduling(true)
-    try {
-      await api.patch(`/appointments/${rescheduleId}/reschedule`, {
-        start_at: new Date(newStartAt).toISOString(),
-      })
-      setRescheduleId(null)
-      fetchAll()
-    } catch (err: unknown) {
-      alert((err as Error).message)
-    } finally {
-      setRescheduling(false)
-    }
-  }
-
-  // ── Derived display ──────────────────────────────────────────────────────────
-  const rawName = name?.split(" ")[0] ?? email?.split("@")[0]?.split(/[._]/)[0] ?? "Mestre"
-  const firstName = rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase()
-
+function OwnerDashboard({ name }: { name: string }) {
   const kpis = [
-    {
-      label: "Agendamentos Hoje",
-      value: loading ? "…" : String(todayAppts.length),
-      hint: `${upcomingToday.length} ainda por vir`,
-    },
-    {
-      label: "Faturamento Hoje",
-      value: loading ? "…" : formatBRL(todayRevenue),
-      hint: "agendamentos concluídos",
-    },
-    { label: "Ocupação", value: "—", hint: "em breve" },
-    { label: "NPS", value: "—", hint: "em breve" },
+    { label: "Agendamentos hoje", value: "28", delta: "+12% vs ontem", icon: Calendar },
+    { label: "Faturamento do mês", value: formatBRL(2487.5), delta: "+8% vs mês anterior", icon: DollarSign },
+    { label: "Ocupação", value: "76%", delta: "alta · saudável", icon: Activity },
   ]
-
-  if (error) return <p className="text-destructive">{error}</p>
 
   return (
     <div className="flex flex-col gap-8">
+      <PageHeader eyebrow="Proprietário" title={`Olá, ${name}.`} />
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-primary/85">
-          <span className="h-px w-8 bg-primary/50" />
-          <span>{format(new Date(), "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR })}</span>
-          <span className="h-px w-8 bg-primary/50" />
-        </div>
-        <h1 className="font-display text-5xl md:text-6xl tracking-tight">
-          {greeting()}, <em>{firstName}.</em>
-        </h1>
-      </div>
+      <KpiStrip items={kpis} />
 
-      {/* ── KPI strip ──────────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map(({ label, value, hint }) => (
-          <div key={label} className="bg-card px-7 py-6">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-primary/85">
-              {label}
-            </p>
-            <p className="mt-3 font-display text-5xl leading-none tracking-tight">
-              {value}
-            </p>
-            <p className="mt-3 text-xs italic text-muted-foreground">{hint}</p>
-          </div>
-        ))}
-      </section>
-
-      {/* ── Two-column body ─────────────────────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
-
-        {/* Upcoming list */}
-        <section className="rounded-md border border-border bg-card">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="font-display text-3xl tracking-wide">Próximos da casa</h2>
-            <Link
-              href="/agenda"
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              ver agenda →
-            </Link>
+        <Panel title="Receita × Despesa × Margem">
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={REVENUE_SERIES} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis dataKey="month" stroke="var(--color-muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis
+                  stroke="var(--color-muted-foreground)"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${(v as number) / 1000}k`}
+                />
+                <Tooltip
+                  cursor={{ fill: "var(--color-muted)", opacity: 0.3 }}
+                  contentStyle={{
+                    background: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                  formatter={(value) => formatBRL(Number(value))}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="receita" name="Receita" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="despesa" name="Despesa" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="margem" name="Margem" fill="var(--color-chart-3)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+        </Panel>
 
-          {loading ? (
-            <p className="px-6 py-8 text-sm text-muted-foreground">
-              Carregando…
-            </p>
-          ) : upcomingToday.length === 0 ? (
-            <p className="px-6 py-8 text-sm italic text-muted-foreground">
-              Nenhum agendamento pendente para hoje.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {upcomingToday.map((a) => (
-                <li
-                  key={a.id}
-                  onClick={() => setDetailAppt(a)}
-                  className="grid grid-cols-[80px_1fr_auto] items-center gap-4 px-6 py-4 cursor-pointer hover:bg-accent/30 transition-colors"
-                >
-                  <span className="font-display text-2xl italic text-muted-foreground leading-none">
-                    {fmtHour(a.start_at)}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-display text-xl leading-tight">
-                      {a.customer?.name ?? "Cliente"}
-                    </p>
-                    <p className="text-xs italic text-muted-foreground mt-0.5">
-                      {a.services.map((s) => s.service_name).join(", ")}
-                      {a.professional && ` · ${a.professional.name}`}
-                    </p>
-                  </div>
-                  <span className="border border-primary/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.22em] text-primary rounded-sm whitespace-nowrap">
-                    {APPOINTMENT_STATUS_LABELS[a.status] ?? a.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* Top services */}
-        <section className="rounded-md border border-border bg-card">
-          <div className="px-6 py-4 border-b border-border">
-            <h2 className="font-display text-3xl tracking-wide">Top serviços</h2>
-            <p className="text-xs italic text-muted-foreground mt-0.5">
-              este mês
-            </p>
-          </div>
-
-          {loading ? (
-            <p className="px-6 py-8 text-sm text-muted-foreground">
-              Carregando…
-            </p>
-          ) : topServices.length === 0 ? (
-            <p className="px-6 py-8 text-sm italic text-muted-foreground">
-              Sem dados este mês.
-            </p>
-          ) : (
-            <ul className="px-6 py-5 space-y-4">
-              {topServices.map(([name, count]) => (
-                <li key={name} className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="font-display text-lg leading-tight truncate">
-                      {name}
-                    </span>
-                    <span className="font-display text-sm italic text-muted-foreground flex-shrink-0">
-                      {count}×
-                    </span>
-                  </div>
-                  <div className="h-px w-full bg-border overflow-hidden">
-                    <div
-                      className="h-px bg-primary"
-                      style={{
-                        width: `${(count / maxServiceCount) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
+        <Panel title="Alertas" icon={AlertTriangle}>
+          <BulletList
+            tone="warning"
+            items={[
+              "3 pagamentos a confirmar",
+              "2 itens com estoque baixo",
+              "Promoção 'Verão' expira em 2 dias",
+            ]}
+          />
+        </Panel>
       </section>
 
-      {/* ── Quick action ─────────────────────────────────────────────────────── */}
-      <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={() => router.push("/financeiro/pagamentos/novo")}>
-          + Registrar pagamento
-        </Button>
-        <Button onClick={() => router.push("/appointments/new")}>
-          + Novo Agendamento
-        </Button>
-      </div>
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Panel title="Pendências" icon={Clock}>
+          <BulletList
+            items={[
+              "2 payables vencendo nos próximos 7 dias",
+              "Conciliação de caixa pendente (3 dias)",
+              "1 fechamento de comissão aguardando",
+            ]}
+          />
+        </Panel>
 
-      {/* ── Detail modal ─────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!detailAppt}
-        onOpenChange={(open) => !open && setDetailAppt(null)}
-      >
-        {detailAppt && (
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>
-                {detailAppt.customer?.name ?? "Cliente"}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 py-1">
-              <span className="inline-block border border-primary/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.22em] text-primary rounded-sm">
-                {APPOINTMENT_STATUS_LABELS[detailAppt.status] ??
-                  detailAppt.status}
-              </span>
-              <div className="space-y-1.5 text-sm text-muted-foreground">
-                <div>{fmtHour(detailAppt.start_at)}</div>
-                <div>
-                  {detailAppt.services
-                    .map((s) => s.service_name)
-                    .join(", ")}
-                </div>
-                <div>{detailAppt.professional?.name ?? "—"}</div>
-                {detailAppt.customer?.phone && (
-                  <div>{detailAppt.customer.phone}</div>
-                )}
-                {detailAppt.total_amount && (
-                  <div className="font-semibold text-foreground">
-                    {formatBRL(Number(detailAppt.total_amount))}
-                  </div>
-                )}
-              </div>
-            </div>
-            {!TERMINAL.has(detailAppt.status) && (
-              <DialogFooter className="flex gap-2 sm:justify-start">
-                <Button
-                  size="sm"
-                  onClick={() => handleComplete(detailAppt)}
-                >
-                  Concluir
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => openReschedule(detailAppt)}
-                >
-                  Remarcar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleCancel(detailAppt.id)}
-                >
-                  Cancelar
-                </Button>
-              </DialogFooter>
-            )}
-          </DialogContent>
-        )}
-      </Dialog>
-
-      {/* ── Payment dialog ──────────────────────────────────────────────────── */}
-      <PaymentOnCompleteDialog
-        open={paymentTarget !== null}
-        appointment={paymentTarget ? {
-          id:            paymentTarget.id,
-          total_amount:  Number(paymentTarget.total_amount),
-          customer_id:   paymentTarget.client_id ?? paymentTarget.customer?.id ?? null,
-          customer_name: paymentTarget.customer?.name ?? null,
-          services:      paymentTarget.services,
-        } : { id: "", total_amount: 0, services: [] }}
-        onSuccess={() => { setPaymentTarget(null); fetchAll() }}
-        onClose={() => setPaymentTarget(null)}
-      />
-
-      {/* ── Reschedule dialog ────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!rescheduleId}
-        onOpenChange={(open) => !open && setRescheduleId(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remarcar Agendamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 py-2">
-            <Label htmlFor="new-start">Novo horário</Label>
-            <Input
-              id="new-start"
-              type="datetime-local"
-              value={newStartAt}
-              onChange={(e) => setNewStartAt(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRescheduleId(null)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleReschedule} disabled={rescheduling}>
-              {rescheduling ? "Salvando…" : "Confirmar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+        <Panel title="CRM · clientes em risco" icon={Users}>
+          <ul className="divide-y divide-border -my-1">
+            {[
+              { name: "Henrique Souza", days: 62 },
+              { name: "Caio Albuquerque", days: 48 },
+              { name: "Marcos Tavares", days: 41 },
+            ].map((c) => (
+              <li key={c.name} className="flex items-center justify-between py-2.5 text-sm">
+                <span>{c.name}</span>
+                <span className="text-xs italic text-muted-foreground">{c.days}d sem visita</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      </section>
     </div>
   )
+}
+
+// ── OPERATOR ────────────────────────────────────────────────────────────────
+function OperatorDashboard({ name }: { name: string }) {
+  const kpis = [
+    { label: "Agendamentos hoje", value: "28", delta: "5 ainda por vir", icon: Calendar },
+    { label: "Na fila", value: "2", delta: "tempo médio 12 min", icon: ListOrdered },
+    { label: "Caixa do dia", value: formatBRL(840), delta: "12 recebimentos", icon: Landmark },
+  ]
+
+  const agenda = [
+    { hora: "09:00", cliente: "Bruno Lima", servico: "Corte + Barba" },
+    { hora: "09:45", cliente: "Diego Antunes", servico: "Corte" },
+    { hora: "10:30", cliente: "Felipe Castro", servico: "Barba" },
+    { hora: "11:15", cliente: "Otávio Nunes", servico: "Corte + Sobrancelha" },
+    { hora: "12:00", cliente: "Rafael Dias", servico: "Corte" },
+  ]
+
+  return (
+    <div className="flex flex-col gap-8">
+      <PageHeader eyebrow="Operação" title={`Bom turno, ${name}.`} />
+
+      <KpiStrip items={kpis} />
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+        <Panel title="Agenda do dia" icon={Calendar}>
+          <ul className="divide-y divide-border -my-1">
+            {agenda.map((a) => (
+              <li key={a.hora} className="grid grid-cols-[64px_1fr] items-center gap-3 py-2.5">
+                <span className="font-display text-xl italic text-muted-foreground leading-none">{a.hora}</span>
+                <div className="min-w-0">
+                  <p className="font-display text-lg leading-tight">{a.cliente}</p>
+                  <p className="text-xs italic text-muted-foreground">{a.servico}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+
+        <div className="flex flex-col gap-6">
+          <Panel title="Fila de espera" icon={ListOrdered}>
+            <BulletList items={["Lucas Pereira · chegou 10:12", "Sérgio Mota · chegou 10:25"]} />
+          </Panel>
+
+          <Panel title="Atendimento humano" icon={MessageSquare}>
+            <div className="flex items-center gap-2.5">
+              <span className="h-2 w-2 rounded-full bg-warning" />
+              <span className="text-sm">1 conversa em atendimento</span>
+            </div>
+          </Panel>
+
+          <Panel title="Cobranças pendentes" icon={CreditCard}>
+            <BulletList items={["Pedro Sales · " + formatBRL(70), "Igor Ramos · " + formatBRL(55)]} />
+          </Panel>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// ── PROFESSIONAL ────────────────────────────────────────────────────────────
+function ProfessionalDashboard({ name }: { name: string }) {
+  const proximos = [
+    { hora: "13:30", cliente: "André Souza", servico: "Corte + Barba" },
+    { hora: "14:15", cliente: "Gustavo Reis", servico: "Corte" },
+    { hora: "15:00", cliente: "Thiago Melo", servico: "Barba" },
+  ]
+
+  return (
+    <div className="flex flex-col gap-8">
+      <PageHeader eyebrow="Profissional" title={`Olá, ${name}.`} />
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+        <Panel title="Próximos atendimentos" icon={Calendar}>
+          <ul className="divide-y divide-border -my-1">
+            {proximos.map((a) => (
+              <li key={a.hora} className="grid grid-cols-[64px_1fr_auto] items-center gap-3 py-3">
+                <span className="font-display text-xl italic text-muted-foreground leading-none">{a.hora}</span>
+                <div className="min-w-0">
+                  <p className="font-display text-lg leading-tight">{a.cliente}</p>
+                  <p className="text-xs italic text-muted-foreground">{a.servico}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-accent/40 transition-colors">
+                    <Play size={13} strokeWidth={1.5} /> Iniciar
+                  </button>
+                  <button className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-accent/40 transition-colors">
+                    <Pause size={13} strokeWidth={1.5} /> Pausar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+
+        <Panel title="Comissões" icon={CircleDollarSign}>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-primary/85">Este mês</p>
+          <p className="mt-2 font-display text-4xl leading-none tracking-tight">{formatBRL(340)}</p>
+          <p className="mt-3 text-xs italic text-muted-foreground">extrato de comissões próprias</p>
+        </Panel>
+      </section>
+    </div>
+  )
+}
+
+export default function DashboardPage() {
+  const { name, email, role } = useAuth()
+  const fname = useMemo(() => firstName(name, email), [name, email])
+
+  if (role === "PROFESSIONAL") return <ProfessionalDashboard name={fname} />
+  if (role === "OPERATOR") return <OperatorDashboard name={fname} />
+  // OWNER / ADMIN (e fallback)
+  return <OwnerDashboard name={fname} />
 }

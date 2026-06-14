@@ -3,101 +3,297 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useAuth } from "@/hooks/useAuth"
+import { useAuth, type Role } from "@/context/AuthContext"
 import { cn } from "@/lib/utils"
 import {
   LayoutDashboard,
+  Calendar,
+  ClipboardList,
+  ListOrdered,
+  MessageSquare,
   Users,
+  Send,
+  BookOpen,
   Scissors,
-  UserCircle,
   Package,
-  Settings,
+  Tag,
+  Gift,
+  Percent,
+  CreditCard,
+  Landmark,
+  BarChart3,
+  TrendingUp,
   Wallet,
-  HandCoins,
-  LogOut,
-  Sun,
-  Moon,
+  RefreshCw,
+  FileText,
+  Receipt,
+  Boxes,
+  FileWarning,
+  CircleDollarSign,
+  UserCheck,
+  ShieldCheck,
+  Settings,
+  ScrollText,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  type LucideIcon,
 } from "lucide-react"
-import Image from "next/image"
-import { useTheme } from "@/lib/theme"
-import { ROLE_LABELS } from "@/lib/constants"
 
-const NAV_LINKS: Array<{
-  href: string
+type SubItem = {
+  title: string
+  url: string
+  icon: LucideIcon
+}
+
+type NavItem = {
+  title: string
+  url: string
+  icon: LucideIcon
+  roles: Role[] | "ALL"
+  submenu?: SubItem[]
+}
+
+type NavGroup = {
   label: string
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>
-  roles: string[] | null
-}> = [
-  { href: "/dashboard",        label: "Painel",            icon: LayoutDashboard, roles: null },
-  { href: "/customers",        label: "Clientes",          icon: Users,           roles: null },
-  { href: "/services",         label: "Serviços",          icon: Scissors,        roles: null },
-  { href: "/professionals",    label: "Barbeiros",         icon: UserCircle,      roles: null },
-  { href: "/products",         label: "Produtos",          icon: Package,         roles: null },
-  { href: "/financeiro",       label: "Financeiro",        icon: Wallet,          roles: null },
-  { href: "/comissoes",        label: "Comissões",         icon: HandCoins,       roles: null },
-  { href: "/settings",         label: "Configurações",     icon: Settings,        roles: null },
+  items: NavItem[]
+}
+
+const ALL: Role[] = ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL", "PLATFORM_OWNER"]
+
+const NAV: NavGroup[] = [
+  {
+    label: "Operação",
+    items: [
+      { title: "Dashboard",          url: "/dashboard",    icon: LayoutDashboard, roles: "ALL" },
+      { title: "Agenda",             url: "/agenda",       icon: Calendar,        roles: "ALL" },
+      { title: "Operações",          url: "/appointments", icon: ClipboardList,   roles: "ALL" },
+      { title: "Fila",               url: "/fila",         icon: ListOrdered,     roles: ["OWNER", "ADMIN", "OPERATOR"] },
+      { title: "Atendimento humano", url: "/inbox",        icon: MessageSquare,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
+    ],
+  },
+  {
+    label: "Relacionamento",
+    items: [
+      { title: "Clientes / CRM", url: "/customers",   icon: Users, roles: "ALL" },
+      { title: "Comunicação",    url: "/comunicacao", icon: Send,  roles: ["OWNER", "ADMIN"] },
+    ],
+  },
+  {
+    label: "Comercial",
+    items: [
+      {
+        title: "Catálogo", url: "/catalogo", icon: BookOpen, roles: ["OWNER", "ADMIN", "OPERATOR"],
+        submenu: [
+          { title: "Serviços",   url: "/catalogo/servicos",   icon: Scissors },
+          { title: "Produtos",   url: "/catalogo/produtos",   icon: Package },
+          { title: "Categorias", url: "/catalogo/categorias", icon: Tag },
+        ],
+      },
+      { title: "Pacotes / Assinaturas", url: "/pacotes",   icon: Gift,    roles: ["OWNER", "ADMIN"] },
+      { title: "Promoções / Cupons",    url: "/promocoes", icon: Percent, roles: ["OWNER", "ADMIN"] },
+    ],
+  },
+  {
+    label: "Financeiro",
+    items: [
+      { title: "Pagamentos", url: "/financeiro/pagamentos",  icon: CreditCard, roles: ["OWNER", "ADMIN", "OPERATOR"] },
+      { title: "Caixa",      url: "/financeiro/conciliacao", icon: Landmark,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
+      {
+        title: "Gestão Financeira", url: "/financeiro/dre", icon: BarChart3, roles: ["OWNER", "ADMIN"],
+        submenu: [
+          { title: "DRE",         url: "/financeiro/dre",         icon: TrendingUp },
+          { title: "Contas",      url: "/financeiro/contas",      icon: Wallet },
+          { title: "Conciliação", url: "/financeiro/conciliacao", icon: RefreshCw },
+          { title: "Extrato",     url: "/financeiro/extrato",     icon: FileText },
+        ],
+      },
+      { title: "Despesas",               url: "/despesas",         icon: Receipt,          roles: ["OWNER", "ADMIN"] },
+      { title: "Estoque / Fornecedores", url: "/estoque",          icon: Boxes,            roles: ["OWNER", "ADMIN"] },
+      { title: "Contas a pagar",         url: "/payables",         icon: FileWarning,      roles: ["OWNER", "ADMIN"] },
+      { title: "Comissões",              url: "/comissoes",        icon: CircleDollarSign, roles: ["OWNER", "ADMIN"] },
+      { title: "Taxas",                  url: "/financeiro/taxas", icon: Percent,          roles: ["OWNER", "ADMIN"] },
+    ],
+  },
+  {
+    label: "Administração",
+    items: [
+      { title: "Profissionais",      url: "/professionals",     icon: UserCheck,   roles: ["OWNER", "ADMIN"] },
+      { title: "Usuários e acessos", url: "/settings/usuarios", icon: ShieldCheck, roles: ["OWNER", "ADMIN"] },
+      { title: "Configurações",      url: "/settings",          icon: Settings,    roles: ["OWNER", "ADMIN"] },
+      { title: "Auditoria",          url: "/audit",             icon: ScrollText,  roles: ["OWNER", "ADMIN"] },
+    ],
+  },
 ]
 
-function getInitials(email: string | null): string {
-  if (!email) return "P"
-  const name = email.split("@")[0]
-  const parts = name.split(/[._-]/)
-  return parts
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("")
+function isVisible(item: NavItem, role: string | null): boolean {
+  if (item.roles === "ALL") return true
+  return item.roles.includes((role ?? "") as Role)
+}
+
+function isActive(pathname: string, url: string): boolean {
+  if (url === "/dashboard") return pathname === url
+  return pathname === url || pathname.startsWith(url + "/")
+}
+
+function NavLinkRow({
+  title,
+  url,
+  Icon,
+  active,
+  collapsed,
+  onNavigate,
+  nested = false,
+}: {
+  title: string
+  url: string
+  Icon: LucideIcon
+  active: boolean
+  collapsed: boolean
+  onNavigate?: () => void
+  nested?: boolean
+}) {
+  return (
+    <Link
+      href={url}
+      onClick={onNavigate}
+      title={collapsed ? title : undefined}
+      className={cn(
+        "flex items-center rounded-md py-2 transition-colors",
+        collapsed ? "justify-center px-2" : "justify-between px-3",
+        nested && !collapsed && "pl-9",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+      )}
+    >
+      <span className={cn("flex items-center min-w-0", !collapsed && "gap-3")}>
+        <Icon size={16} strokeWidth={1.5} className="flex-shrink-0 text-sidebar-primary" />
+        {!collapsed && (
+          <span className={cn("font-display text-lg leading-tight truncate", active && "italic")}>
+            {title}
+          </span>
+        )}
+      </span>
+      {active && !collapsed && (
+        <span className="text-[10px] text-sidebar-primary leading-none flex-shrink-0">◆</span>
+      )}
+    </Link>
+  )
+}
+
+function NavItemRow({
+  item,
+  pathname,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem
+  pathname: string
+  collapsed: boolean
+  onNavigate?: () => void
+}) {
+  const selfActive = isActive(pathname, item.url)
+  const childActive = item.submenu?.some((s) => isActive(pathname, s.url)) ?? false
+  const [open, setOpen] = useState(selfActive || childActive)
+
+  // Mantém o submenu aberto quando a rota ativa está dentro dele.
+  useEffect(() => {
+    if (childActive) setOpen(true)
+  }, [childActive])
+
+  if (!item.submenu || collapsed) {
+    return (
+      <NavLinkRow
+        title={item.title}
+        url={item.url}
+        Icon={item.icon}
+        active={selfActive || childActive}
+        collapsed={collapsed}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+
+  const Icon = item.icon
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex w-full items-center justify-between rounded-md px-3 py-2 transition-colors",
+          childActive
+            ? "text-sidebar-accent-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+        )}
+      >
+        <span className="flex items-center gap-3 min-w-0">
+          <Icon size={16} strokeWidth={1.5} className="flex-shrink-0 text-sidebar-primary" />
+          <span className={cn("font-display text-lg leading-tight truncate", childActive && "italic")}>
+            {item.title}
+          </span>
+        </span>
+        <ChevronDown
+          size={14}
+          strokeWidth={1.5}
+          className={cn("flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="mt-0.5 space-y-0.5">
+          {item.submenu.map((sub) => (
+            <NavLinkRow
+              key={sub.url}
+              title={sub.title}
+              url={sub.url}
+              Icon={sub.icon}
+              active={isActive(pathname, sub.url)}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+              nested
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function SidebarContent({
   pathname,
-  email,
   role,
-  logout,
-  name,
   onNavigate,
   collapsed = false,
   onToggleCollapse,
 }: {
   pathname: string
-  email: string | null
   role: string | null
-  logout: () => void
-  name: string | null
   onNavigate?: () => void
   collapsed?: boolean
   onToggleCollapse?: () => void
 }) {
-  const initials = getInitials(email)
-  const displayName = name || email?.split("@")[0]?.replace(/[._]/g, " ") || "Usuário"
-  const { theme, toggle } = useTheme()
+  const groups = NAV
+    .map((g) => ({ ...g, items: g.items.filter((i) => isVisible(i, role)) }))
+    .filter((g) => g.items.length > 0)
 
   return (
     <div className="flex flex-col h-full">
-
-      {/* Logo */}
+      {/* Wordmark */}
       <div
         className={cn(
           "py-5 border-b border-sidebar-border",
           collapsed
             ? "px-0 flex flex-col items-center gap-3"
-            : "px-6 flex items-center justify-between gap-2"
+            : "px-6 flex items-center justify-between gap-2",
         )}
       >
         {collapsed ? (
-          <span className="font-display text-2xl text-sidebar-primary leading-none">
-            P
-          </span>
+          <span className="font-display text-2xl text-sidebar-primary leading-none">P</span>
         ) : (
-          <Image
-            src="/paladino-wordmark.png"
-            alt="Paladino"
-            width={160}
-            height={40}
-            className="h-10 w-auto object-contain"
-            priority
-          />
+          <span className="font-display text-xl tracking-[0.3em] text-sidebar-primary leading-none">
+            PALADINO
+          </span>
         )}
         {onToggleCollapse && (
           <button
@@ -108,148 +304,55 @@ function SidebarContent({
               text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent
               transition-colors flex-shrink-0"
           >
-            {collapsed ? (
-              <ChevronRight size={16} strokeWidth={1.5} />
-            ) : (
-              <ChevronLeft size={16} strokeWidth={1.5} />
-            )}
+            {collapsed ? <ChevronRight size={16} strokeWidth={1.5} /> : <ChevronLeft size={16} strokeWidth={1.5} />}
           </button>
         )}
       </div>
 
       {/* Nav */}
       <nav className={cn("flex-1 py-5 overflow-y-auto", collapsed ? "px-2" : "px-4")}>
-        {!collapsed && (
-          <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-3 px-2">
-            MENU
-          </p>
-        )}
-        <div className="space-y-0.5">
-          {NAV_LINKS.filter(({ roles }) => !roles || roles.includes(role ?? "")).map(({ href, label, icon: Icon }) => {
-            const active =
-              pathname === href ||
-              (href !== "/dashboard" && pathname.startsWith(href))
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={onNavigate}
-                title={collapsed ? label : undefined}
-                className={cn(
-                  "flex items-center rounded-md py-2 transition-colors",
-                  collapsed ? "justify-center px-2" : "justify-between px-3",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-                )}
-              >
-                <span className={cn("flex items-center", !collapsed && "gap-3")}>
-                  <Icon
-                    size={16}
-                    strokeWidth={1.5}
-                    className="flex-shrink-0 text-sidebar-primary"
+        <div className="space-y-5">
+          {groups.map((group) => (
+            <div key={group.label}>
+              {!collapsed && (
+                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-2 px-2">
+                  {group.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavItemRow
+                    key={item.url}
+                    item={item}
+                    pathname={pathname}
+                    collapsed={collapsed}
+                    onNavigate={onNavigate}
                   />
-                  {!collapsed && (
-                    <span
-                      className={cn(
-                        "font-display text-lg leading-tight",
-                        active && "italic"
-                      )}
-                    >
-                      {label}
-                    </span>
-                  )}
-                </span>
-                {active && !collapsed && (
-                  <span className="text-[10px] text-sidebar-primary leading-none">
-                    ◆
-                  </span>
-                )}
-              </Link>
-            )
-          })}
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </nav>
 
-      {/* Footer */}
-      {collapsed ? (
-        <div className="px-2 py-4 border-t border-sidebar-border flex flex-col items-center gap-3">
-          <div
-            title={displayName}
-            className="h-8 w-8 rounded-full border border-sidebar-border bg-sidebar-accent flex items-center justify-center flex-shrink-0"
-          >
-            <span className="font-display text-sm text-sidebar-primary leading-none">
-              {initials}
-            </span>
-          </div>
-          <button
-            onClick={toggle}
-            title={theme === "dark" ? "Tema claro" : "Tema escuro"}
-            aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
-            className="text-muted-foreground hover:text-sidebar-foreground transition-colors p-1 rounded"
-          >
-            {theme === "dark" ? (
-              <Sun size={15} strokeWidth={1.5} />
-            ) : (
-              <Moon size={15} strokeWidth={1.5} />
-            )}
-          </button>
-          <button
-            onClick={logout}
-            title="Sair"
-            aria-label="Sair"
-            className="text-muted-foreground hover:text-sidebar-foreground transition-colors p-1 rounded"
-          >
-            <LogOut size={15} strokeWidth={1.5} />
-          </button>
-        </div>
-      ) : (
-      <div className="px-4 py-4 border-t border-sidebar-border space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full border border-sidebar-border bg-sidebar-accent flex items-center justify-center flex-shrink-0">
-            <span className="font-display text-sm text-sidebar-primary leading-none">
-              {initials}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-display text-sm text-sidebar-foreground truncate capitalize">
-              {displayName}
-            </p>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              {ROLE_LABELS[role ?? ""] ?? role ?? "Admin"}
-            </p>
-          </div>
-          <button
-            onClick={logout}
-            aria-label="Sair"
-            className="text-muted-foreground hover:text-sidebar-foreground transition-colors p-1 rounded"
-          >
-            <LogOut size={15} strokeWidth={1.5} />
-          </button>
-        </div>
-
-        <button
-          onClick={toggle}
-          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-sidebar-foreground transition-colors w-full px-1"
-          aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
-        >
-          {theme === "dark" ? (
-            <Sun size={13} strokeWidth={1.5} />
-          ) : (
-            <Moon size={13} strokeWidth={1.5} />
-          )}
-          <span>{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
-        </button>
+      {/* Rodapé */}
+      <div
+        className={cn(
+          "py-4 border-t border-sidebar-border",
+          collapsed ? "px-2 text-center" : "px-6",
+        )}
+      >
+        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          {collapsed ? "F0" : "V 0.1 · Fase 0"}
+        </p>
       </div>
-      )}
-
     </div>
   )
 }
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { email, role, logout, name } = useAuth()
+  const { role } = useAuth()
   const [open, setOpen] = useState(false)
 
   // Colapso do sidebar desktop, persistido em localStorage
@@ -272,8 +375,6 @@ export default function Sidebar() {
     return () => { document.body.style.overflow = "" }
   }, [open])
 
-  const contentProps = { pathname, email, role, logout, name }
-
   return (
     <>
       {/* Desktop sidebar */}
@@ -281,11 +382,12 @@ export default function Sidebar() {
         className={cn(
           "hidden lg:flex min-h-screen bg-sidebar border-r border-sidebar-border flex-col shadow-sm flex-shrink-0",
           "transition-all duration-200",
-          collapsed ? "w-16" : "w-60"
+          collapsed ? "w-16" : "w-60",
         )}
       >
         <SidebarContent
-          {...contentProps}
+          pathname={pathname}
+          role={role}
           collapsed={collapsed}
           onToggleCollapse={toggleCollapsed}
         />
@@ -318,19 +420,19 @@ export default function Sidebar() {
       {/* Mobile: drawer */}
       <aside
         className={cn(
-          "lg:hidden fixed top-0 left-0 h-full w-72 z-50 bg-sidebar shadow-xl",
+          "lg:hidden fixed top-0 left-0 h-full w-72 z-50 bg-sidebar shadow-xl overflow-y-auto",
           "transform transition-transform duration-300 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <button
           onClick={() => setOpen(false)}
-          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-sidebar-accent text-sidebar-foreground text-lg leading-none"
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-sidebar-accent text-sidebar-foreground text-lg leading-none z-10"
           aria-label="Fechar menu"
         >
           ×
         </button>
-        <SidebarContent {...contentProps} onNavigate={() => setOpen(false)} />
+        <SidebarContent pathname={pathname} role={role} onNavigate={() => setOpen(false)} />
       </aside>
     </>
   )

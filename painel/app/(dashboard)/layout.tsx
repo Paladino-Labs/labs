@@ -1,13 +1,16 @@
 "use client"
 
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { useAuth } from "@/hooks/useAuth"
+import { BrandingProvider } from "@/context/BrandingContext"
 import Sidebar from "@/components/Sidebar"
+import Header from "@/components/Header"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { token, hydrated } = useAuth()
+  const { token, role, hydrated } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     // Só redireciona depois que a hidratação do localStorage terminou.
@@ -17,6 +20,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/")
     }
   }, [hydrated, token, router])
+
+  // PROFESSIONAL não acessa o financeiro → volta ao dashboard.
+  useEffect(() => {
+    if (hydrated && role === "PROFESSIONAL" && pathname.startsWith("/financeiro")) {
+      router.replace("/dashboard")
+    }
+  }, [hydrated, role, pathname, router])
 
   // Enquanto não hidratou, mostra tela de carregamento neutra
   if (!hydrated) {
@@ -31,9 +41,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!token) return null
 
   return (
-    <div className="min-h-screen flex">
-      <Sidebar />
-      <main className="flex-1 px-8 py-8 md:px-12 md:py-10 bg-background overflow-auto">{children}</main>
-    </div>
+    <BrandingProvider>
+      <div className="min-h-screen flex">
+        <Sidebar />
+        <div className="flex flex-1 flex-col min-w-0">
+          <Header />
+          <main className="flex-1 px-6 py-8 md:px-10 md:py-10 bg-background overflow-auto">
+            {children}
+          </main>
+        </div>
+      </div>
+    </BrandingProvider>
   )
 }
