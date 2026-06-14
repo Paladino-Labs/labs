@@ -3,9 +3,25 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 import { setAuthErrorHandler, BASE } from "@/lib/api"
 
+export type Role =
+  | "OWNER"
+  | "ADMIN"
+  | "OPERATOR"
+  | "PROFESSIONAL"
+  | "PLATFORM_OWNER"
+
+export const ROLE_LABELS: Record<Role, string> = {
+  OWNER:          "Proprietário",
+  ADMIN:          "Administrador",
+  OPERATOR:       "Operador",
+  PROFESSIONAL:   "Profissional",
+  PLATFORM_OWNER: "Paladino",
+}
+
 interface AuthContextValue {
   token: string | null
   role: string | null
+  setRole: (role: Role) => void
   userId: string | null
   email: string | null
   companyId: string | null
@@ -20,6 +36,7 @@ interface AuthContextValue {
 export const AuthContext = createContext<AuthContextValue>({
   token: null,
   role: null,
+  setRole: () => {},
   userId: null,
   email: null,
   companyId: null,
@@ -66,27 +83,39 @@ function extractUserData(payload: JwtPayload) {
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
-  const [role, setRole] = useState<string | null>(null)
+  const [role, setRoleState] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [name, setName] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
 
+  const isDev = process.env.NODE_ENV === "development"
+
   function applyUserData(t: string, payload: JwtPayload) {
     const data = extractUserData(payload)
     setToken(t)
-    setRole(data.role)
+    // Em dev, um override manual via RoleDevSelector tem precedência sobre o JWT.
+    const devRole = isDev ? localStorage.getItem("dev_role") : null
+    setRoleState(devRole ?? data.role)
     setUserId(data.userId)
     setEmail(data.email)
     setCompanyId(data.companyId)
   }
 
+  // setRole: atualiza estado em memória + persiste em localStorage (dev_role).
+  // Usado apenas pelo RoleDevSelector — não chama API.
+  const setRole = useCallback((next: Role) => {
+    setRoleState(next)
+    if (isDev) localStorage.setItem("dev_role", next)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // M1: logout faz redirect direto — não depende do layout estar montado.
   const logout = useCallback(() => {
     localStorage.removeItem("token")
     setToken(null)
-    setRole(null)
+    setRoleState(null)
     setUserId(null)
     setEmail(null)
     setCompanyId(null)
@@ -105,6 +134,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const stored = localStorage.getItem("token")
 
     if (!stored) {
+      // Dev: permite testar o shell role-aware sem login real.
+      if (isDev) {
+        const devRole = localStorage.getItem("dev_role")
+        if (devRole) setRoleState(devRole)
+      }
       setHydrated(true)
       return
     }
@@ -164,6 +198,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       value={{
         token,
         role,
+        setRole,
         userId,
         email,
         companyId,
