@@ -143,7 +143,7 @@ class TestGetAvailableSlotsTimezone:
         company_id = uuid.uuid4()
         service_id = uuid.uuid4()
 
-        target_date = date(2026, 6, 15)  # data futura, sem conflitos
+        target_date = date(2027, 1, 15)  # data futura fixa, independente do horário de execução
         opening = time(9, 0)
         closing = time(12, 0)
 
@@ -181,7 +181,7 @@ class TestGetAvailableSlotsTimezone:
         company_id = uuid.uuid4()
         service_id = uuid.uuid4()
 
-        target_date = date(2026, 6, 15)
+        target_date = date(2027, 1, 15)  # data futura fixa, independente do horário de execução
 
         mock_db = self._make_mock_db(
             tz_name="America/Sao_Paulo",
