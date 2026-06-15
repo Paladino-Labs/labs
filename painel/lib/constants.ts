@@ -137,3 +137,164 @@ export const APPOINTMENT_STATUS_VARIANT: Record<
   NO_SHOW:     "destructive",
   FAILED:      "destructive",
 }
+
+/* ========================= Fase 3 — Financeiro profundo ========================= */
+
+// FSMs (chaves exatas do backend — CANCELLED em inglês na despesa)
+export const EXPENSE_STATUS_LABELS: Record<string, string> = {
+  PENDENTE:  "Pendente",
+  PAGA:      "Paga",
+  CANCELLED: "Cancelada",
+}
+
+export const PAYABLE_STATUS_LABELS: Record<string, string> = {
+  OPEN:           "Em aberto",
+  PARTIALLY_PAID: "Parcial",
+  PAID:           "Paga",
+  CANCELLED:      "Cancelada",
+}
+
+export const INSTALLMENT_STATUS_LABELS: Record<string, string> = {
+  OPEN:      "Em aberto",
+  PAID:      "Paga",
+  CANCELLED: "Cancelada",
+}
+
+export const RECONCILIATION_STATUS_LABELS: Record<string, string> = {
+  OPEN:   "Aberta",
+  CLOSED: "Fechada",
+}
+
+export const STATEMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING:   "Pendente",
+  MATCHED:   "Conciliado",
+  DISMISSED: "Dispensado",
+}
+
+export const TRANSFER_STATUS_LABELS: Record<string, string> = {
+  REQUESTED: "Solicitada",
+  COMPLETED: "Concluída",
+  FAILED:    "Falhou",
+}
+
+// Estoque
+export const STOCK_MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  ENTRADA:     "Entrada",
+  VENDA:       "Venda",
+  USO_INTERNO: "Uso interno",
+  PERDA:       "Perda",
+  AJUSTE:      "Ajuste",
+}
+
+// Tipos de movimento registráveis (ENTRADA fica fora — só via Receber pedido)
+export const STOCK_MOVEMENT_TYPE_OPTIONS = ["VENDA", "USO_INTERNO", "PERDA", "AJUSTE"] as const
+
+// Contas financeiras
+export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  CAIXA:    "Caixa",
+  ACQUIRER: "Adquirente",
+  BANK:     "Banco",
+  ESCROW:   "Conta garantia",
+}
+
+export const MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  INFLOW:       "Entrada",
+  OUTFLOW:      "Saída",
+  TRANSFER_IN:  "Transf. recebida",
+  TRANSFER_OUT: "Transf. enviada",
+}
+
+export const ENTRY_TYPE_LABELS: Record<string, string> = {
+  RECEITA:  "Receita",
+  CUSTO:    "Custo",
+  DESPESA:  "Despesa",
+  TAXA:     "Taxa",
+  COMISSAO: "Comissão",
+  ESTORNO:  "Estorno",
+  AJUSTE:   "Ajuste",
+}
+
+export const CLOSING_METHOD_LABELS: Record<string, string> = {
+  CASH_AT_CREATION: "À vista",
+  INSTALLMENTS:     "Parcelado",
+}
+
+export const CASH_COUNT_RESOLUTION_LABELS: Record<string, string> = {
+  ADJUSTED:      "Com ajuste",
+  NO_ADJUSTMENT: "Sem ajuste",
+}
+
+// Mapa completo categoria → label PT-BR (entry_category.py) — Despesas, DRE, Lançamentos, Ajuste
+export const ENTRY_CATEGORY_LABELS: Record<string, string> = {
+  // RECEITA
+  SERVICOS:              "Serviços",
+  PRODUTOS:              "Produtos",
+  PACOTE:                "Pacote",
+  ASSINATURA_ADESAO:     "Assinatura (adesão)",
+  ASSINATURA_RENOVACAO:  "Assinatura (renovação)",
+  SINAL_SERVICO:         "Sinal de serviço",
+  RECEITA_OUTROS:        "Outras receitas",
+  // CUSTO
+  INSUMOS_USO_INTERNO:   "Insumos (uso interno)",
+  PRODUTO_VENDIDO:       "Produto vendido",
+  MATERIAL_DESCARTAVEL:  "Material descartável",
+  PERDA_ESTOQUE:         "Perda de estoque",
+  PERDA_OPERACIONAL:     "Perda operacional",
+  CUSTO_OUTROS:          "Outros custos",
+  // DESPESA
+  ALUGUEL:               "Aluguel",
+  UTILITIES:             "Utilidades (água/luz)",
+  MARKETING:             "Marketing",
+  SOFTWARE:              "Software",
+  CONTABILIDADE:         "Contabilidade",
+  LIMPEZA:               "Limpeza",
+  MANUTENCAO:            "Manutenção",
+  SALARIO:               "Salário",
+  SERVICOS_PJ:           "Serviços PJ",
+  ALIMENTACAO_COPA:      "Alimentação/copa",
+  EQUIPAMENTOS:          "Equipamentos",
+  TAXAS_BANCARIAS:       "Taxas bancárias",
+  TREINAMENTO:           "Treinamento",
+  DESPESA_OUTROS:        "Outras despesas",
+  // TAXA
+  ACQUIRER_FEE:          "Taxa de adquirente",
+  WITHDRAW_FEE:          "Taxa de saque",
+  ANTECIPATION_FEE:      "Taxa de antecipação",
+  TAXA_OUTROS:           "Outras taxas",
+  // COMISSAO
+  COMISSAO_SERVICO:      "Comissão de serviço",
+  COMISSAO_VENDA:        "Comissão de venda",
+  COMISSAO_RENOVACAO:    "Comissão de renovação",
+  COMISSAO_PERSONALIZADA:"Comissão personalizada",
+  // ESTORNO
+  REEMBOLSO_CLIENTE:     "Reembolso ao cliente",
+  CHARGEBACK:            "Chargeback",
+  REVERSAO_TAXA:         "Reversão de taxa",
+  // AJUSTE
+  CONTAGEM_CAIXA:        "Contagem de caixa",
+  CONTAGEM_ESTOQUE:      "Contagem de estoque",
+  CORRECAO_LANCAMENTO:   "Correção de lançamento",
+  CORRECAO_COMISSAO:     "Correção de comissão",
+  AJUSTE_OUTROS:         "Outros ajustes",
+}
+
+// Categorias DESPESA — Select de categoria no form de Despesa
+export const EXPENSE_CATEGORY_OPTIONS: string[] = [
+  "ALUGUEL", "UTILITIES", "MARKETING", "SOFTWARE", "CONTABILIDADE", "LIMPEZA",
+  "MANUTENCAO", "SALARIO", "SERVICOS_PJ", "ALIMENTACAO_COPA", "EQUIPAMENTOS",
+  "TAXAS_BANCARIAS", "TREINAMENTO", "DESPESA_OUTROS",
+]
+
+// Categorias AJUSTE — Select de categoria no Ajuste manual
+export const ADJUSTMENT_CATEGORY_OPTIONS: string[] = [
+  "CONTAGEM_CAIXA", "CONTAGEM_ESTOQUE", "CORRECAO_LANCAMENTO",
+  "CORRECAO_COMISSAO", "AJUSTE_OUTROS",
+]
+
+// Frequências de recorrência de despesa
+export const RECURRENCE_FREQUENCY_LABELS: Record<string, string> = {
+  MONTHLY:   "Mensal",
+  WEEKLY:    "Semanal",
+  QUARTERLY: "Trimestral",
+  YEARLY:    "Anual",
+}
