@@ -1,14 +1,23 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { formatDateTime } from "@/lib/utils"
+import { WHATSAPP_API_TYPE_LABELS } from "@/lib/constants"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import {
+  Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { Eye, EyeOff, Info, Smartphone, Timer } from "lucide-react"
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -54,6 +63,7 @@ function TabWhatsApp() {
   const [conn, setConn] = useState<ConnectionState>({ status: "DISCONNECTED" })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [qrCountdown, setQrCountdown] = useState<number | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -112,7 +122,7 @@ function TabWhatsApp() {
       setConn(data)
       if (data.qr_expires_in) setQrCountdown(data.qr_expires_in)
     } catch (e: unknown) {
-      setError((e as Error).message ?? "Erro ao iniciar conexão.")
+      toast.error((e as Error).message ?? "Erro ao iniciar conexão.")
     } finally {
       setLoading(false)
     }
@@ -126,22 +136,36 @@ function TabWhatsApp() {
       setConn((c) => ({ ...c, qr_code: data.qr_code, qr_expires_in: data.expires_in }))
       setQrCountdown(data.expires_in)
     } catch (e: unknown) {
-      setError((e as Error).message ?? "Erro ao gerar QR Code.")
+      toast.error((e as Error).message ?? "Erro ao gerar QR Code.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Cancela o fluxo de conexão (sem confirmação — não há vínculo ativo ainda)
+  async function handleCancelConnect() {
+    setLoading(true)
+    try {
+      await api.delete("/whatsapp/connection")
+      setConn({ status: "DISCONNECTED" })
+      setQrCountdown(null)
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao cancelar.")
     } finally {
       setLoading(false)
     }
   }
 
   async function handleDisconnect() {
-    if (!confirm("Deseja realmente desconectar o WhatsApp?")) return
     setLoading(true)
-    setError(null)
     try {
       await api.delete("/whatsapp/connection")
       setConn({ status: "DISCONNECTED" })
       setQrCountdown(null)
+      setDisconnectOpen(false)
+      toast.success("WhatsApp desconectado")
     } catch (e: unknown) {
-      setError((e as Error).message ?? "Erro ao desconectar.")
+      toast.error((e as Error).message ?? "Erro ao desconectar.")
     } finally {
       setLoading(false)
     }
@@ -166,7 +190,7 @@ function TabWhatsApp() {
       await api.patch("/companies/me", { settings: { bot_enabled: next } })
       setIsBotEnabled(next)
     } catch (e: unknown) {
-      setError((e as Error).message ?? "Erro ao alterar configuração do bot.")
+      toast.error((e as Error).message ?? "Erro ao alterar configuração do bot.")
     }
   }
 
@@ -227,7 +251,7 @@ function TabWhatsApp() {
                 <Button variant="outline" size="sm" onClick={handleRefreshQR} disabled={loading}>
                   Gerar novo QR
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleDisconnect} disabled={loading}>
+                <Button variant="ghost" size="sm" onClick={handleCancelConnect} disabled={loading}>
                   Cancelar
                 </Button>
               </div>
@@ -267,14 +291,133 @@ function TabWhatsApp() {
                   {isBotEnabled ? "Ativado" : "Desativado"}
                 </span>
               </div>
-              <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={loading}>
+              <Button variant="outline" size="sm" onClick={() => setDisconnectOpen(true)} disabled={loading}>
                 Desconectar
               </Button>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <ChannelSettings />
+
+      {/* Confirmação de desconexão */}
+      <Dialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desconectar WhatsApp</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            O bot de agendamento deixará de responder até que você reconecte o número.
+          </p>
+          <DialogFooter>
+            <DialogClose render={<Button variant="ghost" />}>Cancelar</DialogClose>
+            <Button variant="destructive" onClick={handleDisconnect} disabled={loading}>
+              Desconectar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+// ─── Configurações de canal (api type + quiet hours) ────────────────────────────
+
+interface ChannelSettingsState {
+  whatsapp_api_type: string
+  quiet_hours_enabled: boolean
+  quiet_hours_start: string
+  quiet_hours_end: string
+}
+
+function toHHMM(v: unknown): string {
+  if (typeof v !== "string") return ""
+  return v.slice(0, 5)
+}
+
+function ChannelSettings() {
+  const [state, setState] = useState<ChannelSettingsState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.get<Record<string, unknown>>("/communication/settings")
+      .then((s) => setState({
+        whatsapp_api_type: (s.whatsapp_api_type as string) ?? "UNOFFICIAL_BAILEYS",
+        quiet_hours_enabled: (s.quiet_hours_enabled as boolean) ?? true,
+        quiet_hours_start: toHHMM(s.quiet_hours_start) || "22:00",
+        quiet_hours_end: toHHMM(s.quiet_hours_end) || "08:00",
+      }))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleSave() {
+    if (!state) return
+    setSaving(true)
+    try {
+      await api.put("/communication/settings", {
+        whatsapp_api_type: state.whatsapp_api_type,
+        quiet_hours_enabled: state.quiet_hours_enabled,
+        quiet_hours_start: state.quiet_hours_start,
+        quiet_hours_end: state.quiet_hours_end,
+      })
+      toast.success("Configurações de canal salvas")
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao salvar configurações.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading || !state) return null
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Configurações de canal</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Tipo de API</Label>
+          <Select value={state.whatsapp_api_type} onValueChange={(v) => v && setState({ ...state, whatsapp_api_type: v })}>
+            <SelectTrigger className="w-full">
+              <SelectValue>{WHATSAPP_API_TYPE_LABELS[state.whatsapp_api_type] ?? state.whatsapp_api_type}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(WHATSAPP_API_TYPE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+          <Label htmlFor="qh-enabled">Horário de silêncio</Label>
+          <Switch id="qh-enabled" checked={state.quiet_hours_enabled}
+            onCheckedChange={(v) => setState({ ...state, quiet_hours_enabled: v })} />
+        </div>
+
+        {state.quiet_hours_enabled && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="qh-start">Início silêncio</Label>
+              <Input id="qh-start" type="time" value={state.quiet_hours_start}
+                onChange={(e) => setState({ ...state, quiet_hours_start: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="qh-end">Fim silêncio</Label>
+              <Input id="qh-end" type="time" value={state.quiet_hours_end}
+                onChange={(e) => setState({ ...state, quiet_hours_end: e.target.value })} />
+            </div>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">Mensagens automáticas dentro desta janela são adiadas.</p>
+
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={saving}>{saving ? "Salvando…" : "Salvar"}</Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

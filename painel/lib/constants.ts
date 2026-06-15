@@ -298,3 +298,160 @@ export const RECURRENCE_FREQUENCY_LABELS: Record<string, string> = {
   QUARTERLY: "Trimestral",
   YEARLY:    "Anual",
 }
+
+/* ===================== Fase 4 — Relacionamento e Administração ===================== */
+
+// NPS — status da survey (NpsSurveyResponse.status)
+export const NPS_SURVEY_STATUS_LABELS: Record<string, string> = {
+  PENDING:   "Pendente",
+  SENT:      "Enviada",
+  RESPONDED: "Respondida",
+  EXPIRED:   "Expirada",
+}
+
+// Comunicação — status do log de envio (CommunicationLogResponse.status)
+export const COMMUNICATION_LOG_STATUS_LABELS: Record<string, string> = {
+  SENT:                     "Enviada",
+  SCHEDULED:                "Agendada",
+  FAILED:                   "Falhou",
+  SKIPPED_QUIET_HOURS:      "Adiada (silêncio)",
+  SKIPPED_NO_CONSENT:       "Sem consentimento",
+  SKIPPED_CHANNEL_DISABLED: "Canal desativado",
+  SKIPPED_NO_TEMPLATE:      "Sem template",
+}
+
+// Canal de comunicação (WHATSAPP|EMAIL|SMS)
+export const COMMUNICATION_CHANNEL_LABELS: Record<string, string> = {
+  WHATSAPP: "WhatsApp",
+  EMAIL:    "E-mail",
+  SMS:      "SMS",
+}
+
+// Público-alvo do template / destinatário do log (CLIENT|PROFESSIONAL|OWNER)
+export const COMMUNICATION_AUDIENCE_LABELS: Record<string, string> = {
+  CLIENT:       "Cliente",
+  PROFESSIONAL: "Profissional",
+  OWNER:        "Proprietário",
+}
+
+// Tipo de API do WhatsApp (whatsapp_api_type)
+export const WHATSAPP_API_TYPE_LABELS: Record<string, string> = {
+  UNOFFICIAL_BAILEYS: "Não-oficial (Baileys)",
+  OFFICIAL_META:      "Oficial (Meta)",
+}
+
+// Módulos do tenant — enum fechado (module_activation.py): 10 módulos
+export const MODULE_LABELS: Record<string, string> = {
+  ESTOQUE:      "Estoque",
+  COMISSOES:    "Comissões",
+  PACOTES:      "Pacotes",
+  ASSINATURAS:  "Assinaturas",
+  PROMOCOES:    "Promoções",
+  CRM:          "CRM",
+  NPS:          "NPS",
+  FILA:         "Fila de espera",
+  BOT_WHATSAPP: "Bot WhatsApp",
+  LINK_PUBLICO: "Link público",
+}
+
+// Descrição curta por módulo (informativo)
+export const MODULE_DESCRIPTIONS: Record<string, string> = {
+  ESTOQUE:      "Controle de produtos, entradas e movimentações.",
+  COMISSOES:    "Cálculo automático de comissões por profissional.",
+  PACOTES:      "Pacotes de serviços pré-pagos com saldo.",
+  ASSINATURAS:  "Planos recorrentes com cobrança automática.",
+  PROMOCOES:    "Cupons e campanhas promocionais.",
+  CRM:          "Classificação e jornada do cliente.",
+  NPS:          "Pesquisas de satisfação pós-atendimento.",
+  FILA:         "Fila de espera com avisos automáticos.",
+  BOT_WHATSAPP: "Atendimento automatizado via WhatsApp.",
+  LINK_PUBLICO: "Página pública de agendamento.",
+}
+
+// Dependências conhecidas por módulo (texto informativo — não existe no backend)
+export const MODULE_DEPENDENCIES: Record<string, string> = {
+  COMISSOES:    "Funciona melhor com Estoque ativo.",
+  PACOTES:      "Requer Catálogo de serviços.",
+  ASSINATURAS:  "Requer integração de pagamento.",
+  NPS:          "Use junto com WhatsApp ou E-mail.",
+  BOT_WHATSAPP: "Requer conexão WhatsApp ativa.",
+}
+
+// Ordem de exibição dos módulos (espelha o grid das screenshots)
+export const MODULE_ORDER = [
+  "ESTOQUE", "COMISSOES", "PACOTES",
+  "ASSINATURAS", "PROMOCOES", "CRM",
+  "NPS", "FILA", "BOT_WHATSAPP",
+  "LINK_PUBLICO",
+] as const
+
+// Catálogo de eventos de comunicação (_DEFAULT_TEMPLATES do backend)
+export const COMMUNICATION_EVENT_TYPE_LABELS: Record<string, string> = {
+  "appointment.confirmed":          "Agendamento confirmado",
+  "appointment.cancelled":          "Agendamento cancelado",
+  "appointment.reminder_24h":       "Lembrete 24h",
+  "appointment.reminder_2h":        "Lembrete 2h",
+  "appointment.completed":          "Atendimento concluído",
+  "appointment.no_show":            "Não comparecimento",
+  "auth.password_reset_requested":  "Redefinição de senha",
+  "user.invitation_sent":           "Convite de usuário",
+  "nps.survey_request":             "Pesquisa NPS",
+  "nps.low_score_alert":            "Alerta de nota baixa",
+  "waitlist.slot_available":        "Vaga disponível (fila)",
+  "conversation.escalated":         "Conversa escalada",
+}
+
+// Eventos disponíveis no Select de criação de template
+export const COMMUNICATION_EVENT_TYPE_OPTIONS = Object.keys(COMMUNICATION_EVENT_TYPE_LABELS)
+
+// Variáveis {{}} sugeridas por evento (chips clicáveis no editor — hint de UX, não validação)
+export const TEMPLATE_VARIABLES_BY_EVENT: Record<string, string[]> = {
+  "appointment.confirmed":     ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "appointment.cancelled":     ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "appointment.reminder_24h":  ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "appointment.reminder_2h":   ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "appointment.completed":     ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "appointment.no_show":       ["cliente_nome", "servico", "profissional", "data", "horario", "empresa_nome", "manage_url"],
+  "nps.survey_request":        ["cliente_nome", "nps_url"],
+  "nps.low_score_alert":       ["cliente_nome", "nota", "comentario"],
+  "user.invitation_sent":      ["company_name", "activation_link", "role"],
+  "auth.password_reset_requested": ["user_name", "token"],
+  "waitlist.slot_available":   ["cliente_nome"],
+  "conversation.escalated":    ["customer_name", "phone", "panel_url"],
+}
+
+// Valores de exemplo para o preview de template (substituem {{var}})
+export const TEMPLATE_VARIABLE_EXAMPLES: Record<string, string> = {
+  cliente_nome:    "João",
+  customer_name:   "João",
+  servico:         "Corte masculino",
+  profissional:    "Carlos",
+  data:            "15/06/2026",
+  horario:         "14:30",
+  empresa_nome:    "Barbearia do Zeca",
+  company_name:    "Barbearia do Zeca",
+  manage_url:      "https://app.exemplo.com/gestao/abc123",
+  nps_url:         "https://app.exemplo.com/nps/respond/abc123",
+  activation_link: "https://app.exemplo.com/activate/abc123",
+  token:           "123456",
+  user_name:       "Ana",
+  role:            "Operador",
+  nota:            "4",
+  comentario:      "Atendimento poderia ser mais rápido",
+  phone:           "+55 11 91234-5678",
+  panel_url:       "https://app.exemplo.com/inbox",
+}
+
+// Status de convite (InvitationResponse.status)
+export const INVITATION_STATUS_LABELS: Record<string, string> = {
+  PENDING:   "Pendente",
+  ACCEPTED:  "Aceito",
+  CANCELLED: "Cancelado",
+  EXPIRED:   "Expirado",
+}
+
+// Anti-escalonamento — papéis que cada ator pode atribuir/convidar (INVITE_PERMISSION)
+export const ASSIGNABLE_ROLES_BY_ACTOR: Record<string, string[]> = {
+  OWNER: ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL"],
+  ADMIN: ["OPERATOR", "PROFESSIONAL"],
+}

@@ -8,6 +8,8 @@ import {
   RECONCILIATION_STATUS_LABELS,
   STATEMENT_STATUS_LABELS,
   TRANSFER_STATUS_LABELS,
+  NPS_SURVEY_STATUS_LABELS,
+  COMMUNICATION_LOG_STATUS_LABELS,
 } from "@/lib/constants"
 
 /* ============================ Appointment FSM ============================ */
@@ -286,5 +288,61 @@ export function TransferBadge({ status }: { status: string }) {
     <Badge variant="outline" className={cn("font-normal", TRANSFER_CLASS[status])}>
       {TRANSFER_STATUS_LABELS[status] ?? status}
     </Badge>
+  )
+}
+
+/* ===================== Fase 4 — Relacionamento e Administração ===================== */
+
+/* ------------------------------- NpsSurvey ------------------------------- */
+
+const NPS_SURVEY_CLASS: Record<string, string> = {
+  PENDING:   AMBER,
+  SENT:      SKY,
+  RESPONDED: EMERALD,
+  EXPIRED:   NEUTRAL,
+}
+
+export function NpsSurveyBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", NPS_SURVEY_CLASS[status])}>
+      {NPS_SURVEY_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ---------------------------- CommunicationLog ---------------------------- */
+// SENT(emerald) · SCHEDULED(sky) · FAILED(destructive) · todos SKIPPED_*(muted)
+
+const COMM_LOG_CLASS: Record<string, string> = {
+  SENT:                     EMERALD,
+  SCHEDULED:                SKY,
+  FAILED:                   DESTRUCTIVE,
+  SKIPPED_QUIET_HOURS:      NEUTRAL,
+  SKIPPED_NO_CONSENT:       NEUTRAL,
+  SKIPPED_CHANNEL_DISABLED: NEUTRAL,
+  SKIPPED_NO_TEMPLATE:      NEUTRAL,
+}
+
+export function CommunicationLogBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", COMM_LOG_CLASS[status] ?? NEUTRAL)}>
+      {COMMUNICATION_LOG_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------- NPS score ------------------------------- */
+// Faixa NPS (apenas display): 0–6 detrator · 7–8 neutro · 9–10 promotor
+
+export function NpsScoreChip({ score }: { score: number | null | undefined }) {
+  if (score == null) return <span className="text-muted-foreground">—</span>
+  const cls =
+    score <= 6 ? DESTRUCTIVE
+    : score <= 8 ? AMBER
+    : EMERALD
+  return (
+    <span className={cn("inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-xs font-medium tabular-nums", cls)}>
+      {score}
+    </span>
   )
 }
