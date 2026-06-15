@@ -75,8 +75,9 @@ const NAV: NavGroup[] = [
   {
     label: "Relacionamento",
     items: [
-      { title: "Clientes / CRM", url: "/customers",   icon: Users, roles: "ALL" },
-      { title: "Comunicação",    url: "/comunicacao", icon: Send,  roles: ["OWNER", "ADMIN"] },
+      { title: "Clientes / CRM", url: "/customers",   icon: Users,       roles: "ALL" },
+      { title: "CRM",            url: "/crm",         icon: TrendingUp,  roles: ["OWNER", "ADMIN"] },
+      { title: "Comunicação",    url: "/comunicacao", icon: Send,        roles: ["OWNER", "ADMIN"] },
     ],
   },
   {

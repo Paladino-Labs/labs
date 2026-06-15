@@ -3,6 +3,7 @@ import { Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
 import AuthProvider from "@/context/AuthContext"
 import { ThemeProvider } from "@/lib/theme";
+import { Toaster } from "sonner";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -33,6 +34,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
           <ThemeProvider>
             <AuthProvider>{children}</AuthProvider>
+            <Toaster position="top-right" richColors closeButton />
           </ThemeProvider>
         </body>
     </html>

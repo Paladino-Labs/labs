@@ -80,6 +80,7 @@ export interface Appointment {
   status: string
   financial_status: string
   subtotal_amount: string
+  discount_amount?: string
   total_amount: string
   services: AppointmentServiceSnapshot[]
   professional?: { id: string; name: string }
