@@ -1,6 +1,14 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
+import {
+  APPOINTMENT_STATUS_LABELS,
+  EXPENSE_STATUS_LABELS,
+  PAYABLE_STATUS_LABELS,
+  INSTALLMENT_STATUS_LABELS,
+  RECONCILIATION_STATUS_LABELS,
+  STATEMENT_STATUS_LABELS,
+  TRANSFER_STATUS_LABELS,
+} from "@/lib/constants"
 
 /* ============================ Appointment FSM ============================ */
 
@@ -176,6 +184,107 @@ export function CouponBadge({ status }: { status: string }) {
   return (
     <Badge variant="outline" className={cn("font-normal", COUPON_CLASS[status])}>
       {COUPON_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ====================== Fase 3 — FSMs do Financeiro profundo ====================== */
+
+const SKY = "bg-sky-500/15 text-sky-700 border-sky-500/30 dark:text-sky-300"
+
+/* -------------------------------- Expense -------------------------------- */
+// ⚠️ chave de cancelamento é CANCELLED (inglês), não CANCELADA
+
+const EXPENSE_CLASS: Record<string, string> = {
+  PENDENTE:  AMBER,
+  PAGA:      EMERALD,
+  CANCELLED: NEUTRAL,
+}
+
+export function ExpenseBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", EXPENSE_CLASS[status])}>
+      {EXPENSE_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* -------------------------------- Payable -------------------------------- */
+
+const PAYABLE_CLASS: Record<string, string> = {
+  OPEN:           AMBER,
+  PARTIALLY_PAID: SKY,
+  PAID:           EMERALD,
+  CANCELLED:      NEUTRAL,
+}
+
+export function PayableBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PAYABLE_CLASS[status])}>
+      {PAYABLE_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------ Installment ------------------------------ */
+
+const INSTALLMENT_CLASS: Record<string, string> = {
+  OPEN:      AMBER,
+  PAID:      EMERALD,
+  CANCELLED: NEUTRAL,
+}
+
+export function InstallmentBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", INSTALLMENT_CLASS[status])}>
+      {INSTALLMENT_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ----------------------------- Reconciliation ----------------------------- */
+
+const RECONCILIATION_CLASS: Record<string, string> = {
+  OPEN:   AMBER,
+  CLOSED: EMERALD,
+}
+
+export function ReconciliationBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", RECONCILIATION_CLASS[status])}>
+      {RECONCILIATION_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------- Statement ------------------------------- */
+
+const STATEMENT_CLASS: Record<string, string> = {
+  PENDING:   AMBER,
+  MATCHED:   EMERALD,
+  DISMISSED: NEUTRAL,
+}
+
+export function StatementBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", STATEMENT_CLASS[status])}>
+      {STATEMENT_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* -------------------------------- Transfer -------------------------------- */
+
+const TRANSFER_CLASS: Record<string, string> = {
+  REQUESTED: AMBER,
+  COMPLETED: EMERALD,
+  FAILED:    DESTRUCTIVE,
+}
+
+export function TransferBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", TRANSFER_CLASS[status])}>
+      {TRANSFER_STATUS_LABELS[status] ?? status}
     </Badge>
   )
 }

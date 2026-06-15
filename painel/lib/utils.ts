@@ -40,6 +40,20 @@ export function formatBRLFromDecimal(value: string | number | null | undefined):
 }
 
 /**
+ * Formata uma data pura ("2026-06-15") ou ISO como data curta sem hora.
+ * Usa UTC para datas puras (sem componente de hora) para evitar deslocamento de fuso.
+ * Ex: "2026-06-15" → "15/06/2026"
+ */
+export function formatDateShort(value: string | null | undefined): string {
+  if (!value) return "—"
+  // Data pura (YYYY-MM-DD) → interpretar como UTC para não voltar um dia no fuso BR
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  const d = new Date(isDateOnly ? `${value}T12:00:00` : value)
+  if (isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+}
+
+/**
  * Tempo relativo humano em pt-BR a partir de um ISO no passado.
  * Ex.: "há 12 min", "há 2 h", "há 3 d".
  */

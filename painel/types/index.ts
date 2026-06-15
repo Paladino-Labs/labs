@@ -234,3 +234,213 @@ export interface Coupon {
   customer_id?: string | null
   expires_at?: string | null
 }
+
+/* ====================== Fase 3 — Financeiro profundo ====================== */
+
+export interface RecurrenceRule {
+  frequency: string
+  day_of_month: number
+  end_date?: string | null
+}
+
+export interface Expense {
+  id: string
+  company_id: string
+  description: string
+  amount: string
+  category: string
+  supplier_id?: string | null
+  due_date: string
+  status: string                       // PENDENTE | PAGA | CANCELLED
+  paid_at?: string | null
+  paid_amount?: string | null
+  recurrence_rule?: RecurrenceRule | null
+  parent_expense_id?: string | null
+  created_by?: string | null
+  created_at: string
+}
+
+export interface StockProduct {
+  id: string
+  name: string
+  active: boolean
+  stock?: number | null
+  stock_min_alert?: string | null
+  unit?: string | null
+  avg_cost?: string | null
+}
+
+export interface StockMovement {
+  id: string
+  company_id: string
+  product_id: string
+  movement_type: string                // ENTRADA | VENDA | USO_INTERNO | PERDA | AJUSTE
+  quantity: string
+  unit_cost?: string | null
+  source_type?: string | null
+  source_id?: string | null
+  notes?: string | null
+  occurred_at: string
+  created_by?: string | null
+}
+
+export interface Supplier {
+  id: string
+  company_id: string
+  name: string
+  contact?: string | null
+  document?: string | null
+  active: boolean
+  created_at: string
+  updated_at?: string | null
+}
+
+export interface Payable {
+  id: string
+  company_id: string
+  supplier_id?: string | null
+  description: string
+  total_amount: string
+  paid_amount: string
+  status: string                       // OPEN | PARTIALLY_PAID | PAID | CANCELLED
+  due_date?: string | null
+  closing_method: string
+  source_type: string
+  source_id?: string | null
+  created_at: string
+  updated_at?: string | null
+}
+
+export interface PayableInstallment {
+  id: string
+  payable_id: string
+  amount: string
+  due_date?: string | null
+  paid_at?: string | null
+  payment_id?: string | null
+  installment_number: number
+  status: string                       // OPEN | PAID
+}
+
+export interface FinancialAccount {
+  account_id: string
+  company_id: string
+  name: string
+  type: string                         // CAIXA | ACQUIRER | BANK | ESCROW
+  provider?: string | null
+  external_ref?: string | null
+  currency: string
+  status: string                       // ACTIVE
+  is_default_inflow: boolean
+  created_at: string
+  updated_at?: string | null
+}
+
+export interface FinancialMovement {
+  movement_id: string
+  company_id: string
+  account_id: string
+  type: string                         // INFLOW | OUTFLOW | TRANSFER_IN | TRANSFER_OUT
+  amount: string
+  occurred_at: string
+  source_type: string
+  source_id: string
+  transfer_id?: string | null
+  created_at: string
+}
+
+export interface Transfer {
+  transfer_id: string
+  company_id: string
+  from_account_id: string
+  to_account_id: string
+  amount: string
+  status: string                       // REQUESTED | COMPLETED | FAILED
+  requested_at: string
+  completed_at?: string | null
+  failed_at?: string | null
+  failure_reason?: string | null
+  notes?: string | null
+}
+
+export interface Reconciliation {
+  reconciliation_id: string
+  company_id: string
+  account_id: string
+  status: string                       // OPEN | CLOSED
+  opened_at: string
+  closed_at?: string | null
+  opened_by?: string | null
+  closed_by?: string | null
+  notes?: string | null
+}
+
+export interface CashCount {
+  cash_count_id: string
+  company_id: string
+  account_id: string
+  expected_amount: string
+  counted_amount: string
+  discrepancy: string
+  resolution: string                   // ADJUSTED | NO_ADJUSTMENT
+  notes?: string | null
+  entry_id?: string | null
+  created_by?: string | null
+  created_at: string
+}
+
+export interface StatementEntry {
+  id: string
+  company_id: string
+  account_id: string
+  occurred_at: string
+  amount: string
+  direction: string                    // INFLOW | OUTFLOW
+  description?: string | null
+  status: string                       // PENDING | MATCHED | DISMISSED
+  matched_movement_id?: string | null
+  dismissed_reason?: string | null
+  dismissed_at?: string | null
+  dismissed_by?: string | null
+  imported_at?: string | null
+  import_batch_id: string
+}
+
+export interface StatementBatch {
+  batch_id: string
+  account_id: string
+  imported_at?: string | null
+  total: number
+  matched: number
+  pending: number
+  dismissed: number
+}
+
+export interface DreResponse {
+  date_from: string
+  date_to: string
+  receita: Record<string, string>
+  receita_total: string
+  custo: Record<string, string>
+  custo_total: string
+  despesa: Record<string, string>
+  despesa_total: string
+  taxa: Record<string, string>
+  taxa_total: string
+  comissao: Record<string, string>
+  comissao_total: string
+  estorno: Record<string, string>
+  estorno_total: string
+  ajuste: Record<string, string>
+  ajuste_total: string
+  resultado_bruto: string
+  resultado_liquido: string
+}
+
+export interface FinancialSettings {
+  payment_provider?: string | null
+  external_account_id?: string | null
+  external_account_status?: string | null
+  external_account_created_at?: string | null
+  accounts_count: number
+}
