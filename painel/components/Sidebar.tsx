@@ -36,6 +36,10 @@ import {
   ShieldCheck,
   Settings,
   ScrollText,
+  Star,
+  Blocks,
+  Palette,
+  Link2,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -77,9 +81,22 @@ const NAV: NavGroup[] = [
   {
     label: "Relacionamento",
     items: [
-      { title: "Clientes / CRM", url: "/customers",   icon: Users,       roles: "ALL" },
-      { title: "CRM",            url: "/crm",         icon: TrendingUp,  roles: ["OWNER", "ADMIN"] },
-      { title: "Comunicação",    url: "/comunicacao", icon: Send,        roles: ["OWNER", "ADMIN"] },
+      { title: "Clientes / CRM", url: "/customers", icon: Users,      roles: "ALL" },
+      { title: "CRM",            url: "/crm",       icon: TrendingUp, roles: ["OWNER", "ADMIN"] },
+      {
+        title: "Comunicação", url: "/comunicacao", icon: Send, roles: ["OWNER", "ADMIN"],
+        submenu: [
+          { title: "Templates", url: "/comunicacao",      icon: FileText },
+          { title: "Logs",      url: "/comunicacao/logs", icon: ScrollText },
+        ],
+      },
+      {
+        title: "NPS", url: "/nps", icon: Star, roles: ["OWNER", "ADMIN"],
+        submenu: [
+          { title: "Pesquisas",    url: "/nps",        icon: Star },
+          { title: "Configuração", url: "/nps/config", icon: Settings },
+        ],
+      },
     ],
   },
   {
@@ -143,7 +160,15 @@ const NAV: NavGroup[] = [
     items: [
       { title: "Profissionais",      url: "/professionals",     icon: UserCheck,   roles: ["OWNER", "ADMIN"] },
       { title: "Usuários e acessos", url: "/settings/usuarios", icon: ShieldCheck, roles: ["OWNER", "ADMIN"] },
-      { title: "Configurações",      url: "/settings",          icon: Settings,    roles: ["OWNER", "ADMIN"] },
+      {
+        title: "Configurações", url: "/settings", icon: Settings, roles: ["OWNER", "ADMIN"],
+        submenu: [
+          { title: "Financeiro",  url: "/settings/financial",   icon: Wallet },
+          { title: "Integrações", url: "/settings/integracoes",  icon: Link2 },
+          { title: "Módulos",     url: "/settings/modulos",      icon: Blocks },
+          { title: "Branding",    url: "/settings/branding",     icon: Palette },
+        ],
+      },
       { title: "Auditoria",          url: "/audit",             icon: ScrollText,  roles: ["OWNER", "ADMIN"] },
     ],
   },
