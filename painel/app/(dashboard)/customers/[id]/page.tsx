@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
 import { AppointmentBadge, CrmBadge } from "@/components/FsmBadge"
+import { CUSTOMER_CREDIT_STATUS_LABELS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -346,7 +347,9 @@ function QuotasTab({ id }: { id: string }) {
               <CardContent className="space-y-2 pt-6">
                 <div className="flex items-center justify-between">
                   <p className="font-medium">{c.entitlement_type}</p>
-                  <Badge variant={c.status === "ACTIVE" ? "default" : "outline"}>{c.status}</Badge>
+                  <Badge variant={c.status === "ACTIVE" ? "default" : "outline"}>
+                    {CUSTOMER_CREDIT_STATUS_LABELS[c.status] ?? c.status}
+                  </Badge>
                 </div>
                 <p className="text-sm">
                   <span className="font-mono text-base">{c.remaining_cotas}</span>

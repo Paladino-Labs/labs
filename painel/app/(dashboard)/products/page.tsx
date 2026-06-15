@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
+import { ImagePlus, Loader2, X } from "lucide-react"
 import { api } from "@/lib/api"
-import { formatBRL } from "@/lib/utils"
+import { formatBRL, cn } from "@/lib/utils"
 import type { Product } from "@/types"
 import { ActiveBadge } from "@/components/ActiveBadge"
 import { Button } from "@/components/ui/button"
@@ -15,11 +17,11 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 
-// --- Shared image upload ---
-function ImageUploadField({
+// --- Image gallery (slot 1 = primária persiste em image_url; 2–5 "Em breve") ---
+function ImageGalleryField({
   value,
   onChange,
-  label = "Imagem",
+  label = "Galeria de imagens",
 }: {
   value: string
   onChange: (url: string) => void
@@ -38,22 +40,57 @@ function ImageUploadField({
       const res = await api.postForm<{ url: string }>("/uploads/", fd)
       onChange(res.url)
     } catch (err: unknown) {
-      alert("Erro ao enviar imagem: " + (err as Error).message)
+      toast.error("Erro ao enviar imagem: " + (err as Error).message)
     } finally {
       setUploading(false)
+      if (fileRef.current) fileRef.current.value = ""
     }
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <Label>{label}</Label>
-      {value && (
-        <img src={value} alt="prévia" className="h-24 w-24 object-cover rounded-md mb-2" />
-      )}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-      <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-        {uploading ? "Enviando…" : value ? "Trocar imagem" : "Escolher imagem"}
-      </Button>
+      <div className="grid grid-cols-5 gap-2">
+        {/* Slot 1 — primária */}
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => !uploading && fileRef.current?.click()}
+            className={cn(
+              "relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/30 transition-colors hover:bg-muted",
+            )}
+          >
+            {uploading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : value ? (
+              <>
+                <img src={value} alt="primária" className="h-full w-full object-cover" />
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); onChange("") }}
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm hover:bg-background"
+                >
+                  <X className="h-3 w-3" />
+                </span>
+              </>
+            ) : (
+              <ImagePlus className="h-5 w-5 text-muted-foreground" />
+            )}
+          </button>
+          <p className="text-center text-[10px] uppercase tracking-wide text-muted-foreground">Primária</p>
+        </div>
+        {/* Slots 2–5 — Em breve */}
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="space-y-1">
+            <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 opacity-60">
+              <ImagePlus className="h-4 w-4 text-muted-foreground/50" />
+            </div>
+            <p className="text-center text-[10px] text-muted-foreground/60">Em breve</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -123,7 +160,7 @@ function CreateProductDialog({ onCreated }: { onCreated: () => void }) {
               placeholder="Descreva o produto…"
             />
           </div>
-          <ImageUploadField value={imageUrl} onChange={setImageUrl} />
+          <ImageGalleryField value={imageUrl} onChange={setImageUrl} />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
@@ -228,7 +265,7 @@ function EditProductDialog({ product, onUpdated }: { product: Product; onUpdated
               placeholder="Descreva o produto…"
             />
           </div>
-          <ImageUploadField value={imageUrl} onChange={setImageUrl} />
+          <ImageGalleryField value={imageUrl} onChange={setImageUrl} />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>

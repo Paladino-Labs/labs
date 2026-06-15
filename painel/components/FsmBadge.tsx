@@ -76,3 +76,106 @@ export function CrmBadge({ classification }: { classification: string }) {
     </Badge>
   )
 }
+
+/* ====================== Fase 2 — FSMs do Comercial ====================== */
+
+const EMERALD = "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300"
+const AMBER = "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300"
+const DESTRUCTIVE = "bg-destructive/15 text-destructive border-destructive/30"
+const NEUTRAL = "bg-muted text-muted-foreground border-border"
+
+/* --------------------------- PackagePurchase --------------------------- */
+
+const PKG_PURCHASE_LABEL: Record<string, string> = {
+  PENDING_PAYMENT: "Pagamento pendente",
+  ACTIVE:          "Ativo",
+  REVOKED:         "Revogado",
+}
+
+const PKG_PURCHASE_CLASS: Record<string, string> = {
+  PENDING_PAYMENT: AMBER,
+  ACTIVE:          EMERALD,
+  REVOKED:         DESTRUCTIVE,
+}
+
+export function PackagePurchaseBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PKG_PURCHASE_CLASS[status])}>
+      {PKG_PURCHASE_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------ Subscription ------------------------------ */
+
+const SUBSCRIPTION_LABEL: Record<string, string> = {
+  ACTIVE:    "Ativa",
+  PAUSED:    "Pausada",
+  OVERDUE:   "Em atraso",
+  SUSPENDED: "Suspensa",
+  CANCELLED: "Cancelada",
+}
+
+const SUBSCRIPTION_CLASS: Record<string, string> = {
+  ACTIVE:    EMERALD,
+  PAUSED:    AMBER,
+  OVERDUE:   AMBER,
+  SUSPENDED: DESTRUCTIVE,
+  CANCELLED: NEUTRAL,
+}
+
+export function SubscriptionBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", SUBSCRIPTION_CLASS[status])}>
+      {SUBSCRIPTION_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------- Promotion ------------------------------- */
+
+const PROMOTION_LABEL: Record<string, string> = {
+  DRAFT:     "Rascunho",
+  ACTIVE:    "Ativa",
+  PAUSED:    "Pausada",
+  EXPIRED:   "Expirada",
+  CANCELLED: "Cancelada",
+}
+
+const PROMOTION_CLASS: Record<string, string> = {
+  DRAFT:     NEUTRAL,
+  ACTIVE:    EMERALD,
+  PAUSED:    AMBER,
+  EXPIRED:   NEUTRAL,
+  CANCELLED: DESTRUCTIVE,
+}
+
+export function PromotionBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PROMOTION_CLASS[status])}>
+      {PROMOTION_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* --------------------------------- Coupon --------------------------------- */
+
+const COUPON_LABEL: Record<string, string> = {
+  ACTIVE:    "Ativo",
+  EXHAUSTED: "Esgotado",
+  CANCELLED: "Cancelado",
+}
+
+const COUPON_CLASS: Record<string, string> = {
+  ACTIVE:    EMERALD,
+  EXHAUSTED: NEUTRAL,
+  CANCELLED: DESTRUCTIVE,
+}
+
+export function CouponBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", COUPON_CLASS[status])}>
+      {COUPON_LABEL[status] ?? status}
+    </Badge>
+  )
+}
