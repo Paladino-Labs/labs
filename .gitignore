@@ -30,3 +30,6 @@ dist/
 .vscode/
 .idea/
 *.swp
+
+# Artefatos gerados
+agendamento_engine/openapi.json

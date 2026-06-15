@@ -26,3 +26,33 @@ export function formatDateTime(isoString: string): string {
     timeStyle: "short",
   })
 }
+
+/**
+ * Converte uma string decimal da API (ex.: "38.50") em BRL formatado.
+ * A API devolve valores monetários como string decimal — esta helper
+ * faz o parse antes de delegar para formatBRL().
+ */
+export function formatBRLFromDecimal(value: string | number | null | undefined): string {
+  if (value == null || value === "") return "—"
+  const num = typeof value === "string" ? parseFloat(value) : value
+  if (isNaN(num)) return "—"
+  return formatBRL(num)
+}
+
+/**
+ * Tempo relativo humano em pt-BR a partir de um ISO no passado.
+ * Ex.: "há 12 min", "há 2 h", "há 3 d".
+ */
+export function timeAgo(isoString: string | null | undefined): string {
+  if (!isoString) return "—"
+  const then = new Date(isoString).getTime()
+  if (isNaN(then)) return "—"
+  const diffMs = Date.now() - then
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return "agora"
+  if (min < 60) return `há ${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `há ${h} h`
+  const d = Math.floor(h / 24)
+  return `há ${d} d`
+}

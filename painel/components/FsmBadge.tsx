@@ -1,0 +1,181 @@
+import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
+import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
+
+/* ============================ Appointment FSM ============================ */
+
+const APPT_CLASS: Record<string, string> = {
+  DRAFT:       "bg-muted text-muted-foreground border-border",
+  REQUESTED:   "bg-sky-500/15 text-sky-700 border-sky-500/30 dark:text-sky-300",
+  SCHEDULED:   "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300",
+  IN_PROGRESS: "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300",
+  COMPLETED:   "bg-muted text-muted-foreground border-border",
+  CANCELLED:   "bg-destructive/15 text-destructive border-destructive/30",
+  NO_SHOW:     "bg-destructive/15 text-destructive border-destructive/30",
+  FAILED:      "bg-destructive/15 text-destructive border-destructive/30",
+}
+
+export function AppointmentBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", APPT_CLASS[status])}>
+      {APPOINTMENT_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ============================== Payment FSM ============================== */
+
+const PAY_LABEL: Record<string, string> = {
+  PENDING:   "Pendente",
+  CONFIRMED: "Confirmado",
+  REFUNDED:  "Estornado",
+  FAILED:    "Falhou",
+  CANCELLED: "Cancelado",
+}
+
+const PAY_CLASS: Record<string, string> = {
+  PENDING:   "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300",
+  CONFIRMED: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300",
+  REFUNDED:  "bg-muted text-muted-foreground border-border",
+  FAILED:    "bg-destructive/15 text-destructive border-destructive/30",
+  CANCELLED: "bg-muted text-muted-foreground border-border",
+}
+
+export function PaymentBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PAY_CLASS[status])}>
+      {PAY_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ============================ CRM Classification ============================ */
+
+const CRM_LABEL: Record<string, string> = {
+  NOVO:       "Novo",
+  FREQUENTE:  "Frequente",
+  VIP:        "VIP",
+  EM_RISCO:   "Em risco",
+  RECUPERADO: "Recuperado",
+  REGULAR:    "Regular",
+}
+
+const CRM_CLASS: Record<string, string> = {
+  NOVO:       "bg-sky-500/15 text-sky-700 border-sky-500/30 dark:text-sky-300",
+  FREQUENTE:  "bg-primary/10 text-primary border-primary/30",
+  VIP:        "bg-sidebar-primary/15 text-sidebar-primary border-sidebar-primary/40",
+  EM_RISCO:   "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300",
+  RECUPERADO: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300",
+  REGULAR:    "bg-muted text-muted-foreground border-border",
+}
+
+export function CrmBadge({ classification }: { classification: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", CRM_CLASS[classification])}>
+      {CRM_LABEL[classification] ?? classification}
+    </Badge>
+  )
+}
+
+/* ====================== Fase 2 — FSMs do Comercial ====================== */
+
+const EMERALD = "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300"
+const AMBER = "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300"
+const DESTRUCTIVE = "bg-destructive/15 text-destructive border-destructive/30"
+const NEUTRAL = "bg-muted text-muted-foreground border-border"
+
+/* --------------------------- PackagePurchase --------------------------- */
+
+const PKG_PURCHASE_LABEL: Record<string, string> = {
+  PENDING_PAYMENT: "Pagamento pendente",
+  ACTIVE:          "Ativo",
+  REVOKED:         "Revogado",
+}
+
+const PKG_PURCHASE_CLASS: Record<string, string> = {
+  PENDING_PAYMENT: AMBER,
+  ACTIVE:          EMERALD,
+  REVOKED:         DESTRUCTIVE,
+}
+
+export function PackagePurchaseBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PKG_PURCHASE_CLASS[status])}>
+      {PKG_PURCHASE_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------ Subscription ------------------------------ */
+
+const SUBSCRIPTION_LABEL: Record<string, string> = {
+  ACTIVE:    "Ativa",
+  PAUSED:    "Pausada",
+  OVERDUE:   "Em atraso",
+  SUSPENDED: "Suspensa",
+  CANCELLED: "Cancelada",
+}
+
+const SUBSCRIPTION_CLASS: Record<string, string> = {
+  ACTIVE:    EMERALD,
+  PAUSED:    AMBER,
+  OVERDUE:   AMBER,
+  SUSPENDED: DESTRUCTIVE,
+  CANCELLED: NEUTRAL,
+}
+
+export function SubscriptionBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", SUBSCRIPTION_CLASS[status])}>
+      {SUBSCRIPTION_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ------------------------------- Promotion ------------------------------- */
+
+const PROMOTION_LABEL: Record<string, string> = {
+  DRAFT:     "Rascunho",
+  ACTIVE:    "Ativa",
+  PAUSED:    "Pausada",
+  EXPIRED:   "Expirada",
+  CANCELLED: "Cancelada",
+}
+
+const PROMOTION_CLASS: Record<string, string> = {
+  DRAFT:     NEUTRAL,
+  ACTIVE:    EMERALD,
+  PAUSED:    AMBER,
+  EXPIRED:   NEUTRAL,
+  CANCELLED: DESTRUCTIVE,
+}
+
+export function PromotionBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", PROMOTION_CLASS[status])}>
+      {PROMOTION_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+/* --------------------------------- Coupon --------------------------------- */
+
+const COUPON_LABEL: Record<string, string> = {
+  ACTIVE:    "Ativo",
+  EXHAUSTED: "Esgotado",
+  CANCELLED: "Cancelado",
+}
+
+const COUPON_CLASS: Record<string, string> = {
+  ACTIVE:    EMERALD,
+  EXHAUSTED: NEUTRAL,
+  CANCELLED: DESTRUCTIVE,
+}
+
+export function CouponBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", COUPON_CLASS[status])}>
+      {COUPON_LABEL[status] ?? status}
+    </Badge>
+  )
+}

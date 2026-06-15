@@ -76,6 +76,43 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
   { key: "MAQUININHA_DEBIT_OUTROS",       label: "Débito Outros",       shortLabel: "Outros",     group: "Débito",         payment_method: "MAQUININHA", payment_submethod: "DEBIT_OUTROS" },
 ]
 
+/* ============================ Fase 2 — Comercial ============================ */
+
+// Status de cota (CustomerCredit) — usado na ficha do cliente e em compras de pacote
+export const CUSTOMER_CREDIT_STATUS_LABELS: Record<string, string> = {
+  ACTIVE:    "Ativo",
+  EXHAUSTED: "Esgotado",
+  EXPIRED:   "Expirado",
+  REVOKED:   "Revogado",
+}
+
+// Tipo de desconto de promoção
+export const DISCOUNT_TYPE_LABELS: Record<string, string> = {
+  PERCENTAGE:     "Percentual",
+  FIXED_AMOUNT:   "Valor fixo",
+  OVERRIDE_PRICE: "Preço fixo",
+  FREE_ITEM:      "Item grátis",
+}
+
+// Modo de aplicação de promoção
+export const APPLICATION_MODE_LABELS: Record<string, string> = {
+  AUTOMATIC:       "Automática",
+  COUPON_REQUIRED: "Requer cupom",
+}
+
+// Tipo de geração de cupom
+export const GENERATION_TYPE_LABELS: Record<string, string> = {
+  BULK:         "Em lote",
+  SINGLE_USE:   "Uso único",
+  PER_CUSTOMER: "Por cliente",
+}
+
+// Política de reabertura de cupom no estorno
+export const COUPON_REOPEN_LABELS: Record<string, string> = {
+  NEVER_REOPEN:     "Não reabrir",
+  REOPEN_ON_REFUND: "Reabrir no estorno",
+}
+
 export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   SCHEDULED:   "Agendado",
   REQUESTED:   "Solicitado",

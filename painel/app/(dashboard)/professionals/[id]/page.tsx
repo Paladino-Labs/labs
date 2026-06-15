@@ -2,14 +2,18 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useRouter, useParams } from "next/navigation"
+import { toast } from "sonner"
+import { Pencil, Trash2 } from "lucide-react"
 import { api } from "@/lib/api"
-import { formatDateTime } from "@/lib/utils"
+import { useAuth } from "@/hooks/useAuth"
+import { formatDateTime, formatBRLFromDecimal } from "@/lib/utils"
 import type {
   Professional,
   Service,
   WorkingHour,
   ScheduleBlock,
   ProfessionalService,
+  PricingOverride,
 } from "@/types"
 import { ActiveBadge } from "@/components/ActiveBadge"
 import { Button } from "@/components/ui/button"
@@ -75,12 +79,256 @@ function mergeWh(fetched: WorkingHour[]): WhRow[] {
   })
 }
 
+// ── Preços por serviço (overrides) ─────────────────────────────────────────────
+
+function PricingOverridesCard({ profId }: { profId: string }) {
+  const [overrides, setOverrides] = useState<PricingOverride[]>([])
+  const [services, setServices] = useState<Service[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // form criar
+  const [addOpen, setAddOpen] = useState(false)
+  const [newServiceId, setNewServiceId] = useState("")
+  const [newPrice, setNewPrice] = useState("")
+  const [newDuration, setNewDuration] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  // form editar
+  const [editing, setEditing] = useState<PricingOverride | null>(null)
+  const [editPrice, setEditPrice] = useState("")
+  const [editDuration, setEditDuration] = useState("")
+  const [editActive, setEditActive] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const [ov, svc] = await Promise.all([
+        api.get<PricingOverride[]>(`/professionals/${profId}/pricing-overrides`),
+        api.get<Service[]>("/services/"),
+      ])
+      setOverrides(ov)
+      setServices(svc)
+    } catch (e: unknown) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [profId])
+
+  useEffect(() => { load() }, [load])
+
+  const serviceMap = new Map(services.map((s) => [s.id, s]))
+  const availableServices = services.filter(
+    (s) => s.active && !overrides.find((o) => o.service_id === s.id),
+  )
+  const newServiceLabel = newServiceId ? (serviceMap.get(newServiceId)?.name ?? "") : ""
+
+  async function handleCreate() {
+    if (!newServiceId || !newPrice) return
+    setSaving(true)
+    try {
+      await api.post(`/professionals/${profId}/pricing-overrides`, {
+        service_id: newServiceId,
+        price: parseFloat(newPrice),
+        ...(newDuration ? { duration_min: parseInt(newDuration, 10) } : {}),
+      })
+      toast.success("Override criado")
+      setAddOpen(false)
+      setNewServiceId(""); setNewPrice(""); setNewDuration("")
+      load()
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao criar override")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function openEdit(o: PricingOverride) {
+    setEditing(o)
+    setEditPrice(o.price)
+    setEditDuration(o.duration_min != null ? String(o.duration_min) : "")
+    setEditActive(o.is_active)
+  }
+
+  async function handleSaveEdit() {
+    if (!editing) return
+    try {
+      await api.patch(`/professionals/${profId}/pricing-overrides/${editing.override_id}`, {
+        price: parseFloat(editPrice),
+        duration_min: editDuration ? parseInt(editDuration, 10) : null,
+        is_active: editActive,
+      })
+      toast.success("Override atualizado")
+      setEditing(null)
+      load()
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao salvar override")
+    }
+  }
+
+  async function handleDelete(o: PricingOverride) {
+    if (!confirm(`Remover o override de "${serviceMap.get(o.service_id)?.name ?? o.service_id}"?`)) return
+    try {
+      await api.delete(`/professionals/${profId}/pricing-overrides/${o.override_id}`)
+      toast.success("Override removido")
+      load()
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao remover override")
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Preços por Serviço</CardTitle>
+          <Button size="sm" onClick={() => setAddOpen(true)} disabled={availableServices.length === 0}>
+            + Novo override
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : overrides.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum override. Por padrão, este profissional usa o preço base de cada serviço.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Serviço</TableHead>
+                <TableHead className="text-right">Preço base</TableHead>
+                <TableHead className="text-right">Override</TableHead>
+                <TableHead className="text-right">Duração</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {overrides.map((o) => {
+                const svc = serviceMap.get(o.service_id)
+                return (
+                  <TableRow key={o.override_id} className={o.is_active ? "" : "opacity-50"}>
+                    <TableCell className="font-medium">{svc?.name ?? o.service_id}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {svc ? formatBRLFromDecimal(svc.price) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">{formatBRLFromDecimal(o.price)}</TableCell>
+                    <TableCell className="text-right">
+                      {o.duration_min != null ? `${o.duration_min} min` : "—"}
+                    </TableCell>
+                    <TableCell><ActiveBadge active={o.is_active} /></TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon-sm" onClick={() => openEdit(o)}>
+                          <Pencil />
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" className="text-destructive" onClick={() => handleDelete(o)}>
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      {/* Dialog criar */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Novo override de preço</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-1">
+              <Label>Serviço *</Label>
+              <Select value={newServiceId} onValueChange={(v) => v && setNewServiceId(v)}>
+                <SelectTrigger className="w-full">
+                  <span className={newServiceId ? "text-foreground" : "text-muted-foreground"}>
+                    {newServiceId ? newServiceLabel : "Selecione um serviço"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {availableServices.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} — {formatBRLFromDecimal(s.price)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="po-price">Preço (R$) *</Label>
+                <Input id="po-price" type="number" min="0" step="0.01"
+                  value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="0.00" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="po-duration">Duração (min)</Label>
+                <Input id="po-duration" type="number" min="1"
+                  value={newDuration} onChange={(e) => setNewDuration(e.target.value)} placeholder="opcional" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
+            <Button onClick={handleCreate} disabled={saving || !newServiceId || !newPrice}>
+              {saving ? "Salvando…" : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog editar */}
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar override — {editing ? (serviceMap.get(editing.service_id)?.name ?? "") : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="eo-price">Preço (R$)</Label>
+                <Input id="eo-price" type="number" min="0" step="0.01"
+                  value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="eo-duration">Duração (min)</Label>
+                <Input id="eo-duration" type="number" min="1"
+                  value={editDuration} onChange={(e) => setEditDuration(e.target.value)} placeholder="opcional" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <Label htmlFor="eo-active">Ativo</Label>
+              <input id="eo-active" type="checkbox" checked={editActive}
+                onChange={(e) => setEditActive(e.target.checked)}
+                className="h-4 w-4 accent-primary cursor-pointer" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button onClick={handleSaveEdit}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function ProfessionalEditorPage() {
   const router = useRouter()
   const params = useParams()
   const profId = params.id as string
+  const { role } = useAuth()
+  const canManagePricing = role === "OWNER" || role === "ADMIN"
 
   // ── Estado ────────────────────────────────────────────────────────────────
   const [prof, setProf] = useState<Professional | null>(null)
@@ -498,6 +746,9 @@ export default function ProfessionalEditorPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── 3b. Preços por serviço (OWNER/ADMIN) ─────────────────────────── */}
+      {canManagePricing && <PricingOverridesCard profId={profId} />}
 
       {/* ── 4. Bloqueios de agenda ───────────────────────────────────────── */}
       <Card>

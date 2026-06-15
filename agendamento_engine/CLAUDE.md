@@ -1,5 +1,23 @@
 **Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s25f_product_extras`.
 
+## Estado final — Estágio 0 conforme (2026-06-13, pré-push)
+Análise de conformidade plano vs. código: **`docs/conformidade-estagio-0.md`**. Os 15 sprints
+(`I → 18 → 17 → 16 → E → B → A → D → C → G → H → 2.0 → 2.6 → 2.7 → 25`) estão implementados e
+verificados em código: migration + módulo + router em `main.py` (44 routers) + handlers no
+lifespan (12 grupos, incl. `register_deposit_handlers`) + workers no beat_schedule. Cadeia
+Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite: **951 passed,
+6 skipped, 1 xfailed** (zero regressões). `tests/contract/` (7 contratos) verde.
+- **Veredicto: pronto para push com ressalvas operacionais** (não são bug de código):
+  1. Vars Railway — `SECRET_KEY` ainda é `"troque-em-producao"` (TROCAR); configurar
+     `CREDENTIAL_ENCRYPTION_KEY`, `EMAIL_PROVIDER`+chave real, `LLM_API_KEY` (vazio → sem LLM,
+     só regex), `FRONTEND_BASE_URL`, `ASAAS_API_URL` de produção. Checklist na Seção 8 do relatório.
+  2. `scripts/backfill_identity.py` pronto mas **NÃO executado** (janela de manutenção, antes de crescer a base).
+  3. Templates `appointment.completed` (Sprint I) + 5 do Sprint G via SQL para tenants antigos.
+  4. PagSeguro Point continua bloqueado (stubs não confirmados).
+- **Único DoD não cumprido (não bloqueador, Estágio 1+):** eixos CUSTOM de comissão
+  (`professional_share`/`prior_commission_share`/`use_net_of_discount`) não existem no schema.
+- Nenhum desvio não documentado de impacto; nenhum bloqueador de segurança/dados/contrato de API.
+
 ## Sprint 25 — Schema-only Estágio 1+ + suite de contrato + DEPOSIT (2026-06-13)
 - **6 migrations schema-only em cadeia** (← e0s27a), SEM endpoint/service/tela —
   apenas estruturas para o Estágio 1+, RLS canônico `app.current_company_id`:
