@@ -52,12 +52,7 @@ export default function NpsRespondPage({ params }: { params: Promise<{ survey_id
   }
 
   return (
-    <div className="book-page min-h-screen bg-background flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <span className="font-display text-2xl tracking-[0.3em] text-primary">PALADINO</span>
-        </div>
-
+    <div className="mx-auto w-full max-w-md">
         <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
           {phase === "success" ? (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
@@ -129,7 +124,6 @@ export default function NpsRespondPage({ params }: { params: Promise<{ survey_id
             </>
           )}
         </div>
-      </div>
     </div>
   )
 }

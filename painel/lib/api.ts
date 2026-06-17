@@ -103,7 +103,12 @@ export async function publicFetch<T>(path: string, options?: RequestInit): Promi
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(parseDetailMessage(body.detail))
+    // Expõe o status HTTP no erro (mesmo padrão de apiFetch) para que telas
+    // públicas distingam 404 / 422 / 429. Mantém .message para chamadas que só leem o texto.
+    const err = Object.assign(new Error(parseDetailMessage(body.detail)), {
+      status: res.status,
+    }) as ApiError
+    throw err
   }
 
   if (res.status === 204) return undefined as T

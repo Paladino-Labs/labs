@@ -1,6 +1,20 @@
 # painel — contexto operacional
 
-**Sprint atual:** Sprint 6 em andamento (Fase 2 — Financial Core)
+**Sprint atual:** Fase 5A concluída. Superfícies públicas (shell, /manage, NPS,
+aba Produtos) implementadas. Aba Produtos: EmptyState aguardando
+`GET /booking/{slug}/products` (backend pendente). Próxima fase: 5B — Portal do
+Cliente `(portal)/*`.
+
+## Superfícies públicas — `app/(public)/`
+
+| Caminho | Função |
+|---------|--------|
+| `layout.tsx` | shell público compartilhado (wordmark PALADINO + footer; sem auth, sem redirect) |
+| `manage/[token]/` | gestão de agendamento sem login (`ManageDetailsResponse`, 6 campos) |
+| `nps/respond/[survey_id]/` | resposta pública de NPS (re-hospedada da Fase 4) |
+
+`/book/[slug]` permanece em `app/book/[slug]/` — **fora** do grupo `(public)`,
+com chrome próprio.
 ## Design — Sprints A–F + Ajustes concluídos ✅
 - Todos os desvios resolvidos: ícones semânticos, brand icons → texto,
   tab Barbeiros sem risco de erro em produção
@@ -26,8 +40,12 @@ Mudanças de UI (RBAC visível, dashboards role-aware) são Fase 3.
 - Estrutura da UI é única; aparência muda por tokens — não criar layouts paralelos por tenant
 - Sidebar: sem filtro por role na Fase 1 → RBAC visível no frontend é Fase 3 (fora do escopo desta fase)
 - Imports de `lib/api.ts` sempre — nunca `fetch` raw
+- `publicFetch` expõe `.status` no erro lançado (`Object.assign`, mesmo padrão de
+  `apiFetch`). Consumidores que só leem `.message` não são afetados.
 - Formatação monetária: `formatBRL()` de `lib/utils.ts`
-- Formatação de data: `formatDateTime()` de `lib/utils.ts` com `timeZone` explícito
+- Formatação de data: `formatDateTime(iso: string, timeZone?: string)` de
+  `lib/utils.ts`. 2º parâmetro opcional (backward-compatible); sem arg = locale do
+  browser. Passar `"America/Sao_Paulo"` nas superfícies públicas (P2).
 - Componentes usam tokens semânticos do design system (bg-card, border-border,
   text-muted-foreground, bg-primary) — nunca valores hardcoded (bg-white, text-gray-*)
 - Display type: [font-family:var(--font-display)] apenas em elementos não-heading (span, div)
@@ -73,6 +91,12 @@ Login em `app/page.tsx`.
   → usar `POST /users/invite` + `POST /auth/activate`
 - Não criar UI nova para módulos da Fase 1 (foco é backend)
 - Não referenciar `painel/painel/` — diretório removido (era resíduo de remoção de submódulo)
+- Não criar rota `/gestao/[token]` — o backend gera links para `/manage/{token}`
+  (`build_manage_url`). Se precisar de alias, usar `next.config` rewrite, nunca como
+  rota primária.
+- Não chamar `/tenant/branding` nas superfícies públicas — exige `company_id`; P2 e
+  P3 não têm esse dado.
+- Não usar `api.publicPost` — não existe. Helper público = `publicFetch` (`lib/api.ts`).
 
 ## Sprints de design (espelhamento barberflow-system)
 

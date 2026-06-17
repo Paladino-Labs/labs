@@ -3,12 +3,13 @@
 import { Suspense, useEffect, useRef, useState } from "react"
 import {
   Clock, CreditCard, ExternalLink, Frown,
-  MapPin, MessageCircle, Phone, Scissors, Star,
+  MapPin, MessageCircle, Package, Phone, Scissors, Star,
 } from "lucide-react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import BookingFlow from "./BookingFlow"
 import { publicFetch } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/empty-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBRL } from "@/lib/utils"
 
@@ -284,6 +285,7 @@ function BookingContent() {
             <TabsList>
               <TabsTrigger value="services">Serviços</TabsTrigger>
               <TabsTrigger value="professionals">Barbeiros</TabsTrigger>
+              <TabsTrigger value="products">Produtos</TabsTrigger>
               <TabsTrigger value="reviews">Avaliações</TabsTrigger>
             </TabsList>
 
@@ -356,6 +358,16 @@ function BookingContent() {
                   ))}
                 </div>
               )}
+            </TabsContent>
+
+            <TabsContent value="products">
+              {/* TODO: wiring bloqueado — aguardando GET /booking/{slug}/products (backend) */}
+              {/* Quando disponível: id, name, price, image_url?, description?, available(bool) */}
+              <EmptyState
+                icon={<Package size={28} strokeWidth={1.5} />}
+                title="Em breve"
+                description="Os produtos do estabelecimento aparecerão aqui."
+              />
             </TabsContent>
 
             <TabsContent value="reviews">
