@@ -1,7 +1,9 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { api } from "@/lib/api"
+import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,7 +28,6 @@ export default function SecurityPage() {
   })
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -65,29 +66,24 @@ export default function SecurityPage() {
     if (!validate()) return
 
     setSaving(true)
-    setError(null)
     setSuccess(false)
 
     try {
       await api.post("/auth/change-password", form)
       setSuccess(true)
       setForm({ current_password: "", new_password: "", new_password_confirm: "" })
+      toast.success("Senha alterada com sucesso")
       setTimeout(() => setSuccess(false), 4000)
     } catch (err: unknown) {
-      setError((err as Error).message ?? "Erro ao alterar senha.")
+      toast.error((err as Error).message ?? "Erro ao alterar senha.")
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="max-w-lg">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl">Segurança</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Altere sua senha de acesso.
-        </p>
-      </div>
+    <div className="max-w-lg space-y-6">
+      <PageHeader eyebrow="Configurações" title="Segurança" description="Altere sua senha de acesso." />
 
       <Card>
         <CardHeader>
@@ -143,10 +139,6 @@ export default function SecurityPage() {
                 <p className="text-xs text-destructive">{fieldErrors.new_password_confirm}</p>
               )}
             </div>
-
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
 
             {success && (
               <div className="rounded-lg border border-success/40 bg-success/15 px-4 py-3 text-sm text-success">

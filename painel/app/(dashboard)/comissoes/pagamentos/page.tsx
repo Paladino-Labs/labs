@@ -1,21 +1,22 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { CheckCircle } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
+import { Lock } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/context/AuthContext"
-import { Badge } from "@/components/ui/badge"
+import { formatBRL } from "@/lib/utils"
+import { PageHeader } from "@/components/PageHeader"
+import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/ErrorState"
+import { CommissionPayoutBadge } from "@/components/FsmBadge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
-import { formatBRL } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,13 @@ export default function ComissoesPagamentosPage() {
   const { role } = useAuth()
 
   if (role !== "OWNER" && role !== "ADMIN") {
-    return <p className="text-sm text-muted-foreground">Acesso restrito.</p>
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Comissões" title="Pagamentos de comissões" />
+        <EmptyState icon={<Lock size={28} strokeWidth={1.5} />} title="Acesso restrito"
+          description="Disponível apenas para Proprietário e Administrador." />
+      </div>
+    )
   }
 
   return <PageContent />
@@ -83,29 +90,27 @@ function PageContent() {
   const [pendingLoading, setPendingLoading]         = useState(false)
   const [selectedAccountId, setSelectedAccountId]  = useState<string>("")
   const [posting, setPosting]                       = useState(false)
-  const [postError, setPostError]                   = useState<string | null>(null)
-  const [confirmation, setConfirmation]             = useState<{
-    amount: number
-    professionalName: string
-    count: number
-  } | null>(null)
 
   // ── Bootstrap fetch ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    Promise.all([
-      api.get<Professional[]>("/professionals"),
-      api.get<CommissionPayout[]>("/commission-payouts"),
-      api.get<Account[]>("/financial/accounts"),
-    ])
-      .then(([profs, pts, accs]) => {
-        setProfessionals(profs)
-        setPayouts(pts)
-        setAccounts(accs)
-        const def = accs.find((a) => a.is_default_inflow) ?? accs[0]
-        if (def) setSelectedAccountId(def.account_id)
-      })
-      .catch((e: Error) => setBootError(e.message))
+  const loadBoot = useCallback(async () => {
+    setBootError(null)
+    try {
+      const [profs, pts, accs] = await Promise.all([
+        api.get<Professional[]>("/professionals"),
+        api.get<CommissionPayout[]>("/commission-payouts"),
+        api.get<Account[]>("/financial/accounts"),
+      ])
+      setProfessionals(profs)
+      setPayouts(pts)
+      setAccounts(accs)
+      const def = accs.find((a) => a.is_default_inflow) ?? accs[0]
+      if (def) setSelectedAccountId(def.account_id)
+    } catch (e: unknown) {
+      setBootError((e as Error).message)
+    }
   }, [])
+
+  useEffect(() => { loadBoot() }, [loadBoot])
 
   // ── Fetch pending commissions when professional changes ──────────────────────
   useEffect(() => {
@@ -114,125 +119,68 @@ function PageContent() {
       return
     }
     setPendingLoading(true)
-    setPostError(null)
     api
       .get<Commission[]>(`/commissions?professional_id=${selectedProfId}`)
       .then((all) =>
-        setPendingCommissions(
-          all.filter((c) => c.status === "CALCULATED" || c.status === "DUE"),
-        ),
+        setPendingCommissions(all.filter((c) => c.status === "CALCULATED" || c.status === "DUE")),
       )
-      .catch((e: Error) => setPostError(e.message))
+      .catch((e: Error) => toast.error(e.message ?? "Erro ao carregar comissões"))
       .finally(() => setPendingLoading(false))
   }, [selectedProfId])
 
   // ── Reload payouts after successful payout ───────────────────────────────────
   function reloadPayouts() {
-    api
-      .get<CommissionPayout[]>("/commission-payouts")
-      .then(setPayouts)
-      .catch(() => {})
+    api.get<CommissionPayout[]>("/commission-payouts").then(setPayouts).catch(() => {})
   }
 
   // ── Submit payout ────────────────────────────────────────────────────────────
   async function handlePayout() {
     if (pendingCommissions.length === 0 || !selectedProfId) return
     setPosting(true)
-    setPostError(null)
     try {
       await api.post("/commission-payouts", {
         professional_id: selectedProfId,
         commission_ids: pendingCommissions.map((c) => c.commission_id),
         account_id: selectedAccountId,
       })
-      const prof = professionals.find((p) => p.id === selectedProfId)
-      const total = pendingCommissions.reduce(
-        (s, c) => s + Number(c.commission_amount),
-        0,
-      )
-      setConfirmation({
-        amount: total,
-        professionalName: prof?.name ?? selectedProfId,
-        count: pendingCommissions.length,
-      })
+      const total = pendingCommissions.reduce((s, c) => s + Number(c.commission_amount), 0)
+      toast.success(`Pagamento de ${formatBRL(total)} registrado`)
       reloadPayouts()
-      // auto-dismiss after 3s
-      setTimeout(() => {
-        setConfirmation(null)
-        setSelectedProfId("")
-        setPendingCommissions([])
-      }, 3000)
+      setSelectedProfId("")
+      setPendingCommissions([])
     } catch (e: unknown) {
-      setPostError(e instanceof Error ? e.message : "Erro ao registrar pagamento.")
+      toast.error(e instanceof Error ? e.message : "Erro ao registrar pagamento.")
     } finally {
       setPosting(false)
     }
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────────
-  const totalPending = pendingCommissions.reduce(
-    (s, c) => s + Number(c.commission_amount),
-    0,
-  )
+  const totalPending = pendingCommissions.reduce((s, c) => s + Number(c.commission_amount), 0)
   const profMap = Object.fromEntries(professionals.map((p) => [p.id, p.name]))
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
+      <PageHeader
+        eyebrow="Comissões"
+        title="Pagamentos de comissões"
+        description="Registre pagamentos de comissões pendentes e consulte o histórico de payouts."
+      />
 
-      {/* Cabeçalho */}
-      <div>
-        <h1 className="font-display text-3xl tracking-wide">Pagamentos de comissões</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Registre pagamentos de comissões pendentes e consulte o histórico de payouts
-        </p>
-      </div>
-
-      {bootError && (
-        <p className="text-sm text-destructive">Não foi possível carregar dados: {bootError}</p>
-      )}
+      {bootError && <ErrorState message={bootError} onRetry={loadBoot} />}
 
       {/* ── SEÇÃO 1: Criar payout ──────────────────────────────────────────────── */}
       <Card>
         <CardContent className="space-y-5 pt-6">
           <h2 className="text-base font-medium">Registrar pagamento</h2>
 
-          {/* Confirmation card */}
-          {confirmation && (
-            <div className="flex items-start gap-3 rounded-md border border-green-500/30 bg-green-500/10 p-4 text-sm text-green-700 dark:text-green-400">
-              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p className="font-medium">
-                  Pagamento de {formatBRL(confirmation.amount)} registrado com sucesso
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {confirmation.professionalName} · {confirmation.count}{" "}
-                  {confirmation.count === 1 ? "comissão paga" : "comissões pagas"}
-                </p>
-              </div>
-              <button
-                className="ml-auto text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setConfirmation(null)
-                  setSelectedProfId("")
-                  setPendingCommissions([])
-                }}
-              >
-                OK
-              </button>
-            </div>
-          )}
-
           {/* Professional select */}
           <div className="space-y-1.5">
             <Label>Profissional</Label>
             <Select
               value={selectedProfId}
-              onValueChange={(v) => {
-                setSelectedProfId(v ?? "")
-                setPostError(null)
-                setConfirmation(null)
-              }}
+              onValueChange={(v) => setSelectedProfId(v ?? "")}
             >
               <SelectTrigger className="w-full sm:w-72">
                 <SelectValue>
@@ -243,19 +191,17 @@ function PageContent() {
               </SelectTrigger>
               <SelectContent>
                 {professionals.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           {/* Pending commissions panel */}
-          {selectedProfId && !confirmation && (
+          {selectedProfId && (
             <div className="space-y-4">
               {pendingLoading ? (
-                <p className="text-sm text-muted-foreground">Carregando comissões…</p>
+                <Skeleton className="h-24 w-full" />
               ) : pendingCommissions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Nenhuma comissão pendente para{" "}
@@ -264,35 +210,24 @@ function PageContent() {
               ) : (
                 <>
                   {/* Compact commission list */}
-                  <div className="divide-y divide-border rounded-md border">
+                  <div className="divide-y divide-border rounded-md border border-border">
                     {pendingCommissions.map((c) => (
-                      <div
-                        key={c.commission_id}
-                        className="flex items-center justify-between px-3 py-2 text-sm"
-                      >
-                        <span className="text-muted-foreground">
-                          {formatDT(c.created_at)}
-                        </span>
-                        <span className="font-medium">
-                          {formatBRL(Number(c.commission_amount))}
-                        </span>
+                      <div key={c.commission_id} className="flex items-center justify-between px-3 py-2 text-sm">
+                        <span className="text-muted-foreground">{formatDT(c.created_at)}</span>
+                        <span className="font-medium">{formatBRL(Number(c.commission_amount))}</span>
                       </div>
                     ))}
                   </div>
 
                   <p className="text-sm font-medium">
-                    Total a pagar:{" "}
-                    <span className="text-primary">{formatBRL(totalPending)}</span>
+                    Total a pagar: <span className="text-primary">{formatBRL(totalPending)}</span>
                   </p>
 
                   {/* Account selector */}
                   {accounts.length > 1 ? (
                     <div className="space-y-1.5">
                       <Label>Conta para débito</Label>
-                      <Select
-                        value={selectedAccountId}
-                        onValueChange={(v) => setSelectedAccountId(v ?? "")}
-                      >
+                      <Select value={selectedAccountId} onValueChange={(v) => setSelectedAccountId(v ?? "")}>
                         <SelectTrigger className="w-full sm:w-72">
                           <SelectValue>
                             {accounts.find((a) => a.account_id === selectedAccountId)?.name ?? selectedAccountId}
@@ -300,9 +235,7 @@ function PageContent() {
                         </SelectTrigger>
                         <SelectContent>
                           {accounts.map((a) => (
-                            <SelectItem key={a.account_id} value={a.account_id}>
-                              {a.name}
-                            </SelectItem>
+                            <SelectItem key={a.account_id} value={a.account_id}>{a.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -313,25 +246,12 @@ function PageContent() {
                     </p>
                   ) : null}
 
-                  {postError && (
-                    <p className="text-sm text-destructive">{postError}</p>
-                  )}
-
-                  <Button
-                    onClick={handlePayout}
-                    disabled={pendingCommissions.length === 0 || posting}
-                  >
-                    {posting
-                      ? "Registrando…"
-                      : `Pagar ${formatBRL(totalPending)} em comissões`}
+                  <Button onClick={handlePayout} disabled={pendingCommissions.length === 0 || posting}>
+                    {posting ? "Registrando…" : `Pagar ${formatBRL(totalPending)} em comissões`}
                   </Button>
                 </>
               )}
             </div>
-          )}
-
-          {postError && !selectedProfId && (
-            <p className="text-sm text-destructive">{postError}</p>
           )}
         </CardContent>
       </Card>
@@ -341,39 +261,27 @@ function PageContent() {
         <h2 className="text-lg font-medium">Histórico de pagamentos</h2>
 
         {payouts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nenhum pagamento de comissão registrado.
-          </p>
+          <EmptyState title="Nenhum pagamento" description="Nenhum pagamento de comissão registrado." />
         ) : (
-          <div className="overflow-x-auto rounded-md border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-2.5 text-left font-medium">Data</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Profissional</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Comissões pagas</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Valor total</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Status</th>
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Data</th>
+                  <th className="px-4 py-3 text-left font-medium">Profissional</th>
+                  <th className="px-4 py-3 text-left font-medium">Comissões pagas</th>
+                  <th className="px-4 py-3 text-right font-medium">Valor total</th>
+                  <th className="px-4 py-3 text-left font-medium">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {payouts.map((p) => (
-                  <tr key={p.payout_id} className="hover:bg-muted/20">
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {formatDT(p.paid_at ?? p.created_at)}
-                    </td>
-                    <td className="px-4 py-3 font-medium">
-                      {profMap[p.professional_id] ?? p.professional_id}
-                    </td>
+                  <tr key={p.payout_id} className="transition-colors hover:bg-muted/30">
+                    <td className="px-4 py-3 text-muted-foreground">{formatDT(p.paid_at ?? p.created_at)}</td>
+                    <td className="px-4 py-3 font-medium">{profMap[p.professional_id] ?? p.professional_id}</td>
                     <td className="px-4 py-3 text-muted-foreground">—</td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatBRL(Number(p.total_amount))}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="default" className="bg-green-600 text-white hover:bg-green-600">
-                        Pago
-                      </Badge>
-                    </td>
+                    <td className="px-4 py-3 text-right font-medium">{formatBRL(Number(p.total_amount))}</td>
+                    <td className="px-4 py-3"><CommissionPayoutBadge status={p.status} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -381,7 +289,6 @@ function PageContent() {
           </div>
         )}
       </div>
-
     </div>
   )
 }

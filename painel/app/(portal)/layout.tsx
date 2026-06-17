@@ -9,7 +9,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     <div className="min-h-screen flex flex-col bg-background">
       <header className="border-b border-border">
         <div className="mx-auto max-w-3xl flex items-center justify-between px-6 h-14">
-          <Link href="/portal" className="font-display text-lg tracking-[0.3em] text-primary">
+          <Link href="/" className="font-display text-lg tracking-[0.3em] text-primary">
             PALADINO
           </Link>
         </div>

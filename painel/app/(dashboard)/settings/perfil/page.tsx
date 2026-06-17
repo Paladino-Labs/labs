@@ -1,20 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useAuth } from "@/context/AuthContext"
+import { ROLE_LABELS } from "@/lib/constants"
+import { PageHeader } from "@/components/PageHeader"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-
-const ROLE_LABELS: Record<string, string> = {
-  OWNER: "Proprietário",
-  ADMIN: "Administrador",
-  OPERATOR: "Operador",
-  PROFESSIONAL: "Profissional",
-}
 
 interface MeResponse {
   name: string
@@ -30,8 +26,6 @@ export default function PerfilPage() {
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("")
   const [loading, setLoading] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<MeResponse>("/auth/me").then((data) => {
@@ -48,15 +42,13 @@ export default function PerfilPage() {
     e.preventDefault()
     if (!isDirty) return
     setLoading(true)
-    setError(null)
     try {
       await api.patch("/auth/profile", { name })
       setOriginalName(name)
       setContextName(name)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      toast.success("Perfil atualizado")
     } catch (err: unknown) {
-      setError((err as Error).message ?? "Erro ao salvar.")
+      toast.error((err as Error).message ?? "Erro ao salvar.")
     } finally {
       setLoading(false)
     }
@@ -64,10 +56,7 @@ export default function PerfilPage() {
 
   return (
     <div className="max-w-xl space-y-6">
-      <div>
-        <h1 className="font-display text-3xl tracking-wide">Meu Perfil</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Suas informações de acesso</p>
-      </div>
+      <PageHeader eyebrow="Configurações" title="Meu Perfil" description="Suas informações de acesso." />
 
       <Card>
         <CardHeader>
@@ -105,15 +94,10 @@ export default function PerfilPage() {
               </div>
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={!isDirty || loading}>
                 {loading ? "Salvando…" : "Salvar"}
               </Button>
-              {saved && (
-                <span className="text-sm text-muted-foreground">Salvo ✓</span>
-              )}
             </div>
           </form>
         </CardContent>

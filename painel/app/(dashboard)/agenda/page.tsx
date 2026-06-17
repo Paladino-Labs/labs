@@ -6,17 +6,22 @@ import {
   format, startOfWeek, endOfWeek, addDays, isSameDay,
 } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { formatDateTime, formatBRL, cn } from "@/lib/utils"
-import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_STATUS_VARIANT } from "@/lib/constants"
+import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
 import type { Appointment, Professional } from "@/types"
-import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/ErrorState"
+import { AppointmentBadge } from "@/components/FsmBadge"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -141,6 +146,10 @@ export default function AppointmentsPage() {
   const [newStartAt,   setNewStartAt]   = useState("")
   const [rescheduling, setRescheduling] = useState(false)
 
+  // Cancelar confirmação
+  const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null)
+  const [cancelling,   setCancelling]   = useState(false)
+
   async function fetchAll() {
     try {
       setLoading(true)
@@ -212,14 +221,18 @@ export default function AppointmentsPage() {
     setPaymentTarget(appt)
   }
 
-  async function handleCancel(id: string) {
-    if (!confirm("Cancelar este agendamento?")) return
+  async function confirmCancel() {
+    if (!cancelTarget) return
+    setCancelling(true)
     try {
-      await api.patch(`/appointments/${id}/cancel`, { reason: "Cancelado pelo painel" })
-      setDetailAppt(null)
+      await api.patch(`/appointments/${cancelTarget.id}/cancel`, { reason: "Cancelado pelo painel" })
+      toast.success("Agendamento cancelado")
+      setCancelTarget(null)
       fetchAll()
     } catch (err: unknown) {
-      alert((err as Error).message)
+      toast.error((err as Error).message ?? "Erro ao cancelar")
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -230,12 +243,13 @@ export default function AppointmentsPage() {
       await api.patch(`/appointments/${rescheduleId}/reschedule`, {
         start_at: new Date(newStartAt).toISOString(),
       })
+      toast.success("Agendamento remarcado")
       setRescheduleId(null)
       setNewStartAt("")
       setDetailAppt(null)
       fetchAll()
     } catch (err: unknown) {
-      alert((err as Error).message)
+      toast.error((err as Error).message ?? "Erro ao remarcar")
     } finally {
       setRescheduling(false)
     }
@@ -271,8 +285,8 @@ export default function AppointmentsPage() {
   const profLabel   = profFilter   === "todos" ? "Todos os barbeiros"  : (professionals.find((p) => p.id === profFilter)?.name ?? "")
   const statusLabel = statusFilter === "todos" ? "Todos os status"     : (APPOINTMENT_STATUS_LABELS[statusFilter] ?? statusFilter)
 
-  if (loading) return <p className="text-muted-foreground">Carregando…</p>
-  if (error)   return <p className="text-destructive">{error}</p>
+  if (loading) return <Skeleton className="h-96 w-full" />
+  if (error)   return <ErrorState message={error} onRetry={fetchAll} />
 
   return (
     <div className="space-y-5">
@@ -413,9 +427,9 @@ export default function AppointmentsPage() {
 
           {/* Tabela */}
           {filtered.length === 0 ? (
-            <p className="text-center text-muted-foreground py-12 mt-4">
-              Nenhum agendamento para este dia.
-            </p>
+            <div className="mt-4">
+              <EmptyState title="Nenhum agendamento" description="Nenhum agendamento para este dia." />
+            </div>
           ) : (
             <div className="rounded-xl border border-border bg-card overflow-hidden mt-4">
               <Table>
@@ -454,18 +468,7 @@ export default function AppointmentsPage() {
                       <TableCell>{a.professional?.name ?? "—"}</TableCell>
 
                       <TableCell>
-                        <Badge
-                          variant={
-                            (APPOINTMENT_STATUS_VARIANT[a.status] as
-                              | "default"
-                              | "secondary"
-                              | "destructive"
-                              | "outline"
-                              | undefined) ?? "outline"
-                          }
-                        >
-                          {APPOINTMENT_STATUS_LABELS[a.status] ?? a.status}
-                        </Badge>
+                        <AppointmentBadge status={a.status} />
                       </TableCell>
 
                       <TableCell className="text-right whitespace-nowrap">
@@ -489,18 +492,7 @@ export default function AppointmentsPage() {
             </DialogHeader>
             <div className="space-y-4 py-1">
               <div className="flex items-center gap-2">
-                <Badge
-                  variant={
-                    (APPOINTMENT_STATUS_VARIANT[detailAppt.status] as
-                      | "default"
-                      | "secondary"
-                      | "destructive"
-                      | "outline"
-                      | undefined) ?? "outline"
-                  }
-                >
-                  {APPOINTMENT_STATUS_LABELS[detailAppt.status] ?? detailAppt.status}
-                </Badge>
+                <AppointmentBadge status={detailAppt.status} />
               </div>
 
               <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 text-sm">
@@ -561,7 +553,7 @@ export default function AppointmentsPage() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => handleCancel(detailAppt.id)}
+                  onClick={() => { setCancelTarget(detailAppt); setDetailAppt(null) }}
                 >
                   <X className="h-4 w-4 mr-1" />
                   Cancelar
@@ -596,6 +588,26 @@ export default function AppointmentsPage() {
             </Button>
             <Button onClick={handleReschedule} disabled={rescheduling}>
               {rescheduling ? "Salvando…" : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmar cancelamento */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar agendamento?</DialogTitle>
+            <DialogDescription>
+              {cancelTarget?.customer?.name
+                ? `O agendamento de ${cancelTarget.customer.name} será cancelado.`
+                : "Esta ação cancelará o agendamento."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCancelTarget(null)}>Voltar</Button>
+            <Button variant="destructive" onClick={confirmCancel} disabled={cancelling}>
+              {cancelling ? "Cancelando…" : "Cancelar agendamento"}
             </Button>
           </DialogFooter>
         </DialogContent>

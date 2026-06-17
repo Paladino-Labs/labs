@@ -1,26 +1,25 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
+import { PencilIcon, Trash2Icon, PlusIcon, Lock } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/hooks/useAuth"
 import { formatBRL } from "@/lib/utils"
+import { PageHeader } from "@/components/PageHeader"
+import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/ErrorState"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
-import { PencilIcon, Trash2Icon, PlusIcon } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -113,23 +112,22 @@ export default function PoliticasPage() {
   const [error,         setError]         = useState<string | null>(null)
 
   // Global policy inline form
-  const [globalForm,     setGlobalForm]     = useState<FormState>(EMPTY_FORM)
-  const [globalFeedback, setGlobalFeedback] = useState<string | null>(null)
-  const [globalSaving,   setGlobalSaving]   = useState(false)
+  const [globalForm,   setGlobalForm]   = useState<FormState>(EMPTY_FORM)
+  const [globalSaving, setGlobalSaving] = useState(false)
 
   // Modal
   const [modalOpen,    setModalOpen]    = useState(false)
   const [editingPolicy, setEditingPolicy] = useState<CommissionPolicyResponse | null>(null)
   const [modalForm,    setModalForm]    = useState<FormState>(EMPTY_FORM)
   const [modalSaving,  setModalSaving]  = useState(false)
-  const [modalError,   setModalError]   = useState<string | null>(null)
 
   // Confirm delete
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CommissionPolicyResponse | null>(null)
+  const [deleting,     setDeleting]     = useState(false)
 
   const canAccess = role === "OWNER" || role === "ADMIN"
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -163,19 +161,12 @@ export default function PoliticasPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    if (!hydrated) return
-    if (!canAccess) return
+    if (!hydrated || !canAccess) return
     loadAll()
-  }, [canAccess, hydrated]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!hydrated) return null
-  if (!canAccess)
-    return <p className="text-sm text-muted-foreground">Acesso restrito.</p>
-  if (loading) return <p className="text-muted-foreground">Carregando…</p>
-  if (error)   return <p className="text-destructive">{error}</p>
+  }, [canAccess, hydrated, loadAll])
 
   // ── Derived data ────────────────────────────────────────────────────────────
 
@@ -191,7 +182,6 @@ export default function PoliticasPage() {
 
   async function handleGlobalSave() {
     setGlobalSaving(true)
-    setGlobalFeedback(null)
     const isCustom = globalForm.commission_base === "CUSTOM_AMOUNT"
     const body = {
       commission_base:      globalForm.commission_base,
@@ -203,17 +193,12 @@ export default function PoliticasPage() {
       if (activeGlobal) {
         await api.patch(`/commission-policies/${activeGlobal.policy_id}`, body)
       } else {
-        await api.post("/commission-policies", {
-          ...body,
-          professional_id: null,
-          service_id:      null,
-        })
+        await api.post("/commission-policies", { ...body, professional_id: null, service_id: null })
       }
-      setGlobalFeedback("saved")
-      setTimeout(() => setGlobalFeedback(null), 2000)
+      toast.success("Regra geral salva")
       await loadAll()
     } catch (e: unknown) {
-      setGlobalFeedback(`error:${(e as Error).message ?? "Erro"}`)
+      toast.error((e as Error).message ?? "Erro ao salvar")
     } finally {
       setGlobalSaving(false)
     }
@@ -224,7 +209,6 @@ export default function PoliticasPage() {
   function openCreate() {
     setEditingPolicy(null)
     setModalForm(EMPTY_FORM)
-    setModalError(null)
     setModalOpen(true)
   }
 
@@ -240,13 +224,11 @@ export default function PoliticasPage() {
           ? policy.fixed_amount !== null ? String(Number(policy.fixed_amount)) : ""
           : policy.rate !== null ? String(Number(policy.rate)) : "",
     })
-    setModalError(null)
     setModalOpen(true)
   }
 
   async function handleModalSave() {
     setModalSaving(true)
-    setModalError(null)
     const isCustom = modalForm.commission_base === "CUSTOM_AMOUNT"
     const body = {
       professional_id:      modalForm.professional_id !== "" ? modalForm.professional_id : null,
@@ -262,10 +244,11 @@ export default function PoliticasPage() {
       } else {
         await api.post("/commission-policies", body)
       }
+      toast.success(editingPolicy ? "Regra atualizada" : "Regra criada")
       setModalOpen(false)
       await loadAll()
     } catch (e: unknown) {
-      setModalError((e as Error).message ?? "Erro ao salvar")
+      toast.error((e as Error).message ?? "Erro ao salvar")
     } finally {
       setModalSaving(false)
     }
@@ -273,156 +256,144 @@ export default function PoliticasPage() {
 
   // ── Delete ──────────────────────────────────────────────────────────────────
 
-  async function handleDelete(policy_id: string) {
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      await api.delete(`/commission-policies/${policy_id}`)
-      setConfirmDeleteId(null)
+      await api.delete(`/commission-policies/${deleteTarget.policy_id}`)
+      toast.success("Regra removida")
+      setDeleteTarget(null)
       await loadAll()
     } catch (e: unknown) {
-      alert((e as Error).message ?? "Erro ao excluir")
+      toast.error((e as Error).message ?? "Erro ao excluir")
+    } finally {
+      setDeleting(false)
     }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  if (!hydrated) return null
+
+  if (!canAccess) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Financeiro" title="Regras de comissão" />
+        <EmptyState icon={<Lock size={28} strokeWidth={1.5} />} title="Acesso restrito"
+          description="Disponível apenas para Proprietário e Administrador." />
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-4xl space-y-8">
+      <PageHeader
+        eyebrow="Financeiro"
+        title="Regras de comissão"
+        description="Configure como as comissões são calculadas para cada barbeiro e serviço."
+      />
 
-      {/* Page header */}
-      <div>
-        <h1 className="text-3xl tracking-wide">Regras de comissão</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Configure como as comissões são calculadas para cada barbeiro e serviço.
-        </p>
-      </div>
+      {loading ? (
+        <Skeleton className="h-64 w-full" />
+      ) : error ? (
+        <ErrorState message={error} onRetry={loadAll} />
+      ) : (
+        <>
+          {/* ── Seção 1: Política global ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Regra geral</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Aplicada quando não há regra específica para o barbeiro ou serviço.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <GlobalForm
+                form={globalForm}
+                onChange={setGlobalForm}
+                onSave={handleGlobalSave}
+                saving={globalSaving}
+                hasExisting={activeGlobal !== null}
+              />
+            </CardContent>
+          </Card>
 
-      {/* ── Seção 1: Política global ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Regra geral</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Aplicada quando não há regra específica para o barbeiro ou serviço.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <GlobalForm
-            form={globalForm}
-            onChange={setGlobalForm}
-            onSave={handleGlobalSave}
-            saving={globalSaving}
-            feedback={globalFeedback}
-            hasExisting={activeGlobal !== null}
-          />
-        </CardContent>
-      </Card>
-
-      {/* ── Seção 2: Políticas específicas ── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Regras específicas</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Substituem a regra global para combinações específicas de barbeiro/serviço.
-            </p>
-          </div>
-          <Button size="sm" onClick={openCreate}>
-            <PlusIcon className="mr-1.5 size-4" />
-            Nova regra
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          {specificActive.length === 0 ? (
-            <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-              Nenhuma regra específica cadastrada.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="px-6 py-3 font-medium">Profissional</th>
-                    <th className="px-4 py-3 font-medium">Serviço</th>
-                    <th className="px-4 py-3 font-medium">Base</th>
-                    <th className="px-4 py-3 font-medium">Taxa</th>
-                    <th className="px-4 py-3 font-medium">Quando</th>
-                    <th className="px-4 py-3 font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {specificActive.map((policy) => (
-                    <tr key={policy.policy_id} className="border-b last:border-0">
-                      <td className="px-6 py-3">{profName(policy.professional_id)}</td>
-                      <td className="px-4 py-3">{svcName(policy.service_id)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {BASE_LABELS[policy.commission_base] ?? policy.commission_base}
-                      </td>
-                      <td className="px-4 py-3 font-medium">{formatRate(policy)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {FEE_POLICY_LABELS[policy.commission_fee_policy] ?? policy.commission_fee_policy}
-                      </td>
-                      <td className="px-4 py-3">
-                        {confirmDeleteId === policy.policy_id ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">Desativar?</span>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDelete(policy.policy_id)}
-                            >
-                              Sim
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setConfirmDeleteId(null)}
-                            >
-                              Não
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              onClick={() => openEdit(policy)}
-                              aria-label="Editar"
-                            >
-                              <PencilIcon className="size-4" />
-                            </Button>
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setConfirmDeleteId(policy.policy_id)}
-                              aria-label="Excluir"
-                            >
-                              <Trash2Icon className="size-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          {/* ── Seção 2: Políticas específicas ── */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Regras específicas</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Substituem a regra global para combinações específicas de barbeiro/serviço.
+                </p>
+              </div>
+              <Button size="sm" onClick={openCreate}>
+                <PlusIcon className="mr-1.5 size-4" />
+                Nova regra
+              </Button>
+            </CardHeader>
+            <CardContent className={specificActive.length === 0 ? "" : "p-0"}>
+              {specificActive.length === 0 ? (
+                <EmptyState title="Nenhuma regra específica" description="A regra geral será aplicada a todos." />
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium">Profissional</th>
+                        <th className="px-4 py-3 text-left font-medium">Serviço</th>
+                        <th className="px-4 py-3 text-left font-medium">Base</th>
+                        <th className="px-4 py-3 text-left font-medium">Taxa</th>
+                        <th className="px-4 py-3 text-left font-medium">Quem paga</th>
+                        <th className="px-4 py-3 text-right font-medium">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {specificActive.map((policy) => (
+                        <tr key={policy.policy_id} className="transition-colors hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">{profName(policy.professional_id)}</td>
+                          <td className="px-4 py-3">{svcName(policy.service_id)}</td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {BASE_LABELS[policy.commission_base] ?? policy.commission_base}
+                          </td>
+                          <td className="px-4 py-3 font-medium">{formatRate(policy)}</td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {FEE_POLICY_LABELS[policy.commission_fee_policy] ?? policy.commission_fee_policy}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="icon-sm" variant="ghost" onClick={() => openEdit(policy)} aria-label="Editar">
+                                <PencilIcon className="size-4" />
+                              </Button>
+                              <Button size="icon-sm" variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setDeleteTarget(policy)} aria-label="Excluir">
+                                <Trash2Icon className="size-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       {/* ── Modal criação/edição ── */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {editingPolicy ? "Editar regra" : "Nova regra específica"}
-            </DialogTitle>
+            <DialogTitle>{editingPolicy ? "Editar regra" : "Nova regra específica"}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Profissional */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Profissional</label>
+              <Label>Profissional</Label>
               <Select
                 value={modalForm.professional_id}
                 onValueChange={(v) => setModalForm((f) => ({ ...f, professional_id: v ?? "" }))}
@@ -445,7 +416,7 @@ export default function PoliticasPage() {
 
             {/* Serviço */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Serviço</label>
+              <Label>Serviço</Label>
               <Select
                 value={modalForm.service_id}
                 onValueChange={(v) => setModalForm((f) => ({ ...f, service_id: v ?? "" }))}
@@ -468,17 +439,13 @@ export default function PoliticasPage() {
 
             {/* Base de cálculo */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Base de cálculo</label>
+              <Label>Base de cálculo</Label>
               <Select
                 value={modalForm.commission_base}
-                onValueChange={(v) =>
-                  setModalForm((f) => ({ ...f, commission_base: v ?? "", amount: "" }))
-                }
+                onValueChange={(v) => setModalForm((f) => ({ ...f, commission_base: v ?? "", amount: "" }))}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {BASE_LABELS[modalForm.commission_base] ?? modalForm.commission_base}
-                  </SelectValue>
+                  <SelectValue>{BASE_LABELS[modalForm.commission_base] ?? modalForm.commission_base}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {BASE_OPTIONS.map(([value, label]) => (
@@ -490,23 +457,23 @@ export default function PoliticasPage() {
 
             {/* Taxa / Valor fixo */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor="modal-amount">
                 {modalForm.commission_base === "CUSTOM_AMOUNT" ? "Valor fixo (R$)" : "Taxa (%)"}
-              </label>
-              <input
+              </Label>
+              <Input
+                id="modal-amount"
                 type="number"
                 step="0.01"
                 min="0"
                 value={modalForm.amount}
                 onChange={(e) => setModalForm((f) => ({ ...f, amount: e.target.value }))}
                 placeholder="0.00"
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
 
             {/* Quem paga a taxa do gateway */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa</label>
+              <Label>Quem paga a taxa</Label>
               <Select
                 value={modalForm.commission_fee_policy}
                 onValueChange={(v) => setModalForm((f) => ({ ...f, commission_fee_policy: v ?? "" }))}
@@ -522,22 +489,34 @@ export default function PoliticasPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Define quem absorve a taxa do meio de pagamento utilizado.
               </p>
             </div>
-
-            {modalError && (
-              <p className="text-xs text-destructive">{modalError}</p>
-            )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
+            <DialogClose render={<Button variant="ghost" />}>Cancelar</DialogClose>
             <Button onClick={handleModalSave} disabled={modalSaving}>
               {modalSaving ? "Salvando…" : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Confirmar exclusão ── */}
+      <Dialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Desativar regra?</DialogTitle>
+            <DialogDescription>
+              A regra de {deleteTarget ? profName(deleteTarget.professional_id) : ""} deixará de ser aplicada.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="ghost" />}>Voltar</DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Removendo…" : "Desativar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -553,33 +532,27 @@ function GlobalForm({
   onChange,
   onSave,
   saving,
-  feedback,
   hasExisting,
 }: {
   form: FormState
   onChange: (f: FormState) => void
   onSave: () => void
   saving: boolean
-  feedback: string | null
   hasExisting: boolean
 }) {
   const isCustom = form.commission_base === "CUSTOM_AMOUNT"
-  const saved    = feedback === "saved"
-  const errMsg   = feedback?.startsWith("error:") ? feedback.slice(6) : null
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {/* Base de cálculo */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Base de cálculo</label>
+        <Label>Base de cálculo</Label>
         <Select
           value={form.commission_base}
           onValueChange={(v) => onChange({ ...form, commission_base: v ?? "", amount: "" })}
         >
           <SelectTrigger className="w-full">
-            <SelectValue>
-              {BASE_LABELS[form.commission_base] ?? form.commission_base}
-            </SelectValue>
+            <SelectValue>{BASE_LABELS[form.commission_base] ?? form.commission_base}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {BASE_OPTIONS.map(([value, label]) => (
@@ -591,31 +564,27 @@ function GlobalForm({
 
       {/* Taxa / Valor fixo */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">
-          {isCustom ? "Valor fixo (R$)" : "Taxa (%)"}
-        </label>
-        <input
+        <Label htmlFor="global-amount">{isCustom ? "Valor fixo (R$)" : "Taxa (%)"}</Label>
+        <Input
+          id="global-amount"
           type="number"
           step="0.01"
           min="0"
           value={form.amount}
           onChange={(e) => onChange({ ...form, amount: e.target.value })}
           placeholder="0.00"
-          className="h-8 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
       {/* Quem paga a taxa do gateway */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Quem paga a taxa do gateway</label>
+        <Label>Quem paga a taxa do gateway</Label>
         <Select
           value={form.commission_fee_policy}
           onValueChange={(v) => onChange({ ...form, commission_fee_policy: v ?? "" })}
         >
           <SelectTrigger className="w-full">
-            <SelectValue>
-              {FEE_POLICY_LABELS[form.commission_fee_policy] ?? form.commission_fee_policy}
-            </SelectValue>
+            <SelectValue>{FEE_POLICY_LABELS[form.commission_fee_policy] ?? form.commission_fee_policy}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {FEE_OPTIONS.map(([value, label]) => (
@@ -623,22 +592,16 @@ function GlobalForm({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="mt-1 text-xs text-muted-foreground">
           Taxa cobrada pelo meio de pagamento (cartão, PIX, etc.)
         </p>
       </div>
 
       {/* Salvar */}
-      <div className="flex items-end gap-2">
-        <Button onClick={onSave} disabled={saving} size="sm" className="h-8">
+      <div className="flex items-end">
+        <Button onClick={onSave} disabled={saving}>
           {saving ? "Salvando…" : hasExisting ? "Salvar" : "Criar regra global"}
         </Button>
-        {saved && (
-          <span className="text-xs text-green-600">Salvo ✓</span>
-        )}
-        {errMsg && (
-          <span className="text-xs text-destructive">{errMsg}</span>
-        )}
       </div>
     </div>
   )

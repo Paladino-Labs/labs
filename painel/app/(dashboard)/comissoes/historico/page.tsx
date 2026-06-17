@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -15,7 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/ErrorState"
+import { CommissionBadge } from "@/components/FsmBadge"
 
 interface Commission {
   commission_id: string
@@ -58,38 +61,6 @@ function isPending(status: string): boolean {
   return status === "CALCULATED" || status === "DUE"
 }
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === "CALCULATED") {
-    return (
-      <Badge className="border border-yellow-200 bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
-        Pendente
-      </Badge>
-    )
-  }
-  if (status === "DUE") {
-    return (
-      <Badge className="border border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-100">
-        Vence em breve
-      </Badge>
-    )
-  }
-  if (status === "PAID") {
-    return (
-      <Badge className="border border-green-200 bg-green-100 text-green-800 hover:bg-green-100">
-        Paga
-      </Badge>
-    )
-  }
-  if (status === "REVERSED") {
-    return (
-      <Badge className="border border-red-200 bg-red-100 text-red-800 hover:bg-red-100">
-        Estornada
-      </Badge>
-    )
-  }
-  return <Badge variant="outline">{status}</Badge>
-}
-
 export default function HistoricoComissoesPage() {
   const [commissions, setCommissions] = useState<Commission[]>([])
   const [professionalMap, setProfessionalMap] = useState<Map<string, string>>(new Map())
@@ -103,6 +74,22 @@ export default function HistoricoComissoesPage() {
 
   const [professionals, setProfessionals] = useState<Professional[]>([])
 
+  const fetchCommissions = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    const params = new URLSearchParams()
+    if (professionalFilter !== "all") params.set("professional_id", professionalFilter)
+    if (statusFilter === "PAID") params.set("status", "PAID")
+    if (statusFilter === "REVERSED") params.set("status", "REVERSED")
+    if (dateFrom) params.set("date_from", dateFrom)
+    if (dateTo) params.set("date_to", dateTo)
+    const qs = params.toString()
+    api.get<Commission[]>(`/commissions${qs ? `?${qs}` : ""}`)
+      .then(setCommissions)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [professionalFilter, statusFilter, dateFrom, dateTo])
+
   useEffect(() => {
     api.get<Professional[]>("/professionals")
       .then((data) => {
@@ -111,28 +98,10 @@ export default function HistoricoComissoesPage() {
       })
       .catch(() => {})
 
+    // Carrega na montagem; filtros subsequentes via botão "Filtrar".
     fetchCommissions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  function buildQueryParams() {
-    const params = new URLSearchParams()
-    if (professionalFilter !== "all") params.set("professional_id", professionalFilter)
-    if (statusFilter === "PAID") params.set("status", "PAID")
-    if (statusFilter === "REVERSED") params.set("status", "REVERSED")
-    if (dateFrom) params.set("date_from", dateFrom)
-    if (dateTo) params.set("date_to", dateTo)
-    return params.toString()
-  }
-
-  function fetchCommissions() {
-    setLoading(true)
-    setError(null)
-    const qs = buildQueryParams()
-    api.get<Commission[]>(`/commissions${qs ? `?${qs}` : ""}`)
-      .then(setCommissions)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
-  }
 
   function handleFilter() {
     fetchCommissions()
@@ -150,9 +119,7 @@ export default function HistoricoComissoesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl tracking-wide">Histórico de Comissões</h1>
-      </div>
+      <PageHeader eyebrow="Comissões" title="Histórico de comissões" description="Comissões geradas por agendamentos, pacotes e assinaturas." />
 
       <Card>
         <CardHeader>
@@ -221,16 +188,12 @@ export default function HistoricoComissoesPage() {
         </CardContent>
       </Card>
 
-      {loading && (
-        <p className="text-sm text-muted-foreground">Carregando comissões...</p>
-      )}
+      {loading && <Skeleton className="h-64 w-full" />}
 
-      {error && (
-        <p className="text-sm text-destructive">Não foi possível carregar as comissões.</p>
-      )}
+      {!loading && error && <ErrorState message={error} onRetry={fetchCommissions} />}
 
       {!loading && !error && displayed.length === 0 && (
-        <EmptyState message="Nenhuma comissão encontrada para os filtros selecionados." />
+        <EmptyState title="Nenhuma comissão" description="Nenhuma comissão encontrada para os filtros selecionados." />
       )}
 
       {!loading && !error && displayed.length > 0 && (
@@ -272,7 +235,7 @@ export default function HistoricoComissoesPage() {
                         {formatBRL(Number(c.commission_amount))}
                       </td>
                       <td className="px-4 py-3">
-                        <StatusBadge status={c.status} />
+                        <CommissionBadge status={c.status} />
                       </td>
                     </tr>
                   )

@@ -455,3 +455,20 @@ export const ASSIGNABLE_ROLES_BY_ACTOR: Record<string, string[]> = {
   OWNER: ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL"],
   ADMIN: ["OPERATOR", "PROFESSIONAL"],
 }
+
+/* ===================== Sprint Visual Gap — Comissões ===================== */
+
+// Status da comissão (Commission.status) — fonte única dos labels
+export const COMMISSION_STATUS_LABELS: Record<string, string> = {
+  CALCULATED: "Pendente",
+  DUE:        "Vence em breve",
+  PAID:       "Paga",
+  REVERSED:   "Estornada",
+}
+
+// Status do payout de comissão (CommissionPayout.status)
+export const COMMISSION_PAYOUT_STATUS_LABELS: Record<string, string> = {
+  PAID:    "Pago",
+  PENDING: "Pendente",
+  FAILED:  "Falhou",
+}

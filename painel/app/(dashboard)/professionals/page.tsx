@@ -1,18 +1,25 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
+import { UserCheck } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Professional } from "@/types"
 import { cn } from "@/lib/utils"
 import { AvatarInitials } from "@/components/avatar-initials"
+import { PageHeader } from "@/components/PageHeader"
+import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/ErrorState"
+import { ActiveBadge } from "@/components/ActiveBadge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 
 const WEEK_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
@@ -21,57 +28,59 @@ export default function ProfessionalsPage() {
   const router = useRouter()
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState("")
+  const [busy, setBusy] = useState<string | null>(null)
 
-  async function fetchProfessionals() {
+  const fetchProfessionals = useCallback(async () => {
+    setLoading(true); setLoadError(null)
     try {
-      const data = await api.get<Professional[]>("/professionals/")
-      setProfessionals(data)
-    } catch {
-      setError("Erro ao carregar barbeiros.")
+      setProfessionals(await api.get<Professional[]>("/professionals/"))
+    } catch (err: unknown) {
+      setLoadError((err as Error).message ?? "Erro ao carregar barbeiros.")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchProfessionals() }, [])
+  useEffect(() => { fetchProfessionals() }, [fetchProfessionals])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
     setSaving(true)
     try {
       await api.post("/professionals/", { name })
+      toast.success("Barbeiro criado")
       setOpen(false)
       setName("")
       fetchProfessionals()
     } catch (err: unknown) {
-      setError((err as Error).message)
+      toast.error((err as Error).message ?? "Erro ao criar barbeiro")
     } finally {
       setSaving(false)
     }
   }
 
   async function toggleActive(p: Professional) {
+    setBusy(p.id)
     try {
       await api.patch(`/professionals/${p.id}`, { active: !p.active })
+      toast.success(p.active ? "Barbeiro desativado" : "Barbeiro ativado")
       fetchProfessionals()
     } catch (err: unknown) {
-      alert((err as Error).message)
+      toast.error((err as Error).message ?? "Erro ao atualizar")
+    } finally {
+      setBusy(null)
     }
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="font-display text-3xl tracking-wide">Barbeiros</h1>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Administração" title="Barbeiros" description="Equipe de profissionais da casa.">
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button />}>
-            + Novo Barbeiro
-          </DialogTrigger>
+          <DialogTrigger render={<Button />}>+ Novo Barbeiro</DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Novo Barbeiro</DialogTitle>
@@ -79,28 +88,30 @@ export default function ProfessionalsPage() {
             <form onSubmit={handleCreate} className="space-y-4 py-2">
               <div className="space-y-1">
                 <Label htmlFor="p-name">Nome *</Label>
-                <Input
-                  id="p-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  placeholder="Ex: João Silva"
-                />
+                <Input id="p-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ex: João Silva" />
               </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={saving}>{saving ? "Salvando…" : "Criar"}</Button>
+                <DialogClose render={<Button type="button" variant="ghost" />}>Cancelar</DialogClose>
+                <Button type="submit" disabled={saving || !name.trim()}>{saving ? "Salvando…" : "Criar"}</Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-      </div>
+      </PageHeader>
 
       {loading ? (
-        <p className="text-muted-foreground">Carregando…</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-56 w-full" />)}
+        </div>
+      ) : loadError ? (
+        <ErrorState message={loadError} onRetry={fetchProfessionals} />
       ) : professionals.length === 0 ? (
-        <p className="text-center text-muted-foreground py-12">Nenhum barbeiro cadastrado.</p>
+        <EmptyState
+          icon={<UserCheck size={28} strokeWidth={1.5} />}
+          title="Nenhum barbeiro cadastrado"
+          description="Cadastre o primeiro barbeiro da equipe."
+          action={<Button onClick={() => setOpen(true)}>+ Novo Barbeiro</Button>}
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {professionals.map((p) => (
@@ -110,12 +121,13 @@ export default function ProfessionalsPage() {
                 {/* Avatar + nome + horário */}
                 <div className="flex items-center gap-4">
                   <AvatarInitials name={p.name} size="lg" />
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold">{p.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {p.work_start ?? "—"} – {p.work_end ?? "—"}
                     </p>
                   </div>
+                  <ActiveBadge active={p.active} />
                 </div>
 
                 {/* Especialidades */}
@@ -159,19 +171,10 @@ export default function ProfessionalsPage() {
 
                 {/* Ações */}
                 <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => router.push(`/professionals/${p.id}`)}
-                  >
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => router.push(`/professionals/${p.id}`)}>
                     Editar
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => toggleActive(p)}
-                  >
+                  <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => toggleActive(p)}>
                     {p.active ? "Desativar" : "Ativar"}
                   </Button>
                 </div>

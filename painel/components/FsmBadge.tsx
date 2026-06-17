@@ -10,6 +10,8 @@ import {
   TRANSFER_STATUS_LABELS,
   NPS_SURVEY_STATUS_LABELS,
   COMMUNICATION_LOG_STATUS_LABELS,
+  COMMISSION_STATUS_LABELS,
+  COMMISSION_PAYOUT_STATUS_LABELS,
 } from "@/lib/constants"
 
 /* ============================ Appointment FSM ============================ */
@@ -327,6 +329,46 @@ export function CommunicationLogBadge({ status }: { status: string }) {
   return (
     <Badge variant="outline" className={cn("font-normal", COMM_LOG_CLASS[status] ?? NEUTRAL)}>
       {COMMUNICATION_LOG_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ===================== Sprint Visual Gap — Comissões ===================== */
+
+/* ------------------------------- Commission ------------------------------- */
+// CALCULATED(âmbar) · DUE(sky) · PAID(emerald) · REVERSED/REFUNDED(destructive)
+
+const COMMISSION_CLASS: Record<string, string> = {
+  CALCULATED: AMBER,
+  PENDING:    AMBER,
+  DUE:        SKY,
+  DUE_SOON:   SKY,
+  PAID:       EMERALD,
+  REVERSED:   DESTRUCTIVE,
+  REFUNDED:   DESTRUCTIVE,
+}
+
+export function CommissionBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", COMMISSION_CLASS[status] ?? NEUTRAL)}>
+      {COMMISSION_STATUS_LABELS[status] ?? status}
+    </Badge>
+  )
+}
+
+/* ---------------------------- CommissionPayout ---------------------------- */
+// PAID(emerald) · PENDING(âmbar) · FAILED(destructive)
+
+const COMMISSION_PAYOUT_CLASS: Record<string, string> = {
+  PAID:    EMERALD,
+  PENDING: AMBER,
+  FAILED:  DESTRUCTIVE,
+}
+
+export function CommissionPayoutBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={cn("font-normal", COMMISSION_PAYOUT_CLASS[status] ?? NEUTRAL)}>
+      {COMMISSION_PAYOUT_STATUS_LABELS[status] ?? status}
     </Badge>
   )
 }

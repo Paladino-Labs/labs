@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, UserCircle } from "lucide-react"
+import { PageHeader } from "@/components/PageHeader"
 import { Card, CardContent } from "@/components/ui/card"
 
 const sections = [
@@ -44,10 +45,11 @@ const sections = [
 export default function SettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="font-display text-3xl tracking-wide">Configurações</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Gerencie as configurações da sua empresa</p>
-      </div>
+      <PageHeader
+        eyebrow="Administração"
+        title="Configurações"
+        description="Gerencie as configurações da sua empresa."
+      />
       <div className="grid gap-4 sm:grid-cols-2">
         {sections.map((s) => (
           <Link key={s.href} href={s.href}>

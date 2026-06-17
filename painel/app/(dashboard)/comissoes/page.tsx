@@ -1,11 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { BadgeDollarSign, ChevronRight, ClipboardList, FileText } from "lucide-react"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
+import { PageHeader } from "@/components/PageHeader"
+import { ErrorState } from "@/components/ErrorState"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,15 +72,13 @@ function KpiCard({
     <Card>
       <CardContent className="p-5">
         <p className="text-[11px] uppercase tracking-widest text-muted-foreground">{label}</p>
-        <p className="mt-2 font-display text-3xl tracking-tight">
-          {loading ? (
-            <span className="text-muted-foreground">…</span>
-          ) : error ? (
-            <span className="text-destructive text-base">Erro ao carregar</span>
-          ) : (
-            value
-          )}
-        </p>
+        {loading ? (
+          <Skeleton className="mt-2 h-9 w-28" />
+        ) : (
+          <p className="mt-2 font-display text-3xl tracking-tight">
+            {error ? <span className="text-destructive text-base">Erro ao carregar</span> : value}
+          </p>
+        )}
         {hint && <p className="mt-1 text-xs italic text-muted-foreground">{hint}</p>}
       </CardContent>
     </Card>
@@ -91,12 +92,18 @@ export default function ComissoesPage() {
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState<string | null>(null)
 
-  useEffect(() => {
-    api.get<Commission[]>("/commissions")
-      .then(setCommissions)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      setCommissions(await api.get<Commission[]>("/commissions"))
+    } catch (e: unknown) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   // ── KPI derivations ──────────────────────────────────────────────────────────
 
@@ -126,19 +133,13 @@ export default function ComissoesPage() {
   return (
     <div className="space-y-8">
 
-      {/* Cabeçalho */}
-      <div>
-        <h1 className="font-display text-3xl tracking-wide">Comissões</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Regras, histórico e pagamentos de comissões da equipe
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Financeiro"
+        title="Comissões"
+        description="Regras, histórico e pagamentos de comissões da equipe."
+      />
 
-      {error && (
-        <p className="text-sm text-destructive">
-          Não foi possível carregar os dados: {error}
-        </p>
-      )}
+      {error && !loading && <ErrorState message={error} onRetry={load} />}
 
       {/* ── KPI Cards ──────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

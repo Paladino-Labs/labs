@@ -40,6 +40,8 @@ import {
   Blocks,
   Palette,
   Link2,
+  UserCircle,
+  KeyRound,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -65,7 +67,7 @@ type NavGroup = {
   items: NavItem[]
 }
 
-const ALL: Role[] = ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL", "PLATFORM_OWNER"]
+const ALL: Role[] = ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL"]
 
 const NAV: NavGroup[] = [
   {
@@ -73,7 +75,7 @@ const NAV: NavGroup[] = [
     items: [
       { title: "Dashboard",          url: "/dashboard",    icon: LayoutDashboard, roles: "ALL" },
       { title: "Agenda",             url: "/agenda",       icon: Calendar,        roles: "ALL" },
-      { title: "Operações",          url: "/appointments", icon: ClipboardList,   roles: "ALL" },
+      { title: "Operações",          url: "/operacoes",    icon: ClipboardList,   roles: "ALL" },
       { title: "Fila",               url: "/fila",         icon: ListOrdered,     roles: ["OWNER", "ADMIN", "OPERATOR"] },
       { title: "Atendimento humano", url: "/inbox",        icon: MessageSquare,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
     ],
@@ -131,7 +133,7 @@ const NAV: NavGroup[] = [
     label: "Financeiro",
     items: [
       { title: "Pagamentos", url: "/financeiro/pagamentos",  icon: CreditCard, roles: ["OWNER", "ADMIN", "OPERATOR"] },
-      { title: "Caixa",      url: "/financeiro/conciliacao", icon: Landmark,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
+      { title: "Caixa",      url: "/caixa",                  icon: Landmark,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
       {
         title: "Gestão Financeira", url: "/financeiro/dre", icon: BarChart3, roles: ["OWNER", "ADMIN"],
         submenu: [
@@ -151,8 +153,14 @@ const NAV: NavGroup[] = [
       },
       { title: "Fornecedores",           url: "/fornecedores",     icon: Truck,            roles: ["OWNER", "ADMIN", "OPERATOR"] },
       { title: "Contas a pagar",         url: "/payables",         icon: FileWarning,      roles: ["OWNER", "ADMIN", "OPERATOR"] },
-      { title: "Comissões",              url: "/comissoes",        icon: CircleDollarSign, roles: ["OWNER", "ADMIN"] },
-      { title: "Taxas",                  url: "/financeiro/taxas", icon: Percent,          roles: ["OWNER", "ADMIN"] },
+      {
+        title: "Comissões", url: "/comissoes", icon: CircleDollarSign, roles: ["OWNER", "ADMIN"],
+        submenu: [
+          { title: "Regras",     url: "/comissoes/politicas",  icon: FileText },
+          { title: "Histórico",  url: "/comissoes/historico",  icon: ClipboardList },
+          { title: "Pagamentos", url: "/comissoes/pagamentos", icon: Wallet },
+        ],
+      },
     ],
   },
   {
@@ -161,14 +169,18 @@ const NAV: NavGroup[] = [
       { title: "Profissionais",      url: "/professionals",     icon: UserCheck,   roles: ["OWNER", "ADMIN"] },
       { title: "Usuários e acessos", url: "/settings/usuarios", icon: ShieldCheck, roles: ["OWNER", "ADMIN"] },
       {
-        title: "Configurações", url: "/settings", icon: Settings, roles: ["OWNER", "ADMIN"],
+        title: "Configurações", url: "/configuracoes", icon: Settings, roles: ["OWNER", "ADMIN"],
         submenu: [
+          { title: "Meu Perfil",  url: "/settings/perfil",      icon: UserCircle },
+          { title: "Segurança",   url: "/settings/security",    icon: KeyRound },
+          { title: "Taxas",       url: "/financeiro/taxas",     icon: Percent },
           { title: "Financeiro",  url: "/settings/financial",   icon: Wallet },
           { title: "Integrações", url: "/settings/integracoes",  icon: Link2 },
           { title: "Módulos",     url: "/settings/modulos",      icon: Blocks },
           { title: "Branding",    url: "/settings/branding",     icon: Palette },
         ],
       },
+      { title: "Relatórios",         url: "/relatorios",        icon: BarChart3,   roles: ["OWNER", "ADMIN"] },
       { title: "Auditoria",          url: "/audit",             icon: ScrollText,  roles: ["OWNER", "ADMIN"] },
     ],
   },

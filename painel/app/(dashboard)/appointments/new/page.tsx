@@ -1,10 +1,14 @@
 "use client"
 
-import { Suspense, useEffect, useState, useMemo } from "react"
+import { Suspense, useCallback, useEffect, useState, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft } from "lucide-react"
+import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { formatBRL } from "@/lib/utils"
 import type { Professional, Service, Customer } from "@/types"
+import { PageHeader } from "@/components/PageHeader"
+import { ErrorState } from "@/components/ErrorState"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -68,7 +72,7 @@ function NewAppointmentContent() {
   const [selectedSlot,  setSelectedSlot] = useState<AvailableSlot | null>(null)
 
   const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // ── Modo do campo cliente: buscar existente ou cadastrar novo ─────────────
   const [clientMode,    setClientMode]    = useState<ClientMode>("search")
@@ -81,17 +85,23 @@ function NewAppointmentContent() {
   const [clientError,   setClientError]   = useState<string | null>(null)
 
   // ── Fetch inicial ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    Promise.all([
-      api.get<Professional[]>("/professionals/"),
-      api.get<Service[]>("/services/"),
-      api.get<Customer[]>("/customers/"),
-    ]).then(([p, s, c]) => {
+  const loadInit = useCallback(async () => {
+    setLoadError(null)
+    try {
+      const [p, s, c] = await Promise.all([
+        api.get<Professional[]>("/professionals/"),
+        api.get<Service[]>("/services/"),
+        api.get<Customer[]>("/customers/"),
+      ])
       setProfessionals(p)
       setServices(s)
       setCustomers(c)
-    }).catch(() => setError("Erro ao carregar dados. Recarregue a página."))
+    } catch {
+      setLoadError("Erro ao carregar dados. Recarregue a página.")
+    }
   }, [])
+
+  useEffect(() => { loadInit() }, [loadInit])
 
   // ── Buscar slots quando profissional + serviço + data estão selecionados ──
   useEffect(() => {
@@ -161,8 +171,9 @@ function NewAppointmentContent() {
       setNewName("")
       setNewPhone("")
       setNewEmail("")
+      toast.success("Cliente cadastrado")
     } catch (err: unknown) {
-      setClientError((err as Error).message ?? "Erro ao cadastrar cliente.")
+      toast.error((err as Error).message ?? "Erro ao cadastrar cliente.")
     } finally {
       setCreatingClient(false)
     }
@@ -172,14 +183,13 @@ function NewAppointmentContent() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!clientId) {
-      setError("Selecione ou cadastre um cliente.")
+      toast.error("Selecione ou cadastre um cliente.")
       return
     }
     if (!startAt) {
-      setError("Selecione um horário disponível.")
+      toast.error("Selecione um horário disponível.")
       return
     }
-    setError(null)
     setLoading(true)
     try {
       await api.post("/appointments/", {
@@ -189,9 +199,10 @@ function NewAppointmentContent() {
         start_at:        startAt,
         idempotency_key: crypto.randomUUID(),
       })
+      toast.success("Agendamento criado")
       router.replace("/dashboard")
     } catch (err: unknown) {
-      setError((err as Error).message ?? "Erro ao criar agendamento.")
+      toast.error((err as Error).message ?? "Erro ao criar agendamento.")
     } finally {
       setLoading(false)
     }
@@ -202,9 +213,26 @@ function NewAppointmentContent() {
   const canFetchSlots = Boolean(professionalId && serviceId && selectedDate)
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  if (loadError) {
+    return (
+      <div className="max-w-lg mx-auto space-y-6">
+        <PageHeader eyebrow="Operação" title="Novo Agendamento">
+          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </Button>
+        </PageHeader>
+        <ErrorState message={loadError} onRetry={loadInit} />
+      </div>
+    )
+  }
+
   return (
-    <div className="max-w-lg mx-auto">
-      <h1 className="font-display text-2xl mb-6">Novo Agendamento</h1>
+    <div className="max-w-lg mx-auto space-y-6">
+      <PageHeader eyebrow="Operação" title="Novo Agendamento">
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </Button>
+      </PageHeader>
 
       <Card>
         <CardHeader>
@@ -458,8 +486,6 @@ function NewAppointmentContent() {
                 </div>
               )}
             </div>
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
 
             {/* ── Ações ────────────────────────────────────────────────────── */}
             <div className="flex gap-3 pt-1">
