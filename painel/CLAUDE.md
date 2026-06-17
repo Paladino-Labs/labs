@@ -1,9 +1,9 @@
 # painel — contexto operacional
 
-**Sprint atual:** Fase 5A concluída. Superfícies públicas (shell, /manage, NPS,
-aba Produtos) implementadas. Aba Produtos: EmptyState aguardando
-`GET /booking/{slug}/products` (backend pendente). Próxima fase: 5B — Portal do
-Cliente `(portal)/*`.
+**Sprint atual:** Fase 5B concluída. Portal do Cliente (`(portal)/portal/*`)
+implementado. Aba Produtos (Fase 5A): EmptyState aguardando
+`GET /booking/{slug}/products` (backend pendente). Próxima fase: 5C — Painel
+Owner (`PLATFORM_OWNER`).
 
 ## Superfícies públicas — `app/(public)/`
 
@@ -15,6 +15,55 @@ Cliente `(portal)/*`.
 
 `/book/[slug]` permanece em `app/book/[slug]/` — **fora** do grupo `(public)`,
 com chrome próprio.
+
+## Portal do Cliente — `app/(portal)/portal/`
+
+Terceiro shell, isolado do painel do tenant e das superfícies públicas. JWT
+`type="portal"` (sem `company_id`), chave de storage **`portal_token`**.
+
+⚠️ **Route groups `(...)` são removidos da URL pelo Next.js.** Para as rotas
+ficarem em `/portal/*`, as páginas vivem sob um segmento **literal `portal`**:
+
+| Caminho | URL |
+|---------|-----|
+| `(portal)/layout.tsx` | wrapper mínimo externo (simplificado na Fase 5B — sem header/nav) |
+| `(portal)/portal/login/` | `/portal/login` (magic link + e-mail/senha) |
+| `(portal)/portal/magic/[token]/` | `/portal/magic/[token]` — **token no PATH** (backend gera `{base}/portal/magic/{token}`) |
+| `(portal)/portal/(app)/` | guard (`401→/portal/login`) + nav lateral/bottom; rotas autenticadas dentro |
+
+7 telas autenticadas em `(app)/`: dashboard, historico, cotas, assinaturas,
+consentimentos, pagamentos, perfil.
+
+**Helper de API** — `lib/portal-api.ts` (`portalFetch`):
+- chave `portal_token` (**nunca** `"token"` do tenant)
+- `401` → `setPortalAuthErrorHandler` → `/portal/login` (não o login do tenant)
+- `.status` exposto no erro (`Object.assign`, mesmo padrão de `apiFetch`)
+- `portal.get/post/patch/delete` disponíveis
+- ⛔ não importa `apiFetch`/`AuthContext`/`Sidebar`/`Header` do tenant
+
+**Tipos e componentes:**
+- `lib/portal-types.ts` — shapes reais dos endpoints não-tipados no OpenAPI
+  (conferidos em `modules/portal/service.py`) + helper `establishmentLabel`
+- `components/portal/` — `PortalAuthShell`, `PortalStatusBadge`,
+  `QuotaProgress` (barra via `div` — não há `Progress`)
+- glossários: `SUBSCRIPTION_STATUS_LABELS`, `CONSENT_TYPE_LABELS`,
+  `CONSENT_CHANNEL_LABELS` em `lib/constants.ts`
+
+**Gaps de backend conhecidos (Portal — dívidas para sprint de backend futuro):**
+1. Itens (dashboard/history/credits/subscriptions) retornam só `company_id`,
+   sem `company_name` → UI usa fallback "Estabelecimento".
+2. `credits` retornam `entitlement_type` sem nome legível do serviço/pacote.
+3. Sem endpoint de histórico de consumo de cota → card expansível mostra
+   "Em breve".
+4. `GET /portal/history` não aceita filtro de status por query → filtro é
+   client-side sobre a página corrente.
+5. Portal não expõe `POST /portal/subscriptions/{id}/resume` (só pause/cancel)
+   → botão "Retomar" desabilitado com `Tooltip`.
+6. `PATCH /portal/profile` retorna `email_verification_sent` — quando `true`,
+   a UI ainda só mostra "Perfil salvo" + nota; reforçar "Verifique seu e-mail
+   para confirmar a alteração" no próximo touch nessa tela.
+7. `/portal/pagamentos`: wiring bloqueado por Asaas (tokenização de cartão) —
+   estrutura visual em mock estático, sem POST real.
 ## Design — Sprints A–F + Ajustes concluídos ✅
 - Todos os desvios resolvidos: ícones semânticos, brand icons → texto,
   tab Barbeiros sem risco de erro em produção
