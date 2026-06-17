@@ -1,22 +1,13 @@
-"use client"
+import type { ReactNode } from "react"
 
-import Link from "next/link"
-
-// Shell do Portal do Cliente — sem o sidebar do tenant, só header mínimo.
-// Fase 0: estrutura básica; as telas do portal chegam em fase posterior.
-export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <header className="border-b border-border">
-        <div className="mx-auto max-w-3xl flex items-center justify-between px-6 h-14">
-          <Link href="/" className="font-display text-lg tracking-[0.3em] text-primary">
-            PALADINO
-          </Link>
-        </div>
-      </header>
-      <main className="flex-1">
-        <div className="mx-auto max-w-3xl px-6 py-10">{children}</div>
-      </main>
-    </div>
-  )
+// Shell EXTERNO mínimo do Portal do Cliente (grupo de rota `(portal)`).
+// Propositalmente sem header/nav/guard: as telas de autenticação
+// (`login`, `magic/[token]`) renderizam seu próprio layout centrado com
+// wordmark; a área autenticada (`(app)/layout.tsx`) renderiza a nav lateral
+// e o bottom nav. Mantê-lo como wrapper neutro evita chrome duplicado.
+//
+// ⛔ O Portal NÃO importa Sidebar/Header/AuthContext/apiFetch do painel do
+//    tenant — é um terceiro shell isolado (JWT type="portal").
+export default function PortalLayout({ children }: { children: ReactNode }) {
+  return <div className="min-h-screen bg-background">{children}</div>
 }

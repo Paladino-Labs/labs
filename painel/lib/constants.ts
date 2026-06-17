@@ -472,3 +472,29 @@ export const COMMISSION_PAYOUT_STATUS_LABELS: Record<string, string> = {
   PENDING: "Pendente",
   FAILED:  "Falhou",
 }
+
+/* ===================== Fase 5B — Portal do Cliente ===================== */
+
+// Status de assinatura (CustomerSubscription.status)
+export const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  ACTIVE:    "Ativa",
+  PAUSED:    "Pausada",
+  OVERDUE:   "Em atraso",
+  SUSPENDED: "Suspensa",
+  CANCELLED: "Cancelada",
+}
+
+// Tipo de consentimento (ConsentType — identity/consent_service.py)
+export const CONSENT_TYPE_LABELS: Record<string, string> = {
+  COMMUNICATION:   "Comunicação",
+  DATA_PROCESSING: "Tratamento de dados",
+  PAYMENT_STORAGE: "Armazenamento de pagamento",
+  MARKETING:       "Marketing",
+}
+
+// Canal de consentimento (channel de ConsentRecord — WHATSAPP|EMAIL|SMS)
+export const CONSENT_CHANNEL_LABELS: Record<string, string> = {
+  WHATSAPP: "WhatsApp",
+  EMAIL:    "E-mail",
+  SMS:      "SMS",
+}
