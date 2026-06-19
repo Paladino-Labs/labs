@@ -67,6 +67,24 @@ class ServiceOptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ─── Saída: /products ─────────────────────────────────────────────────────────
+
+class ProductOptionResponse(BaseModel):
+    """Produto à venda exibido na vitrine pública (B6).
+
+    `available` = produto sem controle de estoque (stock NULL) ou com saldo.
+    `price` segue o padrão de ServiceOptionResponse (Decimal).
+    """
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    price: Decimal
+    image_url: Optional[str] = None
+    available: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ─── Saída: /professionals ────────────────────────────────────────────────────
 
 class ProfessionalOptionResponse(BaseModel):

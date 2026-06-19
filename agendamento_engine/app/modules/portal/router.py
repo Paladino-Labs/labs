@@ -18,6 +18,7 @@ from app.infrastructure.db.session import get_db
 from app.modules.identity.schemas import ConsentRecordResponse, IdentityResponse
 from app.modules.portal import auth_service, service
 from app.modules.portal.schemas import (
+    CreditConsumptionOut,
     MagicLinkRequest,
     MagicLinkVerifyRequest,
     PaymentSourceCreateRequest,
@@ -80,10 +81,14 @@ def history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     company_id: Optional[UUID] = Query(None),
+    status: Optional[str] = Query(None, description="Filtra por status (COMPLETED|CANCELLED|NO_SHOW)"),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
-    return service.get_history(db, identity.id, page=page, page_size=page_size, company_id=company_id)
+    return service.get_history(
+        db, identity.id, page=page, page_size=page_size,
+        company_id=company_id, status=status,
+    )
 
 
 @router.get("/credits")
@@ -92,6 +97,15 @@ def credits(
     db: Session = Depends(get_db),
 ):
     return service.get_credits(db, identity.id)
+
+
+@router.get("/credits/{credit_id}/consumptions", response_model=List[CreditConsumptionOut])
+def credit_consumptions(
+    credit_id: UUID,
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    return service.get_credit_consumptions(db, identity.id, credit_id)
 
 
 @router.get("/subscriptions")
@@ -109,6 +123,15 @@ def pause_subscription(
     db: Session = Depends(get_db),
 ):
     return service.pause_subscription(db, identity.id, subscription_id)
+
+
+@router.post("/subscriptions/{subscription_id}/resume")
+def resume_subscription(
+    subscription_id: UUID,
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    return service.resume_subscription(db, identity.id, subscription_id)
 
 
 @router.post("/subscriptions/{subscription_id}/cancel")

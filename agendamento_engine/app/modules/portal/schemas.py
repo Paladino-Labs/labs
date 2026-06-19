@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -71,3 +72,11 @@ class PortalProfileUpdateRequest(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+
+
+class CreditConsumptionOut(BaseModel):
+    occurred_at: datetime
+    appointment_id: Optional[UUID] = None
+    service_name: Optional[str] = None
+    professional_name: Optional[str] = None
+    quantity_used: int = 1

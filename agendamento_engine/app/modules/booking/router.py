@@ -37,6 +37,7 @@ from app.infrastructure.db.models.company import Company
 from app.infrastructure.db.models.company_settings import CompanySettings
 from app.infrastructure.db.models.company_profile import CompanyProfile
 from app.infrastructure.db.models.booking_session import BookingSession
+from app.infrastructure.db.models.product import Product
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.exceptions import SlotUnavailableError, BookingNotFoundError
 from app.modules.booking.actions import BookingAction, SessionExpiredError, InvalidActionError
@@ -53,6 +54,7 @@ from app.modules.booking.http_schemas import (
     CompanyInfoResponse,
     CompanyProfileResponse,
     ServiceOptionResponse,
+    ProductOptionResponse,
     ProfessionalOptionResponse,
     DateOptionResponse,
     SlotOptionResponse,
@@ -201,6 +203,35 @@ def list_services(slug: str, db: Session = Depends(get_db)):
             row_key=o.row_key,
         )
         for o in options
+    ]
+
+
+# ─── B6 — Vitrine de produtos (público) ──────────────────────────────────────
+
+@router.get("/{slug}/products", response_model=list[ProductOptionResponse])
+def list_products(slug: str, db: Session = Depends(get_db)):
+    """Lista produtos ativos da empresa para a aba Produtos do /book.
+
+    Público (sem auth). 404 se slug inválido; 403 se online_booking off.
+    `available` reflete o estoque (sem controle de estoque → disponível).
+    """
+    company, _ = _require_online_booking(slug, db)
+    products = (
+        db.query(Product)
+        .filter(Product.company_id == company.id, Product.active == True)
+        .order_by(Product.name)
+        .all()
+    )
+    return [
+        ProductOptionResponse(
+            id=p.id,
+            name=p.name,
+            description=p.description,
+            price=p.price,
+            image_url=p.image_url,
+            available=(p.stock is None or p.stock > 0),
+        )
+        for p in products
     ]
 
 

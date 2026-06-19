@@ -15,14 +15,19 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import (
     Appointment,
+    Company,
     Customer,
     CustomerCredit,
+    CustomerCreditConsumption,
+    Package,
+    PackagePurchase,
     PaladinoIdentity,
     PaymentSourceAuthorization,
     PortalCredential,
+    Service,
     TenantConfig,
 )
-from app.infrastructure.db.models.subscription import CustomerSubscription
+from app.infrastructure.db.models.subscription import CustomerSubscription, SubscriptionPlan
 from app.modules.identity import consent_service
 from app.modules.identity.consent_service import ConsentType, SourceChannel
 
@@ -31,6 +36,17 @@ logger = logging.getLogger(__name__)
 HISTORY_STATUSES = ("COMPLETED", "CANCELLED", "NO_SHOW")
 UPCOMING_STATUSES = ("SCHEDULED", "IN_PROGRESS")
 PAYMENT_SOURCE_MODES = ("ALWAYS", "ONCE")
+# Universo de status operacionais de Appointment (B4 — validação do filtro).
+VALID_APPOINTMENT_STATUSES = (
+    "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW",
+)
+# B2 — rótulos legíveis quando o crédito não resolve um serviço específico.
+# CustomerCredit não tem FK service_id; o serviço (quando existe) vem da origem.
+_ENTITLEMENT_LABELS = {
+    "PACKAGE": "Pacote",
+    "SUBSCRIPTION": "Assinatura",
+    "GRANT_COTA": "Cota cortesia",
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,10 +63,76 @@ def _customer_ids(customers: list[Customer]) -> list[UUID]:
     return [c.id for c in customers]
 
 
-def _appointment_item(a: Appointment) -> dict:
+def _company_names(db: Session, company_ids) -> dict:
+    """Lookup em batch company_id → Company.name (B1). Evita N+1."""
+    ids = {cid for cid in company_ids if cid is not None}
+    if not ids:
+        return {}
+    rows = db.query(Company).filter(Company.id.in_(ids)).all()
+    return {c.id: c.name for c in rows}
+
+
+def _entitlement_label(entitlement_type) -> Optional[str]:
+    if not entitlement_type:
+        return None
+    if entitlement_type in _ENTITLEMENT_LABELS:
+        return _ENTITLEMENT_LABELS[entitlement_type]
+    return entitlement_type.replace("_", " ").capitalize()
+
+
+def _resolve_credit_service_name(db: Session, credit) -> Optional[str]:
+    """B2 — nome legível para o crédito.
+
+    CustomerCredit não tem FK service_id. Quando a origem (pacote/assinatura)
+    aponta para um serviço específico, retorna o nome do serviço; caso
+    contrário (pacote/plano genérico com service_id NULL, GRANT_COTA ou
+    origem ausente) cai no rótulo legível do entitlement_type. Best-effort:
+    nunca levanta — a UI sempre recebe algo exibível.
+    """
+    try:
+        etype = getattr(credit, "entitlement_type", None)
+        source_id = getattr(credit, "source_id", None)
+        service_id = None
+        if source_id and etype == "PACKAGE":
+            purchase = (
+                db.query(PackagePurchase)
+                .filter(PackagePurchase.purchase_id == source_id)
+                .first()
+            )
+            if purchase:
+                package = (
+                    db.query(Package)
+                    .filter(Package.package_id == purchase.package_id)
+                    .first()
+                )
+                service_id = getattr(package, "service_id", None) if package else None
+        elif source_id and etype == "SUBSCRIPTION":
+            sub = (
+                db.query(CustomerSubscription)
+                .filter(CustomerSubscription.subscription_id == source_id)
+                .first()
+            )
+            if sub:
+                plan = (
+                    db.query(SubscriptionPlan)
+                    .filter(SubscriptionPlan.plan_id == sub.plan_id)
+                    .first()
+                )
+                service_id = getattr(plan, "service_id", None) if plan else None
+        if service_id:
+            service = db.query(Service).filter(Service.id == service_id).first()
+            if service and getattr(service, "name", None):
+                return service.name
+    except Exception:
+        logger.debug("resolve_credit_service_name falhou", exc_info=True)
+    return _entitlement_label(getattr(credit, "entitlement_type", None))
+
+
+def _appointment_item(a: Appointment, company_name: Optional[str] = None) -> dict:
     return {
         "id": str(a.id),
         "company_id": str(a.company_id),
+        "company_name": company_name,
         "start_at": a.start_at.isoformat(),
         "end_at": a.end_at.isoformat(),
         "status": a.status if isinstance(a.status, str) else a.status.value,
@@ -60,11 +142,17 @@ def _appointment_item(a: Appointment) -> dict:
     }
 
 
-def _credit_item(c: CustomerCredit) -> dict:
+def _credit_item(
+    c: CustomerCredit,
+    company_name: Optional[str] = None,
+    service_name: Optional[str] = None,
+) -> dict:
     return {
         "credit_id": str(c.credit_id),
         "company_id": str(c.company_id),
+        "company_name": company_name,
         "entitlement_type": c.entitlement_type,
+        "service_name": service_name,
         "total_cotas": c.total_cotas,
         "remaining_cotas": c.remaining_cotas,
         "status": c.status,
@@ -73,10 +161,11 @@ def _credit_item(c: CustomerCredit) -> dict:
     }
 
 
-def _subscription_item(s: CustomerSubscription) -> dict:
+def _subscription_item(s: CustomerSubscription, company_name: Optional[str] = None) -> dict:
     return {
         "subscription_id": str(s.subscription_id),
         "company_id": str(s.company_id),
+        "company_name": company_name,
         "plan_name": s.plan.name if s.plan else None,
         "status": s.status,
         "next_billing_at": s.next_billing_at.isoformat() if s.next_billing_at else None,
@@ -125,10 +214,25 @@ def get_dashboard(db: Session, identity_id: UUID) -> dict:
         )
         .all()
     )
+    names = _company_names(
+        db,
+        [a.company_id for a in upcoming]
+        + [c.company_id for c in credits]
+        + [s.company_id for s in subscriptions],
+    )
     return {
-        "upcoming_appointments": [_appointment_item(a) for a in upcoming],
-        "active_credits": [_credit_item(c) for c in credits],
-        "active_subscriptions": [_subscription_item(s) for s in subscriptions],
+        "upcoming_appointments": [
+            _appointment_item(a, names.get(a.company_id)) for a in upcoming
+        ],
+        "active_credits": [
+            _credit_item(
+                c, names.get(c.company_id), _resolve_credit_service_name(db, c)
+            )
+            for c in credits
+        ],
+        "active_subscriptions": [
+            _subscription_item(s, names.get(s.company_id)) for s in subscriptions
+        ],
     }
 
 
@@ -138,8 +242,25 @@ def get_history(
     page: int = 1,
     page_size: int = 20,
     company_id: Optional[UUID] = None,
+    status: Optional[str] = None,
 ) -> dict:
-    """Appointments históricos (COMPLETED/CANCELLED/NO_SHOW), paginados."""
+    """Appointments históricos (COMPLETED/CANCELLED/NO_SHOW), paginados.
+
+    B4 — `status` opcional filtra dentro do histórico. Status fora do universo
+    de Appointment → 422; status válido mas não-histórico (ex: SCHEDULED) →
+    lista vazia (não há interseção com o histórico).
+    """
+    if status is not None:
+        status = status.upper()
+        if status not in VALID_APPOINTMENT_STATUSES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "status inválido — use um de: "
+                    + ", ".join(VALID_APPOINTMENT_STATUSES)
+                ),
+            )
+
     customers = _customers_for_identity(db, identity_id)
     if company_id is not None:
         customers = [c for c in customers if c.company_id == company_id]
@@ -151,6 +272,8 @@ def get_history(
         Appointment.client_id.in_(customer_ids),
         Appointment.status.in_(HISTORY_STATUSES),
     )
+    if status is not None:
+        query = query.filter(Appointment.status == status)
     total = query.count()
     items = (
         query.order_by(Appointment.start_at.desc())
@@ -158,8 +281,9 @@ def get_history(
         .limit(page_size)
         .all()
     )
+    names = _company_names(db, [a.company_id for a in items])
     return {
-        "items": [_appointment_item(a) for a in items],
+        "items": [_appointment_item(a, names.get(a.company_id)) for a in items],
         "page": page,
         "page_size": page_size,
         "total": total,
@@ -181,7 +305,11 @@ def get_credits(db: Session, identity_id: UUID) -> list[dict]:
     )
     # FEFO: expires_at mais próximo primeiro; sem expiração → final
     credits.sort(key=lambda c: (c.expires_at is None, c.expires_at or datetime.max.replace(tzinfo=timezone.utc)))
-    return [_credit_item(c) for c in credits]
+    names = _company_names(db, [c.company_id for c in credits])
+    return [
+        _credit_item(c, names.get(c.company_id), _resolve_credit_service_name(db, c))
+        for c in credits
+    ]
 
 
 def get_subscriptions(db: Session, identity_id: UUID) -> list[dict]:
@@ -197,7 +325,8 @@ def get_subscriptions(db: Session, identity_id: UUID) -> list[dict]:
         )
         .all()
     )
-    return [_subscription_item(s) for s in subscriptions]
+    names = _company_names(db, [s.company_id for s in subscriptions])
+    return [_subscription_item(s, names.get(s.company_id)) for s in subscriptions]
 
 
 def _get_owned_subscription(
@@ -248,7 +377,78 @@ def cancel_subscription(db: Session, identity_id: UUID, subscription_id: UUID) -
             detail="Este estabelecimento não permite cancelar assinaturas pelo Portal",
         )
     sub = subscription_svc.cancel(sub.subscription_id, sub.company_id, db)
-    return _subscription_item(sub)
+    return _subscription_item(sub, _company_names(db, [sub.company_id]).get(sub.company_id))
+
+
+def resume_subscription(db: Session, identity_id: UUID, subscription_id: UUID) -> dict:
+    """Retoma a própria assinatura (PAUSED → ACTIVE) — B5.
+
+    Reusa o mesmo gate de pause: se o tenant permite pausar pelo Portal,
+    permite retomar (pausar/retomar é a mesma capacidade). `resume` do
+    tenant valida a transição (422 se a assinatura não está PAUSED).
+    """
+    from app.modules.subscriptions import service as subscription_svc
+    from app.modules.tenant.service import allows_subscription_pause
+
+    sub = _get_owned_subscription(db, identity_id, subscription_id)
+    if not allows_subscription_pause(_tenant_config(db, sub.company_id)):
+        raise HTTPException(
+            status_code=403,
+            detail="Este estabelecimento não permite gerenciar pausas pelo Portal",
+        )
+    sub = subscription_svc.resume(sub.subscription_id, sub.company_id, db)
+    return _subscription_item(sub, _company_names(db, [sub.company_id]).get(sub.company_id))
+
+
+# ── Credit consumptions (B3) ──────────────────────────────────────────────────
+
+def get_credit_consumptions(db: Session, identity_id: UUID, credit_id: UUID) -> list[dict]:
+    """Histórico de consumo de uma cota — B3.
+
+    404 se o crédito não existe ou não pertence à identity logada. Cada
+    consumo equivale a 1 cota (consume_for_operation decrementa de 1 em 1).
+    service_name/professional_name vêm do appointment vinculado (quando há).
+    """
+    credit = (
+        db.query(CustomerCredit)
+        .filter(CustomerCredit.credit_id == credit_id)
+        .first()
+    )
+    if not credit:
+        raise HTTPException(status_code=404, detail="Crédito não encontrado")
+    customer = db.query(Customer).filter(Customer.id == credit.customer_id).first()
+    if not customer or customer.identity_id != identity_id:
+        raise HTTPException(status_code=404, detail="Crédito não encontrado")
+
+    consumptions = (
+        db.query(CustomerCreditConsumption)
+        .filter(CustomerCreditConsumption.credit_id == credit_id)
+        .order_by(CustomerCreditConsumption.consumed_at.desc())
+        .all()
+    )
+
+    items: list[dict] = []
+    for c in consumptions:
+        service_name = None
+        professional_name = None
+        if c.appointment_id is not None:
+            appt = (
+                db.query(Appointment)
+                .filter(Appointment.id == c.appointment_id)
+                .first()
+            )
+            if appt is not None:
+                svcs = getattr(appt, "services", None) or []
+                service_name = svcs[0].service_name if svcs else None
+                professional_name = appt.professional.name if appt.professional else None
+        items.append({
+            "occurred_at": c.consumed_at.isoformat() if c.consumed_at else None,
+            "appointment_id": str(c.appointment_id) if c.appointment_id else None,
+            "service_name": service_name,
+            "professional_name": professional_name,
+            "quantity_used": 1,
+        })
+    return items
 
 
 # ── Consents ──────────────────────────────────────────────────────────────────
