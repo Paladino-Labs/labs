@@ -1,5 +1,39 @@
 **Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s25f_product_extras`.
 
+## Dívidas de backend Fases 5A–5B (2026-06-19)
+Corrigidas as 6 lacunas de endpoint identificadas no frontend 5A–5B. **Sem migration**
+(head `e0s25f_product_extras` preservado). **976 testes** (951 + 25 novos), zero regressões.
+Branch `fix/backend-dividas-5a-5b`, commit `4708522`.
+
+### Endpoints adicionados
+- `GET  /portal/credits/{credit_id}/consumptions` → `CreditConsumptionOut[]`
+  (occurred_at, appointment_id, service_name, professional_name, quantity_used=1).
+  404 se crédito inexistente ou de outra identity. Usa **dados reais** —
+  `CustomerCreditConsumption` já existia (FK `appointment_id`); era lacuna de endpoint.
+- `POST /portal/subscriptions/{subscription_id}/resume` → assinatura atualizada (PAUSED→ACTIVE).
+  Reexpõe `subscriptions/service.resume` (já existia no tenant). **Gate `allow_subscription_pause`**:
+  pausar/retomar são a MESMA capacidade — se o tenant permite o cliente pausar pelo Portal,
+  permite retomar. NÃO significa "resume sempre disponível se PAUSED" — sem o flag → 403.
+- `GET  /booking/{slug}/products` → `ProductOptionResponse[]` (público, no `booking_router`,
+  path que o frontend `book/[slug]` espera). Só produtos `active`; `available` = stock NULL
+  (sem controle) ou stock > 0. 404 slug inválido, 403 se online_booking off.
+
+### Campos adicionados a respostas existentes (portal)
+- dashboard/history/credits/subscriptions → `company_name` (lookup em batch
+  `Company.id.in_(...)`, sem N+1).
+- credits → `service_name`: resolve via `source_id` (PACKAGE→PackagePurchase→Package.service_id;
+  SUBSCRIPTION→Plan.service_id → Service.name). **Fallback** por entitlement_type quando a
+  cadeia não resolve (pacote/plano genérico com service_id NULL, ou GRANT_COTA):
+  PACKAGE→"Pacote", SUBSCRIPTION→"Assinatura", GRANT_COTA→"Cota cortesia". CustomerCredit
+  **não tem FK service_id** — limitação de modelo, não de endpoint.
+- `GET /portal/history` → parâmetro opcional `status` (422 se fora do universo de Appointment;
+  status válido não-histórico, ex. SCHEDULED → lista vazia, não 422).
+
+### Nota para o wiring frontend (aba Produtos)
+`price` em `ProductOptionResponse` é **Decimal** (mesmo padrão de `ServiceOptionResponse` no
+booking_router), NÃO int centavos. O wiring deve aplicar o MESMO `formatBRL` já usado para
+`GET /booking/{slug}/services` — conferir explicitamente, não assumir.
+
 ## Estado final — Estágio 0 conforme (2026-06-13, pré-push)
 Análise de conformidade plano vs. código: **`docs/conformidade-estagio-0.md`**. Os 15 sprints
 (`I → 18 → 17 → 16 → E → B → A → D → C → G → H → 2.0 → 2.6 → 2.7 → 25`) estão implementados e
