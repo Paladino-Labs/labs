@@ -498,3 +498,30 @@ export const CONSENT_CHANNEL_LABELS: Record<string, string> = {
   EMAIL:    "E-mail",
   SMS:      "SMS",
 }
+
+/* ===================== Fase 5C — Painel Owner ===================== */
+
+// Status do tenant (service.TENANT_STATUSES) — TRIAL/ACTIVE/SUSPENDED/CHURNED
+export const TENANT_STATUS_LABELS: Record<string, string> = {
+  TRIAL:     "Período de teste",
+  ACTIVE:    "Ativo",
+  SUSPENDED: "Suspenso",
+  CHURNED:   "Cancelado",
+}
+
+// Cores semânticas por status (variantes válidas do Badge — não há "muted")
+export const TENANT_STATUS_VARIANT: Record<
+  string,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  TRIAL:     "secondary",   // âmbar/cinza
+  ACTIVE:    "default",     // primary (tan/verde)
+  SUSPENDED: "destructive", // vermelho
+  CHURNED:   "outline",     // cinza neutro
+}
+
+// Modo de impersonation (READ_ONLY | ELEVATED)
+export const IMPERSONATION_MODE_LABELS: Record<string, string> = {
+  READ_ONLY: "Somente leitura",
+  ELEVATED:  "Elevado",
+}

@@ -1,9 +1,46 @@
 # painel — contexto operacional
 
-**Sprint atual:** Fase 5B concluída. Portal do Cliente (`(portal)/portal/*`)
-implementado. Aba Produtos (Fase 5A): EmptyState aguardando
-`GET /booking/{slug}/products` (backend pendente). Próxima fase: 5C — Painel
-Owner (`PLATFORM_OWNER`).
+**Sprint atual:** Fase 5C concluída. Painel Owner (`(owner)/owner/*`)
+implementado — quarto shell, isolado dos demais. Próxima fase: a definir.
+
+## Painel Owner — `app/(owner)/owner/`
+
+Quarto shell, exclusivo do `PLATFORM_OWNER` (`company_id=null`). Reusa o JWT e o
+`apiFetch`/`api.*` do tenant (**sem `ownerFetch`**). Guard de PLATFORM_OWNER no
+`(owner)/layout.tsx` (Fase 0, não recriar); chrome próprio em
+`(owner)/owner/layout.tsx` (`OwnerSidebar` + `ImpersonationBanner`).
+
+⚠️ Segmento **literal `owner`** dentro do grupo `(owner)` (route groups somem da
+URL) — telas em `/owner/*`.
+
+| Caminho | URL | Endpoint principal |
+|---------|-----|--------------------|
+| `owner/tenants/page.tsx` | `/owner/tenants` | `GET /platform/tenants` · `PATCH .../status` |
+| `owner/tenants/[id]/page.tsx` | `/owner/tenants/[id]` | `GET .../{id}` + `.../health` |
+| `owner/tenants/[id]/flags/page.tsx` | `/owner/tenants/[id]/flags` | `GET/PUT .../flags` (dict livre) |
+| `owner/impersonation/page.tsx` | `/owner/impersonation` | `GET/POST/DELETE /platform/impersonation/grants` |
+| `owner/sistema/page.tsx` | `/owner/sistema` | `POST /platform/communications/{id}/redispatch` |
+| `owner/settings/page.tsx` | `/owner/settings` | `GET/PUT /platform/settings` (dict livre) |
+| `owner/audit/page.tsx` | `/owner/audit` | `GET /platform/audit` (envelope paginado) |
+
+- `context/ImpersonationContext.tsx` — grant ativo em **sessionStorage** (morre ao
+  fechar a aba); header `X-Impersonate-Grant` ainda **não** injetado (wiring futuro).
+- `components/owner/` — `OwnerSidebar`, `ImpersonationBanner` (persistente, sem
+  dismiss, countdown HH:MM), `TenantStatusBadge`, `TenantStatusDialog`.
+- glossários em `lib/constants.ts`: `TENANT_STATUS_LABELS`, `TENANT_STATUS_VARIANT`,
+  `IMPERSONATION_MODE_LABELS`.
+- login (`app/page.tsx`) redireciona `company_id==null` → `/owner/tenants`.
+
+**Gaps de backend conhecidos (Owner — dívidas / Estágio 1+):**
+1. Q1 dead-letter/workers/replay **sem backend** → tabela mock "Em breve · mock";
+   Replay desabilitado p/ `PaymentsEngine`/`CommissionEngine`/`FinancialCore`
+   (RBAC-2). Único real é o `redispatch` de um CommunicationLog FAILED por `log_id`.
+2. Sem `GET /platform/communications` (listagem) → reenvio exige `log_id` colado.
+3. Sem `POST /platform/tenants` (criar tenant) → sem CTA "Criar".
+4. `/health` só expõe booleanos de conexão (RBAC-3) → integrações só como status,
+   nunca last4/credenciais.
+5. Audit sem coluna `ip` e sem export CSV de plataforma; impersonation = preset
+   `action=impersonated_request` sobre `/platform/audit` (não endpoint separado).
 
 ## Superfícies públicas — `app/(public)/`
 

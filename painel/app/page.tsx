@@ -21,7 +21,7 @@ export default function LoginPage() {
 function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { token, hydrated, login } = useAuth()
+  const { token, hydrated, login, companyId } = useAuth()
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -32,9 +32,10 @@ function LoginContent() {
 
   useEffect(() => {
     if (hydrated && token) {
-      router.replace("/dashboard")
+      // PLATFORM_OWNER (company_id=null) entra no Painel Owner; demais no painel do tenant.
+      router.replace(companyId == null ? "/owner/tenants" : "/dashboard")
     }
-  }, [hydrated, token, router])
+  }, [hydrated, token, companyId, router])
 
   async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -46,7 +47,15 @@ function LoginContent() {
         password,
       })
       login(data.access_token)
-      router.replace("/dashboard")
+      // Decodifica company_id do JWT para escolher o destino (owner vs. tenant).
+      let isOwner = false
+      try {
+        const payload = JSON.parse(
+          atob(data.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+        )
+        isOwner = payload.company_id == null
+      } catch { /* fallback abaixo */ }
+      router.replace(isOwner ? "/owner/tenants" : "/dashboard")
     } catch (err: unknown) {
       const status = (err as { status?: number }).status
       setError(
