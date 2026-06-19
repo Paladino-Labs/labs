@@ -41,6 +41,11 @@ URL) — telas em `/owner/*`.
    nunca last4/credenciais.
 5. Audit sem coluna `ip` e sem export CSV de plataforma; impersonation = preset
    `action=impersonated_request` sobre `/platform/audit` (não endpoint separado).
+6. `X-Impersonate-Grant` **não injetado** em `apiFetch` — banner é puramente visual;
+   wiring futuro (wrapper que lê o grant ativo do `ImpersonationContext`).
+7. Busca de tenants: backend `search_name` filtra **só por nome**; o match por slug
+   é client-side (válido enquanto a lista retornar todos os tenants — revisar se
+   houver paginação server-side futura).
 
 ## Superfícies públicas — `app/(public)/`
 
