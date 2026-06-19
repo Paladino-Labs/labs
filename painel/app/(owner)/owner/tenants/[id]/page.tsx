@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { ChevronRight } from "lucide-react"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { formatDateShort, formatDateTime } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { ErrorState } from "@/components/ErrorState"
@@ -71,7 +71,7 @@ export default function OwnerTenantDetailPage() {
   const loadTenant = useCallback(async () => {
     setTenantLoading(true); setTenantError(null)
     try {
-      setTenant(await api.get<Tenant>(`/platform/tenants/${id}`))
+      setTenant(await owner.get<Tenant>(`/platform/tenants/${id}`))
     } catch (err: unknown) {
       setTenantError((err as Error).message)
     } finally {
@@ -82,7 +82,7 @@ export default function OwnerTenantDetailPage() {
   const loadHealth = useCallback(async () => {
     setHealthLoading(true); setHealthError(null)
     try {
-      setHealth(await api.get<TenantHealth>(`/platform/tenants/${id}/health`))
+      setHealth(await owner.get<TenantHealth>(`/platform/tenants/${id}/health`))
     } catch (err: unknown) {
       setHealthError((err as Error).message)
     } finally {

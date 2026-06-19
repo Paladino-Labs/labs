@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { formatDateTime } from "@/lib/utils"
 import { IMPERSONATION_MODE_LABELS } from "@/lib/constants"
 import { useImpersonation } from "@/context/ImpersonationContext"
@@ -70,7 +70,7 @@ export default function OwnerImpersonationPage() {
   const loadGrants = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await api.get<{ items: Grant[]; total: number }>("/platform/impersonation/grants")
+      const res = await owner.get<{ items: Grant[]; total: number }>("/platform/impersonation/grants")
       setGrants(res.items)
     } catch (err: unknown) {
       setError((err as Error).message)
@@ -81,7 +81,7 @@ export default function OwnerImpersonationPage() {
 
   const loadTenants = useCallback(async () => {
     try {
-      const res = await api.get<{ items: Tenant[]; total: number }>("/platform/tenants")
+      const res = await owner.get<{ items: Tenant[]; total: number }>("/platform/tenants")
       setTenants(res.items)
     } catch {
       // lista de tenants é auxiliar; falha não bloqueia a tela
@@ -106,7 +106,7 @@ export default function OwnerImpersonationPage() {
     if (!canCreate) return
     setCreating(true)
     try {
-      const res = await api.post<{ grant_id: string; expires_at: string; mode: string }>(
+      const res = await owner.post<{ grant_id: string; expires_at: string; mode: string }>(
         "/platform/impersonation/grants",
         { company_id: companyId, mode, reason: reason.trim(), duration_minutes: durationNum },
       )
@@ -135,7 +135,7 @@ export default function OwnerImpersonationPage() {
     if (!endTarget) return
     setEnding(true)
     try {
-      await api.delete(`/platform/impersonation/grants/${endTarget.grant_id}`)
+      await owner.delete(`/platform/impersonation/grants/${endTarget.grant_id}`)
       toast.success("Acesso encerrado")
       setEndTarget(null)
       loadGrants()

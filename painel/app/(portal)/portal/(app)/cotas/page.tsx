@@ -3,8 +3,12 @@
 import { useEffect, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { portal } from "@/lib/portal-api"
-import { formatDateShort } from "@/lib/utils"
-import { type PortalCreditItem, establishmentLabel } from "@/lib/portal-types"
+import { formatDateShort, formatDateTime } from "@/lib/utils"
+import {
+  type PortalCreditItem,
+  type CreditConsumptionItem,
+  establishmentLabel,
+} from "@/lib/portal-types"
 import { CreditStatusBadge } from "@/components/portal/PortalStatusBadge"
 import { QuotaProgress } from "@/components/portal/QuotaProgress"
 import { cn } from "@/lib/utils"
@@ -22,13 +26,28 @@ function isExpired(c: PortalCreditItem): boolean {
 
 function CreditCard({ credit }: { credit: PortalCreditItem }) {
   const [open, setOpen] = useState(false)
+  // B3 — histórico de consumo carregado de forma lazy ao expandir.
+  const [consumptions, setConsumptions] = useState<CreditConsumptionItem[] | null>(null)
+  const [loadingConsumptions, setLoadingConsumptions] = useState(false)
   const expired = isExpired(credit)
+
+  useEffect(() => {
+    if (!open || consumptions !== null) return
+    setLoadingConsumptions(true)
+    portal
+      .get<CreditConsumptionItem[]>(`/portal/credits/${credit.credit_id}/consumptions`)
+      .then((data) => setConsumptions(data))
+      .catch(() => setConsumptions([])) // em erro, lista vazia
+      .finally(() => setLoadingConsumptions(false))
+  }, [open, credit.credit_id, consumptions])
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-foreground">{credit.entitlement_type}</p>
+          <p className="truncate text-sm font-medium text-foreground">
+            {credit.service_name ?? credit.entitlement_type}
+          </p>
           <p className="truncate text-xs text-primary">{establishmentLabel(credit)}</p>
         </div>
         <CreditStatusBadge status={credit.status} />
@@ -61,8 +80,27 @@ function CreditCard({ credit }: { credit: PortalCreditItem }) {
         />
       </button>
       {open && (
-        <div className="mt-2 rounded-lg bg-muted/40 px-3 py-4 text-center text-xs text-muted-foreground">
-          Em breve — o detalhamento de consumo estará disponível aqui.
+        <div className="mt-2 rounded-lg bg-muted/40 px-3 py-3">
+          {loadingConsumptions || consumptions === null ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ) : consumptions.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground">Nenhum consumo registrado.</p>
+          ) : (
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {consumptions.map((c, i) => (
+                <li key={i} className="flex justify-between gap-2">
+                  <span className="truncate">
+                    {c.service_name ?? "Serviço"}
+                    {c.professional_name ? ` · ${c.professional_name}` : ""}
+                  </span>
+                  <span className="whitespace-nowrap">{formatDateTime(c.occurred_at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Eye, ChevronLeft, ChevronRight } from "lucide-react"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { ROLE_LABELS } from "@/lib/constants"
 import { formatDateTime } from "@/lib/utils"
 import { cn } from "@/lib/utils"
@@ -95,7 +95,7 @@ export default function OwnerAuditPage() {
     if (dateTo) p.set("date_to", dateTo)
     p.set("page", String(page)); p.set("limit", String(LIMIT))
     try {
-      setData(await api.get<Envelope>(`/platform/audit?${p.toString()}`))
+      setData(await owner.get<Envelope>(`/platform/audit?${p.toString()}`))
     } catch (err: unknown) {
       setError((err as Error).message)
     } finally {

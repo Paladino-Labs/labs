@@ -5,8 +5,8 @@ implementado — quarto shell, isolado dos demais. Próxima fase: a definir.
 
 ## Painel Owner — `app/(owner)/owner/`
 
-Quarto shell, exclusivo do `PLATFORM_OWNER` (`company_id=null`). Reusa o JWT e o
-`apiFetch`/`api.*` do tenant (**sem `ownerFetch`**). Guard de PLATFORM_OWNER no
+Quarto shell, exclusivo do `PLATFORM_OWNER` (`company_id=null`). Reusa o JWT do
+tenant via `owner.*` (`lib/owner-api.ts`, wrapper de `apiFetch`). Guard de PLATFORM_OWNER no
 `(owner)/layout.tsx` (Fase 0, não recriar); chrome próprio em
 `(owner)/owner/layout.tsx` (`OwnerSidebar` + `ImpersonationBanner`).
 
@@ -24,7 +24,13 @@ URL) — telas em `/owner/*`.
 | `owner/audit/page.tsx` | `/owner/audit` | `GET /platform/audit` (envelope paginado) |
 
 - `context/ImpersonationContext.tsx` — grant ativo em **sessionStorage** (morre ao
-  fechar a aba); header `X-Impersonate-Grant` ainda **não** injetado (wiring futuro).
+  fechar a aba); header `X-Impersonate-Grant` injetado automaticamente por
+  `owner.*` (`lib/owner-api.ts`) quando há grant ativo não-expirado.
+- **`lib/owner-api.ts`** (`owner.get/post/put/patch/delete`) — wrapper de `apiFetch`
+  que lê `sessionStorage["impersonation_grant"]` e injeta `X-Impersonate-Grant:
+  {grant_id}` (descarta grant expirado). NOTA: a diretriz "sem `ownerFetch`" foi
+  **revogada** — a injeção do header de impersonation é necessidade real que
+  `api.*` não cobre sem alterar suas assinaturas.
 - `components/owner/` — `OwnerSidebar`, `ImpersonationBanner` (persistente, sem
   dismiss, countdown HH:MM), `TenantStatusBadge`, `TenantStatusDialog`.
 - glossários em `lib/constants.ts`: `TENANT_STATUS_LABELS`, `TENANT_STATUS_VARIANT`,
@@ -41,8 +47,8 @@ URL) — telas em `/owner/*`.
    nunca last4/credenciais.
 5. Audit sem coluna `ip` e sem export CSV de plataforma; impersonation = preset
    `action=impersonated_request` sobre `/platform/audit` (não endpoint separado).
-6. `X-Impersonate-Grant` **não injetado** em `apiFetch` — banner é puramente visual;
-   wiring futuro (wrapper que lê o grant ativo do `ImpersonationContext`).
+6. ~~`X-Impersonate-Grant` não injetado~~ **RESOLVIDO (F1)** — `owner.*`
+   (`lib/owner-api.ts`) injeta o header a partir do grant ativo em sessionStorage.
 7. Busca de tenants: backend `search_name` filtra **só por nome**; o match por slug
    é client-side (válido enquanto a lista retornar todos os tenants — revisar se
    houver paginação server-side futura).
@@ -91,21 +97,21 @@ consentimentos, pagamentos, perfil.
 - glossários: `SUBSCRIPTION_STATUS_LABELS`, `CONSENT_TYPE_LABELS`,
   `CONSENT_CHANNEL_LABELS` em `lib/constants.ts`
 
-**Gaps de backend conhecidos (Portal — dívidas para sprint de backend futuro):**
-1. Itens (dashboard/history/credits/subscriptions) retornam só `company_id`,
-   sem `company_name` → UI usa fallback "Estabelecimento".
-2. `credits` retornam `entitlement_type` sem nome legível do serviço/pacote.
-3. Sem endpoint de histórico de consumo de cota → card expansível mostra
-   "Em breve".
-4. `GET /portal/history` não aceita filtro de status por query → filtro é
-   client-side sobre a página corrente.
-5. Portal não expõe `POST /portal/subscriptions/{id}/resume` (só pause/cancel)
-   → botão "Retomar" desabilitado com `Tooltip`.
-6. `PATCH /portal/profile` retorna `email_verification_sent` — quando `true`,
-   a UI ainda só mostra "Perfil salvo" + nota; reforçar "Verifique seu e-mail
-   para confirmar a alteração" no próximo touch nessa tela.
-7. `/portal/pagamentos`: wiring bloqueado por Asaas (tokenização de cartão) —
-   estrutura visual em mock estático, sem POST real.
+**Gaps de backend (Portal) — dívidas 5A–5B resolvidas no wiring (B1–B5/F2):**
+1. ~~Itens só traziam `company_id`~~ **RESOLVIDO (B1)** — backend serializa
+   `company_name`; UI usa `establishmentLabel` (fallback "Estabelecimento").
+2. ~~`credits` sem nome de serviço~~ **RESOLVIDO (B2)** — `service_name`
+   (fallback `entitlement_type`) nos cards de cota/dashboard.
+3. ~~Sem histórico de consumo de cota~~ **RESOLVIDO (B3)** — card expansível faz
+   fetch lazy de `GET /portal/credits/{id}/consumptions` (Skeleton/lista/vazio).
+4. ~~`GET /portal/history` sem filtro de status~~ **RESOLVIDO (B4)** — `status`
+   por query param; filtro server-side, `page` reseta ao trocar.
+5. ~~Sem `POST /portal/subscriptions/{id}/resume`~~ **RESOLVIDO (B5)** — ação
+   "Retomar" ativa com Dialog de confirmação (gate `allow_subscription_pause`).
+6. ~~`email_verification_sent` não reforçado na UI~~ **RESOLVIDO (F2)** —
+   `perfil/page.tsx` já mostra "Enviamos um link para confirmar seu novo e-mail".
+7. `/portal/pagamentos`: wiring ainda bloqueado por Asaas (tokenização de cartão)
+   — estrutura visual em mock estático, sem POST real.
 ## Design — Sprints A–F + Ajustes concluídos ✅
 - Todos os desvios resolvidos: ícones semânticos, brand icons → texto,
   tab Barbeiros sem risco de erro em produção

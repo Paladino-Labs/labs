@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { formatDateShort } from "@/lib/utils"
 import { TENANT_STATUS_LABELS } from "@/lib/constants"
 import { PageHeader } from "@/components/PageHeader"
@@ -53,7 +53,7 @@ export default function OwnerTenantsPage() {
     const p = new URLSearchParams()
     if (status !== "ALL") p.set("status", status)
     try {
-      const res = await api.get<TenantList>(`/platform/tenants${p.toString() ? `?${p.toString()}` : ""}`)
+      const res = await owner.get<TenantList>(`/platform/tenants${p.toString() ? `?${p.toString()}` : ""}`)
       setData(res.items)
     } catch (err: unknown) {
       setError((err as Error).message)

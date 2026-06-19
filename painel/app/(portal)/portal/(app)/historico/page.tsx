@@ -23,8 +23,7 @@ const PAGE_SIZE = 20
 const ALL = "ALL"
 
 // O histórico só contém estes status (service.get_history → HISTORY_STATUSES).
-// ⚠️ O backend NÃO aceita filtro de status por query → filtro aplicado
-// client-side sobre a página corrente (best-effort; documentado).
+// B4 — o backend agora aceita `status` por query → filtro é server-side.
 const HISTORY_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"]
 
 type Load = "loading" | "ok" | "error"
@@ -40,6 +39,7 @@ export default function PortalHistoricoPage() {
     setState("loading")
     const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
     if (companyFilter !== ALL) params.set("company_id", companyFilter)
+    if (statusFilter !== ALL) params.set("status", statusFilter) // B4 — filtro server-side
     portal
       .get<PortalHistoryResponse>(`/portal/history?${params.toString()}`)
       .then((d) => {
@@ -47,7 +47,7 @@ export default function PortalHistoricoPage() {
         setState("ok")
       })
       .catch(() => setState("error"))
-  }, [page, companyFilter])
+  }, [page, companyFilter, statusFilter])
 
   useEffect(() => {
     load()
@@ -60,10 +60,8 @@ export default function PortalHistoricoPage() {
     return Array.from(map.entries())
   }, [data])
 
-  const rows = useMemo(() => {
-    const items = data?.items ?? []
-    return statusFilter === ALL ? items : items.filter((i) => i.status === statusFilter)
-  }, [data, statusFilter])
+  // B4 — filtro de status agora é server-side (query param); sem filtro client-side.
+  const rows = data?.items ?? []
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1
 
@@ -72,7 +70,14 @@ export default function PortalHistoricoPage() {
       <h1 className="font-display text-3xl tracking-wide text-foreground">Histórico</h1>
 
       <div className="flex flex-wrap gap-3">
-        <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => {
+            if (!v) return
+            setPage(1)
+            setStatusFilter(v)
+          }}
+        >
           <SelectTrigger className="w-52">
             <SelectValue>
               {statusFilter === ALL ? "Todos os status" : APPOINTMENT_STATUS_LABELS[statusFilter]}

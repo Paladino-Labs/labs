@@ -148,7 +148,7 @@ export default function PortalDashboardPage() {
                     <UserRound size={14} strokeWidth={1.5} className="mt-0.5 text-primary" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {c.entitlement_type}
+                        {c.service_name ?? c.entitlement_type}
                       </p>
                       <p className="truncate text-xs text-primary">{establishmentLabel(c)}</p>
                     </div>

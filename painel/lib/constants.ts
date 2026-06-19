@@ -512,12 +512,12 @@ export const TENANT_STATUS_LABELS: Record<string, string> = {
 // Cores semânticas por status (variantes válidas do Badge — não há "muted")
 export const TENANT_STATUS_VARIANT: Record<
   string,
-  "default" | "secondary" | "destructive" | "outline"
+  "default" | "secondary" | "destructive" | "outline" | "muted"
 > = {
   TRIAL:     "secondary",   // âmbar/cinza
   ACTIVE:    "default",     // primary (tan/verde)
   SUSPENDED: "destructive", // vermelho
-  CHURNED:   "outline",     // cinza neutro
+  CHURNED:   "muted",       // cinza neutro (texto em segundo plano — F4)
 }
 
 // Modo de impersonation (READ_ONLY | ELEVATED)

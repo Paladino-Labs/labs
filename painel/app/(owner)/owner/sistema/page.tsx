@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -58,7 +58,7 @@ export default function OwnerSistemaPage() {
     if (!canSend) return
     setSending(true)
     try {
-      const res = await api.post<{ new_log_id: string; status: string; original_log_id: string }>(
+      const res = await owner.post<{ new_log_id: string; status: string; original_log_id: string }>(
         `/platform/communications/${logId.trim()}/redispatch`,
         { reason: reason.trim() },
       )

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
@@ -31,7 +31,7 @@ export default function OwnerSettingsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await api.get<SettingsResponse>("/platform/settings")
+      const res = await owner.get<SettingsResponse>("/platform/settings")
       setSettings(res.settings ?? {})
     } catch (err: unknown) {
       setError((err as Error).message)
@@ -58,7 +58,7 @@ export default function OwnerSettingsPage() {
     }
     setSaving(true)
     try {
-      await api.put<{ key: string; value: unknown }>(
+      await owner.put<{ key: string; value: unknown }>(
         `/platform/settings/${encodeURIComponent(edit.key)}`,
         { value: parsed },
       )

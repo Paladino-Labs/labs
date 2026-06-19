@@ -17,10 +17,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type Load = "loading" | "ok" | "error"
-type Action = "pause" | "cancel"
+type Action = "pause" | "cancel" | "resume"
+
+// B5 — cópia do diálogo de confirmação por ação (inclui "resume").
+const DIALOG_COPY: Record<Action, { title: string; description: string; confirm: string }> = {
+  pause: {
+    title: "Pausar assinatura",
+    description:
+      "Deseja pausar esta assinatura? As cobranças ficam suspensas até a retomada.",
+    confirm: "Sim, pausar",
+  },
+  cancel: {
+    title: "Cancelar assinatura",
+    description: "Tem certeza que deseja cancelar esta assinatura? Esta ação não pode ser desfeita.",
+    confirm: "Sim, cancelar",
+  },
+  resume: {
+    title: "Retomar assinatura",
+    description: "Confirmar a retomada desta assinatura?",
+    confirm: "Sim, retomar",
+  },
+}
 
 export default function PortalAssinaturasPage() {
   const [state, setState] = useState<Load>("loading")
@@ -122,18 +141,14 @@ export default function PortalAssinaturasPage() {
                   {!terminal && (
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       {isPaused ? (
-                        // ⚠️ Não há endpoint de retomada NO PORTAL (router expõe só
-                        // pause/cancel) → ação desabilitada com Tooltip explicativo.
-                        <Tooltip>
-                          <TooltipTrigger render={<span className="inline-flex" />}>
-                            <Button variant="outline" size="sm" disabled>
-                              <PlayCircle size={14} strokeWidth={1.5} /> Retomar
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            Retomada disponível apenas pelo estabelecimento.
-                          </TooltipContent>
-                        </Tooltip>
+                        // B5 — retomada agora exposta no Portal (POST .../resume).
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDialog({ id: s.subscription_id, action: "resume" })}
+                        >
+                          <PlayCircle size={14} strokeWidth={1.5} /> Retomar
+                        </Button>
                       ) : (
                         <Button
                           variant="outline"
@@ -167,14 +182,10 @@ export default function PortalAssinaturasPage() {
       <Dialog open={dialog != null} onOpenChange={(o) => !submitting && !o && setDialog(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {dialog?.action === "pause" ? "Pausar assinatura" : "Cancelar assinatura"}
-            </DialogTitle>
+            <DialogTitle>{dialog ? DIALOG_COPY[dialog.action].title : ""}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {dialog?.action === "pause"
-              ? "Deseja pausar esta assinatura? As cobranças ficam suspensas até a retomada pelo estabelecimento."
-              : "Tem certeza que deseja cancelar esta assinatura? Esta ação não pode ser desfeita."}
+            {dialog ? DIALOG_COPY[dialog.action].description : ""}
           </p>
           <DialogFooter>
             <Button variant="outline" disabled={submitting} onClick={() => setDialog(null)}>
@@ -189,10 +200,10 @@ export default function PortalAssinaturasPage() {
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" /> Processando…
                 </>
-              ) : dialog?.action === "pause" ? (
-                "Sim, pausar"
+              ) : dialog ? (
+                DIALOG_COPY[dialog.action].confirm
               ) : (
-                "Sim, cancelar"
+                ""
               )}
             </Button>
           </DialogFooter>

@@ -8,7 +8,7 @@ import type { ReactNode } from "react"
  */
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="book-page flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
       <header className="py-6 text-center">
         <span className="font-display text-2xl tracking-[0.3em] text-primary">PALADINO</span>
       </header>

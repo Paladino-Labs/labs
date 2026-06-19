@@ -31,7 +31,7 @@ export function setAuthErrorHandler(handler: () => void): void {
   _redirecting = false
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken()
 
   const res = await fetch(`${BASE}${path}`, {

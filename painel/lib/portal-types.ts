@@ -16,7 +16,7 @@
 export interface PortalAppointmentItem {
   id: string
   company_id: string
-  company_name?: string // gap #1 — ver acima
+  company_name: string | null // B1 — serializado pelo backend (fallback "Estabelecimento")
   start_at: string
   end_at: string
   status: string
@@ -28,8 +28,9 @@ export interface PortalAppointmentItem {
 export interface PortalCreditItem {
   credit_id: string
   company_id: string
-  company_name?: string // gap #1
-  entitlement_type: string // gap #2 — sem nome de serviço/pacote
+  company_name: string | null // B1 — serializado pelo backend
+  entitlement_type: string
+  service_name: string | null // B2 — nome do serviço/pacote (fallback entitlement_type)
   total_cotas: number
   remaining_cotas: number
   status: string
@@ -40,7 +41,7 @@ export interface PortalCreditItem {
 export interface PortalSubscriptionItem {
   subscription_id: string
   company_id: string
-  company_name?: string // gap #1
+  company_name: string | null // B1 — serializado pelo backend
   plan_name: string | null
   status: string
   next_billing_at: string | null
@@ -48,6 +49,25 @@ export interface PortalSubscriptionItem {
   cancelled_at: string | null
   // valor do plano não vem no serializer atual — opcional/forward-compatible
   amount?: string | null
+}
+
+// B3 — histórico de consumo de cota (GET /portal/credits/{id}/consumptions)
+export interface CreditConsumptionItem {
+  occurred_at: string // ISO date-time
+  appointment_id: string | null
+  service_name: string | null
+  professional_name: string | null
+  quantity_used: number
+}
+
+// B6 — produto público da vitrine (GET /booking/{slug}/products)
+export interface PublicProduct {
+  id: string
+  name: string
+  description: string | null
+  price: string // Decimal-string ("49.90") — usar formatBRLFromDecimal
+  image_url: string | null
+  available: boolean
 }
 
 export interface PortalDashboardResponse {
@@ -102,7 +122,7 @@ export interface PortalTokenResponse {
   token_type: string
 }
 
-/** Rótulo do estabelecimento — fallback enquanto o backend não serializa o nome (gap #1). */
-export function establishmentLabel(item: { company_name?: string }): string {
+/** Rótulo do estabelecimento — usa company_name (B1); fallback "Estabelecimento". */
+export function establishmentLabel(item: { company_name?: string | null }): string {
   return item.company_name ?? "Estabelecimento"
 }

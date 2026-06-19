@@ -10,8 +10,10 @@ import BookingFlow from "./BookingFlow"
 import { publicFetch } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/empty-state"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { formatBRL } from "@/lib/utils"
+import { formatBRL, formatBRLFromDecimal, cn } from "@/lib/utils"
+import type { PublicProduct } from "@/lib/portal-types"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,8 @@ function BookingContent() {
 
   const [profile,         setProfile]         = useState<CompanyProfile | null>(null)
   const [services,        setServices]        = useState<ServiceOption[]>([])
+  const [products,        setProducts]        = useState<PublicProduct[]>([])
+  const [productsState,   setProductsState]   = useState<"loading" | "ok" | "error">("loading")
   const [vitrineProfs,    setVitrineProfs]    = useState<ProfessionalOption[]>([])
   const [error,           setError]           = useState<string | null>(null)
   const [showBooking,       setShowBooking]       = useState(false)
@@ -94,6 +98,15 @@ function BookingContent() {
     publicFetch<CompanyProfile>(`/booking/${slug}/profile`)
       .then(setProfile)
       .catch((e: Error) => setError(e.message))
+  }, [slug])
+
+  // B6 — vitrine de produtos (público).
+  useEffect(() => {
+    if (!slug) return
+    setProductsState("loading")
+    publicFetch<PublicProduct[]>(`/booking/${slug}/products`)
+      .then((data) => { setProducts(data); setProductsState("ok") })
+      .catch(() => setProductsState("error"))
   }, [slug])
 
   useEffect(() => {
@@ -361,13 +374,66 @@ function BookingContent() {
             </TabsContent>
 
             <TabsContent value="products">
-              {/* TODO: wiring bloqueado — aguardando GET /booking/{slug}/products (backend) */}
-              {/* Quando disponível: id, name, price, image_url?, description?, available(bool) */}
-              <EmptyState
-                icon={<Package size={28} strokeWidth={1.5} />}
-                title="Em breve"
-                description="Os produtos do estabelecimento aparecerão aqui."
-              />
+              {productsState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-32 rounded-xl" />
+                  ))}
+                </div>
+              ) : productsState === "error" ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar os produtos."
+                />
+              ) : products.length === 0 ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Em breve"
+                  description="Os produtos do estabelecimento aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {products.map((p) => (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        "rounded-xl border border-border bg-card p-4 flex flex-col gap-2",
+                        !p.available && "opacity-60"
+                      )}
+                    >
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt={p.name}
+                          className="h-24 w-full rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-24 items-center justify-center rounded-lg bg-muted">
+                          <Package size={32} strokeWidth={1.5} className="text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm line-clamp-1">{p.name}</p>
+                          {p.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-1">
+                              {p.description}
+                            </p>
+                          )}
+                        </div>
+                        {!p.available && (
+                          <Badge variant="secondary" className="shrink-0 text-xs">
+                            Esgotado
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="font-display text-lg text-primary">
+                        {formatBRLFromDecimal(p.price)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="reviews">

@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
-import { api } from "@/lib/api"
+import { owner } from "@/lib/owner-api"
 import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
@@ -43,7 +43,7 @@ export default function OwnerTenantFlagsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await api.get<FlagsResponse>(`/platform/tenants/${id}/flags`)
+      const res = await owner.get<FlagsResponse>(`/platform/tenants/${id}/flags`)
       setFlags(res.flags ?? {})
     } catch (err: unknown) {
       setError((err as Error).message)
@@ -55,7 +55,7 @@ export default function OwnerTenantFlagsPage() {
   useEffect(() => { load() }, [load])
 
   async function putFlag(key: string, value: unknown) {
-    const res = await api.put<FlagsResponse>(`/platform/tenants/${id}/flags/${encodeURIComponent(key)}`, { value })
+    const res = await owner.put<FlagsResponse>(`/platform/tenants/${id}/flags/${encodeURIComponent(key)}`, { value })
     setFlags(res.flags ?? {})
   }
 
