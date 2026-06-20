@@ -314,10 +314,10 @@ export default function TemplatesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Comunicação" title="Templates" description="Mensagens automáticas por evento, canal e público.">
-        <Button variant="outline" render={<Link href="/comunicacao/logs" />}>Logs</Button>
+      <PageHeader eyebrow="Comunicação" title="Modelos" description="Mensagens automáticas por evento, canal e público.">
+        <Button variant="outline" render={<Link href="/comunicacao/logs" />}>Histórico</Button>
         <Button onClick={() => { setEditing(null); setDialogOpen(true) }}>
-          <Plus className="h-4 w-4" /> Novo template
+          <Plus className="h-4 w-4" /> Novo modelo
         </Button>
       </PageHeader>
 
@@ -338,7 +338,7 @@ export default function TemplatesPage() {
             return (
               <TabsContent key={ch} value={ch}>
                 {rows.length === 0 ? (
-                  <EmptyState title="Nenhum template" description="Crie um template para este canal." />
+                  <EmptyState title="Nenhum modelo" description="Crie um modelo para este canal." />
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-sm">

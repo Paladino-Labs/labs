@@ -370,9 +370,9 @@ export default function PacotesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Comercial" title="Pacotes" description="Planos de pacote para venda avulsa.">
-        <Button variant="outline" render={<Link href="/pacotes/compras" />}>Histórico</Button>
-        <Button onClick={() => { setEditing(null); setFormOpen(true) }}>+ Novo plano</Button>
+      <PageHeader eyebrow="Comercial" title="Tipos de pacotes" description="Tipos de pacote para venda avulsa.">
+        <Button variant="outline" render={<Link href="/pacotes/compras" />}>Vendas</Button>
+        <Button onClick={() => { setEditing(null); setFormOpen(true) }}>+ Novo tipo de pacote</Button>
       </PageHeader>
 
       {loading ? (

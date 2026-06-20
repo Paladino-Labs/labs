@@ -70,7 +70,7 @@ export default function PackagePurchasesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Pacotes" title="Compras" description="Histórico de vendas de pacotes." />
+      <PageHeader eyebrow="Pacotes" title="Vendas" description="Histórico de vendas de pacotes." />
 
       <div className="flex flex-wrap gap-4 rounded-lg border border-border bg-card p-4">
         <Input

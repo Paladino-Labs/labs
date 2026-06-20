@@ -5,6 +5,7 @@ import Link from "next/link"
 import { toast } from "sonner"
 import { Eye, ChevronLeft, ChevronRight } from "lucide-react"
 import { api } from "@/lib/api"
+import { ROLE_LABELS, type Role } from "@/context/AuthContext"
 import { formatDateTime } from "@/lib/utils"
 import {
   COMMUNICATION_EVENT_TYPE_LABELS,
@@ -36,6 +37,8 @@ interface CommunicationLog {
   channel: string
   recipient_id: string
   recipient_type: string
+  recipient_name?: string | null
+  recipient_kind?: string | null
   status: string
   scheduled_send_at?: string | null
   rendered_body?: string | null
@@ -50,7 +53,7 @@ const STATUS_FILTER: Record<string, string> = {
   all: "Todos",
   SENT: "Enviada", SCHEDULED: "Agendada", FAILED: "Falhou",
   SKIPPED_QUIET_HOURS: "Adiada (silêncio)", SKIPPED_NO_CONSENT: "Sem consentimento",
-  SKIPPED_CHANNEL_DISABLED: "Canal desativado", SKIPPED_NO_TEMPLATE: "Sem template",
+  SKIPPED_CHANNEL_DISABLED: "Canal desativado", SKIPPED_NO_TEMPLATE: "Sem modelo",
 }
 const CHANNEL_FILTER: Record<string, string> = {
   all: "Todos", WHATSAPP: "WhatsApp", EMAIL: "E-mail", SMS: "SMS",
@@ -103,8 +106,8 @@ export default function CommunicationLogsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Comunicação" title="Logs" description="Histórico de mensagens enviadas, agendadas, falhas e ignoradas.">
-        <Button variant="outline" render={<Link href="/comunicacao" />}>Templates</Button>
+      <PageHeader eyebrow="Comunicação" title="Histórico" description="Histórico de mensagens enviadas, agendadas, falhas e ignoradas.">
+        <Button variant="outline" render={<Link href="/comunicacao" />}>Modelos</Button>
       </PageHeader>
 
       {/* Filtros */}
@@ -176,8 +179,17 @@ export default function CommunicationLogsPage() {
                   <td className="px-4 py-3 text-muted-foreground">{formatDateTime(l.created_at)}</td>
                   <td className="px-4 py-3 font-medium">{COMMUNICATION_EVENT_TYPE_LABELS[l.event_type] ?? l.event_type}</td>
                   <td className="px-4 py-3 text-muted-foreground">{COMMUNICATION_CHANNEL_LABELS[l.channel] ?? l.channel}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                    {(COMMUNICATION_AUDIENCE_LABELS[l.recipient_type] ?? l.recipient_type)}-{shortId(l.recipient_id)}
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col leading-tight">
+                      <span>{l.recipient_name ?? shortId(l.recipient_id)}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {l.recipient_kind
+                          ? (l.recipient_kind === "CLIENT"
+                              ? "Cliente"
+                              : (ROLE_LABELS[l.recipient_kind as Role] ?? l.recipient_kind))
+                          : (COMMUNICATION_AUDIENCE_LABELS[l.recipient_type] ?? l.recipient_type)}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-0.5">

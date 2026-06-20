@@ -162,7 +162,10 @@ export default function NpsSurveysPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
       ) : surveys.length === 0 ? (
-        <EmptyState title="Nenhuma pesquisa" description="Ajuste os filtros ou aguarde novos atendimentos concluídos." />
+        <EmptyState
+          title="Nenhuma pesquisa ainda"
+          description="As pesquisas de NPS são enviadas automaticamente após cada atendimento concluído — você não precisa criá-las manualmente. Assim que houver envios, eles aparecem aqui. Ajuste a cadência e os gatilhos em NPS › Configuração."
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

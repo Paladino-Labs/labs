@@ -83,13 +83,13 @@ const NAV: NavGroup[] = [
   {
     label: "Relacionamento",
     items: [
-      { title: "Clientes / CRM", url: "/customers", icon: Users,      roles: "ALL" },
+      { title: "Clientes",      url: "/customers", icon: Users,      roles: "ALL" },
       { title: "CRM",            url: "/crm",       icon: TrendingUp, roles: ["OWNER", "ADMIN"] },
       {
         title: "Comunicação", url: "/comunicacao", icon: Send, roles: ["OWNER", "ADMIN"],
         submenu: [
-          { title: "Templates", url: "/comunicacao",      icon: FileText },
-          { title: "Logs",      url: "/comunicacao/logs", icon: ScrollText },
+          { title: "Modelos",   url: "/comunicacao",      icon: FileText },
+          { title: "Histórico", url: "/comunicacao/logs", icon: ScrollText },
         ],
       },
       {
@@ -115,15 +115,15 @@ const NAV: NavGroup[] = [
       {
         title: "Pacotes", url: "/pacotes", icon: Gift, roles: ["OWNER", "ADMIN"],
         submenu: [
-          { title: "Planos",  url: "/pacotes",         icon: Gift },
-          { title: "Compras", url: "/pacotes/compras", icon: ClipboardList },
+          { title: "Tipos de pacotes", url: "/pacotes",         icon: Gift },
+          { title: "Vendas",           url: "/pacotes/compras", icon: ClipboardList },
         ],
       },
       {
         title: "Assinaturas", url: "/assinaturas", icon: RefreshCw, roles: ["OWNER", "ADMIN"],
         submenu: [
-          { title: "Planos",     url: "/assinaturas/planos", icon: ListOrdered },
-          { title: "Instâncias", url: "/assinaturas",        icon: Users },
+          { title: "Planos", url: "/assinaturas/planos", icon: ListOrdered },
+          { title: "Ativas", url: "/assinaturas",        icon: Users },
         ],
       },
       { title: "Promoções / Cupons",    url: "/promocoes", icon: Percent, roles: ["OWNER", "ADMIN"] },
@@ -320,6 +320,64 @@ function NavItemRow({
   )
 }
 
+function NavGroupBlock({
+  group,
+  pathname,
+  collapsed,
+  onNavigate,
+}: {
+  group: NavGroup
+  pathname: string
+  collapsed: boolean
+  onNavigate?: () => void
+}) {
+  const hasActive = group.items.some(
+    (i) => isActive(pathname, i.url) || (i.submenu?.some((s) => isActive(pathname, s.url)) ?? false),
+  )
+  const [open, setOpen] = useState(true)
+
+  // Reabre o grupo se a rota ativa migrar para dentro dele.
+  useEffect(() => {
+    if (hasActive) setOpen(true)
+  }, [hasActive])
+
+  const items = (
+    <div className="space-y-0.5">
+      {group.items.map((item) => (
+        <NavItemRow
+          key={item.url}
+          item={item}
+          pathname={pathname}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </div>
+  )
+
+  // No modo recolhido (só ícones) não há cabeçalho de grupo; respeita o estado
+  // colapsado do hub para não reabrir o que o usuário fechou.
+  if (collapsed) return open ? items : null
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-2 mb-2 text-muted-foreground hover:text-sidebar-foreground transition-colors"
+      >
+        <span className="text-[10px] uppercase tracking-[0.25em]">{group.label}</span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.5}
+          className={cn("flex-shrink-0 transition-transform", !open && "-rotate-90")}
+        />
+      </button>
+      {open && items}
+    </div>
+  )
+}
+
 function SidebarContent({
   pathname,
   role,
@@ -348,13 +406,20 @@ function SidebarContent({
             : "px-6 flex items-center justify-between gap-2",
         )}
       >
-        {collapsed ? (
-          <span className="font-display text-2xl text-sidebar-primary leading-none">P</span>
-        ) : (
-          <span className="font-display text-xl tracking-[0.3em] text-sidebar-primary leading-none">
-            PALADINO
-          </span>
-        )}
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          title="Ir para o Dashboard"
+          className="leading-none transition-opacity hover:opacity-80"
+        >
+          {collapsed ? (
+            <span className="font-display text-2xl text-sidebar-primary leading-none">P</span>
+          ) : (
+            <span className="font-display text-xl tracking-[0.3em] text-sidebar-primary leading-none">
+              PALADINO
+            </span>
+          )}
+        </Link>
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -370,27 +435,16 @@ function SidebarContent({
       </div>
 
       {/* Nav */}
-      <nav className={cn("flex-1 py-5 overflow-y-auto", collapsed ? "px-2" : "px-4")}>
+      <nav className={cn("flex-1 py-5 overflow-y-auto scrollbar-discreet", collapsed ? "px-2" : "px-4")}>
         <div className="space-y-5">
           {groups.map((group) => (
-            <div key={group.label}>
-              {!collapsed && (
-                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-2 px-2">
-                  {group.label}
-                </p>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map((item) => (
-                  <NavItemRow
-                    key={item.url}
-                    item={item}
-                    pathname={pathname}
-                    collapsed={collapsed}
-                    onNavigate={onNavigate}
-                  />
-                ))}
-              </div>
-            </div>
+            <NavGroupBlock
+              key={group.label}
+              group={group}
+              pathname={pathname}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       </nav>
@@ -440,7 +494,7 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden lg:flex min-h-screen bg-sidebar border-r border-sidebar-border flex-col shadow-sm flex-shrink-0",
+          "hidden lg:flex h-screen sticky top-0 bg-sidebar border-r border-sidebar-border flex-col shadow-sm flex-shrink-0",
           "transition-all duration-200",
           collapsed ? "w-16" : "w-60",
         )}
@@ -480,7 +534,7 @@ export default function Sidebar() {
       {/* Mobile: drawer */}
       <aside
         className={cn(
-          "lg:hidden fixed top-0 left-0 h-full w-72 z-50 bg-sidebar shadow-xl overflow-y-auto",
+          "lg:hidden fixed top-0 left-0 h-full w-72 z-50 bg-sidebar shadow-xl overflow-y-auto scrollbar-discreet",
           "transform transition-transform duration-300 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full",
         )}

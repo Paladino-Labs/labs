@@ -1,15 +1,14 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { Sun, Moon, LogOut } from "lucide-react"
 import { useAuth, ROLE_LABELS, type Role } from "@/context/AuthContext"
 import { useTheme } from "@/lib/theme"
+import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import RoleDevSelector from "@/components/RoleDevSelector"
-
-// Fase 1: substituir por GET /companies/me
-const TENANT_NAME = "Barbearia do Zeca"
 
 const BREADCRUMB_MAP: Record<string, string> = {
   dashboard:     "Dashboard",
@@ -19,12 +18,13 @@ const BREADCRUMB_MAP: Record<string, string> = {
   inbox:         "Atendimento humano",
   customers:     "Clientes",
   comunicacao:   "Comunicação",
+  logs:          "Histórico",
   catalogo:      "Catálogo",
   servicos:      "Serviços",
   produtos:      "Produtos",
   categorias:    "Categorias",
   pacotes:       "Pacotes",
-  compras:       "Compras",
+  compras:       "Vendas",
   assinaturas:   "Assinaturas",
   planos:        "Planos",
   promocoes:     "Promoções",
@@ -63,6 +63,14 @@ export default function Header() {
   const { name, email, role, logout } = useAuth()
   const { theme, toggle } = useTheme()
 
+  // Nome real da empresa (substitui o mock da Fase 0).
+  const [tenantName, setTenantName] = useState<string | null>(null)
+  useEffect(() => {
+    api.get<{ name: string }>("/companies/me")
+      .then((c) => setTenantName(c.name))
+      .catch(() => {})
+  }, [])
+
   const segments = pathname.split("/").filter(Boolean)
   const crumbs = segments.map((seg, i) => ({
     label: labelFor(seg),
@@ -82,10 +90,7 @@ export default function Header() {
       {/* Linha 1 */}
       <div className="flex items-center gap-4 px-4 pl-16 lg:pl-6 h-14">
         <div className="flex flex-col leading-tight min-w-0">
-          <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            Tenant
-          </span>
-          <span className="font-display text-base leading-none truncate">{TENANT_NAME}</span>
+          <span className="font-display text-xl leading-none truncate">{tenantName ?? ""}</span>
         </div>
 
         <div className="flex-1" />

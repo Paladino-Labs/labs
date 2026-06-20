@@ -317,7 +317,7 @@ export const COMMUNICATION_LOG_STATUS_LABELS: Record<string, string> = {
   SKIPPED_QUIET_HOURS:      "Adiada (silêncio)",
   SKIPPED_NO_CONSENT:       "Sem consentimento",
   SKIPPED_CHANNEL_DISABLED: "Canal desativado",
-  SKIPPED_NO_TEMPLATE:      "Sem template",
+  SKIPPED_NO_TEMPLATE:      "Sem modelo",
 }
 
 // Canal de comunicação (WHATSAPP|EMAIL|SMS)
@@ -399,6 +399,7 @@ export const COMMUNICATION_EVENT_TYPE_LABELS: Record<string, string> = {
   "nps.low_score_alert":            "Alerta de nota baixa",
   "waitlist.slot_available":        "Vaga disponível (fila)",
   "conversation.escalated":         "Conversa escalada",
+  "payment.confirmed":              "Pagamento confirmado",
 }
 
 // Eventos disponíveis no Select de criação de template

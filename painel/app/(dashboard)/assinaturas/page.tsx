@@ -186,7 +186,7 @@ export default function SubscriptionsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Assinaturas" title="Instâncias" description="Assinaturas ativas, pausadas e em cobrança.">
+      <PageHeader eyebrow="Assinaturas" title="Ativas" description="Assinaturas ativas, pausadas e em cobrança.">
         <Button onClick={() => setNewOpen(true)}>+ Nova assinatura</Button>
       </PageHeader>
 

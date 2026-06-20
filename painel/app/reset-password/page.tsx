@@ -26,28 +26,39 @@ export default function ResetPasswordPage() {
 function ResetPasswordContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const token = searchParams.get("token") ?? ""
+  const urlToken = searchParams.get("token") ?? ""
 
+  const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tokenInvalid, setTokenInvalid] = useState(false)
+
+  // O e-mail entrega um código de 6 dígitos (sem link). Se a URL trouxer ?token=
+  // (fluxo de link), usa esse valor; senão, usa o código digitado manualmente.
+  const token = urlToken || code.trim()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!token) { setError("Informe o código recebido por e-mail."); return }
     const pwdErr = validatePassword(password)
     if (pwdErr) { setError(pwdErr); return }
     if (password !== confirm) { setError("As senhas não coincidem."); return }
     setError(null)
     setLoading(true)
     try {
-      await api.post("/auth/reset-password", { token, new_password: password })
+      await api.post("/auth/reset-password", {
+        token,
+        new_password: password,
+        new_password_confirm: confirm,
+      })
       router.replace("/?reset=ok")
     } catch (err: unknown) {
       const status = (err as { status?: number }).status
-      if (status === 400 || status === 404 || status === 410 || status === 422) {
-        setTokenInvalid(true)
+      if (status === 400 || status === 404 || status === 410) {
+        setError("Código inválido ou expirado.")
+      } else if (status === 422) {
+        setError((err as Error).message ?? "Verifique os dados informados.")
       } else {
         setError((err as Error).message ?? "Erro ao redefinir senha.")
       }
@@ -56,58 +67,36 @@ function ResetPasswordContent() {
     }
   }
 
-  if (!token) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="text-center space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Link de recuperação inválido.
-          </p>
-          <Link
-            href="/forgot-password"
-            className="text-sm text-primary hover:underline"
-          >
-            Solicitar novo link
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  if (tokenInvalid) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
-          <p className="text-sm text-destructive">
-            Este link de recuperação é inválido ou já expirou.
-          </p>
-          <Link
-            href="/forgot-password"
-            className="block text-sm text-primary hover:underline"
-          >
-            Solicitar novo link
-          </Link>
-          <Link
-            href="/"
-            className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            ← Voltar ao login
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
         <div>
           <h2 className="font-display text-3xl">Nova senha</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Escolha uma senha segura para sua conta
+            {urlToken
+              ? "Escolha uma senha segura para sua conta"
+              : "Informe o código enviado ao seu e-mail e escolha uma nova senha."}
           </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {!urlToken && (
+            <div className="space-y-1">
+              <Label htmlFor="code">Código de verificação</Label>
+              <Input
+                id="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                required
+                placeholder="000000"
+              />
+              <p className="text-xs text-muted-foreground">
+                Código de 6 dígitos enviado ao seu e-mail.
+              </p>
+            </div>
+          )}
           <div className="space-y-1">
             <Label htmlFor="pwd">Nova senha</Label>
             <Input
@@ -135,14 +124,20 @@ function ResetPasswordContent() {
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Salvando…" : "Redefinir senha"}
           </Button>
-          <p className="text-center">
+          <div className="flex flex-col items-center gap-1.5">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-primary hover:underline"
+            >
+              Solicitar novo código
+            </Link>
             <Link
               href="/"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               ← Voltar ao login
             </Link>
-          </p>
+          </div>
         </form>
       </div>
     </div>
