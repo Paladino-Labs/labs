@@ -177,7 +177,7 @@ const NAV: NavGroup[] = [
           { title: "Financeiro",  url: "/settings/financial",   icon: Wallet },
           { title: "Integrações", url: "/settings/integracoes",  icon: Link2 },
           { title: "Módulos",     url: "/settings/modulos",      icon: Blocks },
-          { title: "Branding",    url: "/settings/branding",     icon: Palette },
+          { title: "Identidade",  url: "/settings/branding",     icon: Palette },
         ],
       },
       { title: "Relatórios",         url: "/relatorios",        icon: BarChart3,   roles: ["OWNER", "ADMIN"] },

@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Building2, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, UserCircle } from "lucide-react"
+import { Palette, KeyRound, ChevronRight, UserCog, Link2, MessageSquare, UserCircle } from "lucide-react"
 import { PageHeader } from "@/components/PageHeader"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -11,10 +11,10 @@ const sections = [
     description: "Nome e informações da sua conta",
   },
   {
-    href: "/settings/profile",
-    icon: Building2,
-    title: "Perfil da empresa",
-    description: "Dados, identidade visual, galeria e informações de contato",
+    href: "/settings/branding",
+    icon: Palette,
+    title: "Identidade da empresa",
+    description: "Dados, identidade visual do painel, vitrine pública e contato",
   },
   {
     href: "/settings/security",
