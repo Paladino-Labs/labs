@@ -66,6 +66,8 @@ class CommunicationLogResponse(BaseModel):
     channel: str
     recipient_id: UUID
     recipient_type: str
+    recipient_name: str | None = None
+    recipient_kind: str | None = None
     status: str
     scheduled_send_at: Any
     rendered_body: str | None

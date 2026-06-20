@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_role, get_current_user, get_current_company_id
 from app.core.audit.sensitive_context import ActionScope
 from app.infrastructure.db.session import get_db
-from app.infrastructure.db.models import User
+from app.infrastructure.db.models import User, Customer
 from app.infrastructure.db.models.communication_setting import CommunicationSetting
 from app.infrastructure.db.models.communication_template import CommunicationTemplate
 from app.infrastructure.db.models.communication_log import CommunicationLog
@@ -174,7 +174,40 @@ def list_logs(
     if date_to:
         q = q.filter(CommunicationLog.created_at <= date_to)
     q = q.order_by(CommunicationLog.created_at.desc())
-    return q.offset((page - 1) * limit).limit(limit).all()
+    logs = q.offset((page - 1) * limit).limit(limit).all()
+
+    # Resolve o nome do destinatário em lote (sem N+1). recipient_type não é
+    # confiável (ex.: auth.password_reset_requested usa CLIENT mas recipient_id
+    # é um User), então procuramos em ambas as tabelas: Customer primeiro
+    # (escopo da empresa), User para os ids restantes.
+    all_ids = {l.recipient_id for l in logs}
+    names: dict[UUID, str] = {}
+    kinds: dict[UUID, str] = {}
+    if all_ids:
+        for cid, cname in (
+            db.query(Customer.id, Customer.name)
+            .filter(Customer.company_id == company_id, Customer.id.in_(all_ids))
+            .all()
+        ):
+            names[cid] = cname
+            kinds[cid] = "CLIENT"
+        remaining = all_ids - names.keys()
+        if remaining:
+            for uid, uname, urole in (
+                db.query(User.id, User.name, User.role).filter(User.id.in_(remaining)).all()
+            ):
+                names[uid] = uname
+                kinds[uid] = getattr(urole, "value", urole)
+
+    _extra = {"recipient_name", "recipient_kind"}
+    return [
+        CommunicationLogResponse(
+            **{c: getattr(l, c) for c in CommunicationLogResponse.model_fields if c not in _extra},
+            recipient_name=names.get(l.recipient_id),
+            recipient_kind=kinds.get(l.recipient_id),
+        )
+        for l in logs
+    ]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

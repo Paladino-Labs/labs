@@ -127,6 +127,21 @@ m5n6o7p8q9r0 (add_payment_submethod)     ← estado de entrada do plano
 
 Cadeia **linear, sem divergências**, ancorada no head de entrada previsto pelo plano (`m5n6o7p8q9r0`).
 
+### ⚠ Pré-requisito do `alembic upgrade head` (local E produção)
+
+A coluna padrão do Alembic `alembic_version.version_num` é `VARCHAR(32)`. O revision
+`e0sD2_payment_source_authorizations` tem **35 caracteres** e estoura esse limite —
+o `upgrade head` aborta em `StringDataRightTruncation` ao gravar a versão (e, por DDL
+transacional no PostgreSQL, reverte o lote inteiro). **Antes** do `alembic upgrade head`,
+rodar **uma vez** por banco:
+
+```sql
+ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255);
+```
+
+Operação de metadados numa tabela de 1 linha (instantânea, sem lock relevante). Já
+aplicado no banco local em 2026-06-19; **falta aplicar em produção no deploy**.
+
 ---
 
 ## 7. Estado da Suite de Testes
@@ -183,6 +198,7 @@ Verificado em `app/core/config.py`. Defaults seguros para dev; **produção exig
 - Wiring completo: routers, handlers de evento e workers de vencimento todos registrados.
 
 **Atenção antes/junto do push (não bloqueiam o código, são operacionais):**
+0. **Alargar `alembic_version.version_num` para `VARCHAR(255)` ANTES do `alembic upgrade head`** (ver Seção 6) — caso contrário o upgrade aborta em `e0sD2_payment_source_authorizations`. Aplica-se a qualquer banco ainda em `VARCHAR(32)`.
 1. **Variáveis de ambiente do Railway** — Seção 8. Críticas: `SECRET_KEY` (trocar), `CREDENTIAL_ENCRYPTION_KEY`, `EMAIL_PROVIDER`+chave real, `LLM_API_KEY` (se quiser LLM ativo), `FRONTEND_BASE_URL`, `ASAAS_API_URL` de produção.
 2. **Backfill de identidade** — rodar `scripts/backfill_identity.py --dry-run` e depois real, em janela de manutenção, antes do crescimento da base.
 3. **Templates para tenants pré-sprint** — INSERT via SQL de `appointment.completed` (Sprint I) e dos 5 templates do Sprint G para tenants antigos (Sprint 2.7 já cobre via seed).
