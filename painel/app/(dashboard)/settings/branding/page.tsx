@@ -224,7 +224,7 @@ export default function BrandingPage() {
         }),
         api.patch("/companies/me", { company: { name: name.trim() || null } }),
       ])
-      toast.success("Identidade salva")
+      toast.success("Branding salvo")
     } catch (err: unknown) {
       toast.error((err as Error).message ?? "Erro ao salvar")
     } finally {
@@ -272,7 +272,7 @@ export default function BrandingPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Configurações"
-        title="Identidade da empresa"
+        title="Branding"
         description="Dados, identidade visual do painel e vitrine pública da sua empresa."
       >
         <Button onClick={handleSave} disabled={saving || loading}>
@@ -289,87 +289,6 @@ export default function BrandingPage() {
         <ErrorState message={error} onRetry={load} />
       ) : (
         <div className="max-w-3xl space-y-6">
-
-          {/* ── Sobre a empresa ──────────────────────────────────────────── */}
-          <Card>
-            <CardHeader><CardTitle className="text-base">Sobre a empresa</CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-1.5">
-                <Label htmlFor="name">Nome da empresa</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder="Ex: Barbearia Paladino" />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="tagline">Slogan / Tagline</Label>
-                <Input id="tagline" value={profile.tagline} onChange={handleProfileInput("tagline")}
-                  placeholder="Ex: Tradição e estilo desde 2010" maxLength={180} />
-                <p className="text-xs text-muted-foreground text-right">{profile.tagline.length}/180</p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="description">Descrição</Label>
-                <Textarea id="description" value={profile.description} onChange={handleProfileInput("description")}
-                  rows={4} placeholder="Conte um pouco sobre sua barbearia, diferenciais, história…" />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="business_hours">Horário de funcionamento</Label>
-                <Input id="business_hours" value={profile.business_hours} onChange={handleProfileInput("business_hours")}
-                  placeholder="Seg–Sex 9h–20h · Sáb 8h–18h" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Visual do painel ─────────────────────────────────────────── */}
-          <Card>
-            <CardHeader><CardTitle className="text-base">Visual do painel</CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <ColorField label="Cor primária" value={primary} onChange={setPrimary} />
-                <ColorField label="Cor secundária" value={secondary} onChange={setSecondary} />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Fonte</Label>
-                <Select value={fontFamily} onValueChange={(v) => v && setFontFamily(v)}>
-                  <SelectTrigger className="w-full"><SelectValue>{fontFamily}</SelectValue></SelectTrigger>
-                  <SelectContent>
-                    {FONT_OPTIONS.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label>Logo no painel</Label>
-                  <p className="text-xs text-muted-foreground">Exibido no menu lateral do painel.</p>
-                  {logoPainel && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={logoPainel} alt="Logo no painel" className="h-12 w-auto rounded border border-border object-contain" />
-                  )}
-                  <input ref={logoPainelRef} type="file" accept="image/*" hidden
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePainelUpload(f, "logo"); e.target.value = "" }} />
-                  <Button variant="outline" size="sm" disabled={uploadingLogoPainel} onClick={() => logoPainelRef.current?.click()}>
-                    {uploadingLogoPainel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar
-                  </Button>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Favicon</Label>
-                  <p className="text-xs text-muted-foreground">Ícone da aba do navegador.</p>
-                  {faviconUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={faviconUrl} alt="Favicon" className="h-12 w-12 rounded border border-border object-contain" />
-                  )}
-                  <input ref={faviconRef} type="file" accept="image/*" hidden
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePainelUpload(f, "favicon"); e.target.value = "" }} />
-                  <Button variant="outline" size="sm" disabled={uploadingFavicon} onClick={() => faviconRef.current?.click()}>
-                    {uploadingFavicon ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* ── Vitrine pública ──────────────────────────────────────────── */}
           <Card>
@@ -456,6 +375,87 @@ export default function BrandingPage() {
                     </Button>
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Sobre a empresa ──────────────────────────────────────────── */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Sobre a empresa</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-1.5">
+                <Label htmlFor="name">Nome da empresa</Label>
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)}
+                  placeholder="Ex: Barbearia Paladino" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="tagline">Slogan / Tagline</Label>
+                <Input id="tagline" value={profile.tagline} onChange={handleProfileInput("tagline")}
+                  placeholder="Ex: Tradição e estilo desde 2010" maxLength={180} />
+                <p className="text-xs text-muted-foreground text-right">{profile.tagline.length}/180</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="description">Descrição</Label>
+                <Textarea id="description" value={profile.description} onChange={handleProfileInput("description")}
+                  rows={4} placeholder="Conte um pouco sobre sua barbearia, diferenciais, história…" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="business_hours">Horário de funcionamento</Label>
+                <Input id="business_hours" value={profile.business_hours} onChange={handleProfileInput("business_hours")}
+                  placeholder="Seg–Sex 9h–20h · Sáb 8h–18h" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Visual do painel ─────────────────────────────────────────── */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Visual do painel</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <ColorField label="Cor primária" value={primary} onChange={setPrimary} />
+                <ColorField label="Cor secundária" value={secondary} onChange={setSecondary} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Fonte</Label>
+                <Select value={fontFamily} onValueChange={(v) => v && setFontFamily(v)}>
+                  <SelectTrigger className="w-full"><SelectValue>{fontFamily}</SelectValue></SelectTrigger>
+                  <SelectContent>
+                    {FONT_OPTIONS.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Logo no painel</Label>
+                  <p className="text-xs text-muted-foreground">Exibido no menu lateral do painel.</p>
+                  {logoPainel && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={logoPainel} alt="Logo no painel" className="h-12 w-auto rounded border border-border object-contain" />
+                  )}
+                  <input ref={logoPainelRef} type="file" accept="image/*" hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePainelUpload(f, "logo"); e.target.value = "" }} />
+                  <Button variant="outline" size="sm" disabled={uploadingLogoPainel} onClick={() => logoPainelRef.current?.click()}>
+                    {uploadingLogoPainel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Favicon</Label>
+                  <p className="text-xs text-muted-foreground">Ícone da aba do navegador.</p>
+                  {faviconUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={faviconUrl} alt="Favicon" className="h-12 w-12 rounded border border-border object-contain" />
+                  )}
+                  <input ref={faviconRef} type="file" accept="image/*" hidden
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePainelUpload(f, "favicon"); e.target.value = "" }} />
+                  <Button variant="outline" size="sm" disabled={uploadingFavicon} onClick={() => faviconRef.current?.click()}>
+                    {uploadingFavicon ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

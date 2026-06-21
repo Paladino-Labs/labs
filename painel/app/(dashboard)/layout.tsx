@@ -42,11 +42,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <BrandingProvider>
-      <div className="min-h-screen flex">
+      <div className="h-screen flex overflow-hidden">
         <Sidebar />
         <div className="flex flex-1 flex-col min-w-0">
           <Header />
-          <main className="flex-1 px-6 py-8 md:px-10 md:py-10 bg-background overflow-auto">
+          <main className="flex flex-1 flex-col px-6 py-8 md:px-10 md:py-10 bg-background overflow-y-auto">
             {children}
           </main>
         </div>

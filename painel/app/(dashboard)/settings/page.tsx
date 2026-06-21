@@ -13,7 +13,7 @@ const sections = [
   {
     href: "/settings/branding",
     icon: Palette,
-    title: "Identidade da empresa",
+    title: "Branding",
     description: "Dados, identidade visual do painel, vitrine pública e contato",
   },
   {

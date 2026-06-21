@@ -1,8 +1,23 @@
 # Diagnóstico — Conectar o dashboard à API real
 
-**Status:** diagnóstico para implementação (não implementado).
-**Data:** 2026-06-19.
+**Status:** ✅ IMPLEMENTADO 2026-06-20 (branch `feat/dashboard-dados-reais`).
+**Data do diagnóstico:** 2026-06-19.
 **Arquivo-alvo:** `painel/app/(dashboard)/dashboard/page.tsx`.
+
+> **Passo 0 — resolvido como GAP.** Não há vínculo `User → Professional` no backend:
+> o JWT e `GET /auth/me` expõem só `{ id, email, name, company_id, role }` (sem
+> `professional_id`), e o modelo `Professional` não tem `user_id`. Logo o
+> `ProfessionalDashboard` é um `EmptyState` "Perfil profissional não vinculado"
+> + TODO de backend. OWNER/ADMIN e OPERATOR foram ligados a dados reais.
+>
+> **Notas de wiring:** `Commission` usa `commission_amount` (não `amount`);
+> `/payments` é array plano filtrado client-side (status `PENDING`/`CONFIRMED`);
+> `crm/alerts.at_risk_customers[]` só traz `customer_id` → nome resolvido via
+> `/customers/`; limites de mês do DRE em datetime LOCAL (sem `toISOString()`)
+> para não deslocar o dia nas bordas; "Caixa do dia ainda não conferido" =
+> ausência de `cash-count` criado hoje (a semântica `!resolution` do diagnóstico
+> não se aplica — `resolution` é sempre preenchido). Falha por seção é isolada
+> (cada fetch em guard que não rejeita); falha TOTAL (zero sucessos) → `ErrorState`.
 
 ## Contexto
 

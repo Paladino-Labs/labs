@@ -1,7 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef, useEffect } from "react"
-import { Calendar, Clock, User } from "lucide-react"
+import { formatBRL } from "@/lib/utils"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -10,17 +9,16 @@ export interface Appointment {
   client_name: string
   service_name: string
   professional_name: string
-  professional_color: string   // ex: "#7C3AED"
   start_at: string             // ISO 8601
   end_at: string               // ISO 8601
   status: "SCHEDULED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
+  price?: number
 }
 
 interface AgendaCalendarProps {
   appointments: Appointment[]
-  professionals: { id: string; name: string; color: string }[]
+  professionals: { id: string; name: string; specialty?: string }[]
   date: Date
-  onDateChange: (date: Date) => void
   companyTimezone?: string
   onAppointmentClick?: (appt: Appointment) => void
   onSlotClick?: (date: Date, professionalId?: string) => void
@@ -28,39 +26,18 @@ interface AgendaCalendarProps {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const HOUR_HEIGHT = 64          // px por hora
-const START_HOUR  = 7           // 07:00
-const END_HOUR    = 22          // 22:00
-const TOTAL_HOURS = END_HOUR - START_HOUR
+const START_HOUR = 7            // 07:00
+const END_HOUR   = 22           // exclusivo → última linha 21:00
 
+// O estado é comunicado por opacidade/risco — a cor do bloco é única (accent).
 const STATUS_STYLES: Record<string, string> = {
-  SCHEDULED:  "border-l-4",
-  COMPLETED:  "border-l-4 opacity-70",
-  CANCELLED:  "border-l-4 opacity-40 line-through",
-  NO_SHOW:    "border-l-4 opacity-50",
+  SCHEDULED: "",
+  COMPLETED: "opacity-70",
+  CANCELLED: "opacity-40 line-through",
+  NO_SHOW:   "opacity-50",
 }
-
-const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
-const MONTHS_PT = [
-  "janeiro","fevereiro","março","abril","maio","junho",
-  "julho","agosto","setembro","outubro","novembro","dezembro",
-]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function startOfWeek(d: Date): Date {
-  const day = new Date(d)
-  const diff = day.getDay()   // 0 = domingo
-  day.setDate(day.getDate() - diff)
-  day.setHours(0, 0, 0, 0)
-  return day
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
-}
 
 function isSameDay(a: Date, b: Date): boolean {
   return (
@@ -70,595 +47,101 @@ function isSameDay(a: Date, b: Date): boolean {
   )
 }
 
-function topOffsetPct(date: Date): number {
-  const mins = (date.getHours() - START_HOUR) * 60 + date.getMinutes()
-  return (mins / (TOTAL_HOURS * 60)) * 100
-}
-
-function heightPct(start: Date, end: Date): number {
-  const mins = (end.getTime() - start.getTime()) / 60000
-  return (mins / (TOTAL_HOURS * 60)) * 100
-}
-
-function formatHour(h: number): string {
-  return `${String(h).padStart(2, "0")}:00`
-}
-
-function formatTime(d: Date): string {
+function formatTime(iso: string): string {
+  const d = new Date(iso)
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 }
 
-// ─── Componente de evento ─────────────────────────────────────────────────────
-
-function ApptBlock({
-  appt,
-  color,
-  onClick,
-}: {
-  appt: Appointment
-  color: string
-  onClick: () => void
-}) {
-  const start = new Date(appt.start_at)
-  const end   = new Date(appt.end_at)
-  const top   = topOffsetPct(start)
-  const height = Math.max(heightPct(start, end), 2.5)   // mínimo visível
-  const durationMin = (end.getTime() - start.getTime()) / 60000
-  const isShort = durationMin <= 30
-
-  return (
-    <button
-      onClick={onClick}
-      title={`${appt.client_name} · ${appt.service_name} · ${formatTime(start)}–${formatTime(end)}`}
-      className={`
-        absolute left-0.5 right-0.5 rounded-md px-2 text-left
-        transition-all duration-150 hover:brightness-95 hover:z-20
-        focus:outline-none focus:ring-2 focus:ring-offset-1
-        ${STATUS_STYLES[appt.status] ?? "border-l-4"}
-        overflow-hidden group z-10
-      `}
-      style={{
-        top: `${top}%`,
-        height: `${height}%`,
-        backgroundColor: `${color}18`,
-        borderLeftColor: color,
-        borderTopWidth: 0,
-        borderRightWidth: 0,
-        borderBottomWidth: 0,
-      }}
-    >
-      <p
-        className="text-[11px] font-semibold leading-tight truncate"
-        style={{ color }}
-      >
-        {appt.client_name}
-      </p>
-      {!isShort && (
-        <p
-          className="text-[10px] truncate leading-tight opacity-80"
-          style={{ color }}
-        >
-          {appt.service_name}
-        </p>
-      )}
-      {!isShort && (
-        <p
-          className="text-[10px] leading-tight opacity-60"
-          style={{ color }}
-        >
-          {formatTime(start)}–{formatTime(end)}
-        </p>
-      )}
-    </button>
-  )
-}
-
-// ─── Coluna de horários ───────────────────────────────────────────────────────
-
-function TimeGutter() {
-  return (
-    <div
-      className="flex-shrink-0 select-none"
-      style={{ width: 52 }}
-    >
-      <div style={{ height: 48 }} />  {/* header spacer */}
-      <div
-        className="relative"
-        style={{ height: HOUR_HEIGHT * TOTAL_HOURS }}
-      >
-        {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
-          <div
-            key={i}
-            className="absolute right-2 text-xs text-muted-foreground leading-none"
-            style={{ top: i * HOUR_HEIGHT - 7, width: 40, textAlign: "right" }}
-          >
-            {i < TOTAL_HOURS + 1 ? formatHour(START_HOUR + i) : ""}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Linha de hora atual ──────────────────────────────────────────────────────
-
-function NowLine() {
-  const [now, setNow] = useState(new Date())
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000)
-    return () => clearInterval(t)
-  }, [])
-
-  const top = topOffsetPct(now)
-  if (now.getHours() < START_HOUR || now.getHours() >= END_HOUR) return null
-
-  return (
-    <div
-      className="absolute left-0 right-0 z-30 pointer-events-none"
-      style={{ top: `${top}%` }}
-    >
-      <div className="relative flex items-center">
-        <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 flex-shrink-0" />
-        <div className="flex-1 h-px bg-red-500" />
-      </div>
-    </div>
-  )
-}
-
-// ─── Grade de horas (background) ─────────────────────────────────────────────
-
-function HourGrid() {
-  return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      style={{ height: HOUR_HEIGHT * TOTAL_HOURS }}
-    >
-      {Array.from({ length: TOTAL_HOURS }, (_, i) => (
-        <div
-          key={i}
-          className="absolute left-0 right-0 border-t border-border"
-          style={{ top: i * HOUR_HEIGHT }}
-        />
-      ))}
-      {Array.from({ length: TOTAL_HOURS }, (_, i) => (
-        <div
-          key={`half-${i}`}
-          className="absolute left-0 right-0 border-t border-dashed border-border opacity-60"
-          style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
-        />
-      ))}
-    </div>
-  )
-}
-
-// ─── Visualização Semanal ─────────────────────────────────────────────────────
-
-function WeekView({
-  weekStart,
-  appointments,
-  onAppointmentClick,
-  onSlotClick,
-}: {
-  weekStart: Date
-  appointments: Appointment[]
-  onAppointmentClick: (a: Appointment) => void
-  onSlotClick: (date: Date) => void
-}) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-  const today = new Date()
-
-  return (
-    <div className="flex overflow-x-auto">
-      <TimeGutter />
-
-      <div className="flex flex-1 min-w-0">
-        {days.map((day) => {
-          const dayAppts = appointments.filter((a) =>
-            isSameDay(new Date(a.start_at), day)
-          )
-          const isToday = isSameDay(day, today)
-
-          return (
-            <div key={day.toISOString()} className="flex-1 min-w-0 border-l border-border">
-              {/* Cabeçalho do dia */}
-              <div
-                className={`
-                  h-12 flex flex-col items-center justify-center gap-0.5 sticky top-0 z-20
-                  bg-card border-b border-border
-                `}
-              >
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  {DAYS_PT[day.getDay()]}
-                </span>
-                <span
-                  className={`
-                    text-sm font-semibold leading-none w-7 h-7 flex items-center justify-center rounded-full
-                    ${isToday
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground"
-                    }
-                  `}
-                >
-                  {day.getDate()}
-                </span>
-              </div>
-
-              {/* Coluna de eventos */}
-              <div
-                className="relative cursor-pointer"
-                style={{ height: HOUR_HEIGHT * TOTAL_HOURS }}
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const y = e.clientY - rect.top
-                  const mins = Math.floor((y / (HOUR_HEIGHT * TOTAL_HOURS)) * TOTAL_HOURS * 60)
-                  const clickedDate = new Date(day)
-                  clickedDate.setHours(
-                    START_HOUR + Math.floor(mins / 60),
-                    Math.floor(mins / 60) * 60 === mins ? 0 : 30,
-                    0, 0
-                  )
-                  onSlotClick(clickedDate)
-                }}
-              >
-                <HourGrid />
-                <NowLine />
-                {dayAppts.map((a) => (
-                  <ApptBlock
-                    key={a.id}
-                    appt={a}
-                    color={a.professional_color}
-                    onClick={(e?: React.MouseEvent) => {
-                      e?.stopPropagation()
-                      onAppointmentClick(a)
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ─── Visualização Diária ──────────────────────────────────────────────────────
-
-function DayView({
-  day,
-  appointments,
-  professionals,
-  onAppointmentClick,
-  onSlotClick,
-}: {
-  day: Date
-  appointments: Appointment[]
-  professionals: { id: string; name: string; color: string }[]
-  onAppointmentClick: (a: Appointment) => void
-  onSlotClick: (date: Date, professionalId: string) => void
-}) {
-  const dayAppts = appointments.filter((a) =>
-    isSameDay(new Date(a.start_at), day)
-  )
-
-  return (
-    <div className="flex overflow-x-auto">
-      <TimeGutter />
-
-      <div className="flex flex-1 min-w-0">
-        {professionals.map((prof) => {
-          const profAppts = dayAppts.filter(
-            (a) => a.professional_name === prof.name
-          )
-
-          return (
-            <div key={prof.id} className="flex-1 min-w-0 border-l border-border">
-              {/* Cabeçalho do profissional */}
-              <div
-                className="h-12 flex items-center justify-center gap-2 sticky top-0 z-20
-                  bg-card border-b border-border px-2"
-              >
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: prof.color }}
-                />
-                <span className="text-xs font-semibold text-foreground truncate [font-family:var(--font-display)]">
-                  {prof.name}
-                </span>
-              </div>
-
-              {/* Coluna */}
-              <div
-                className="relative cursor-pointer"
-                style={{ height: HOUR_HEIGHT * TOTAL_HOURS }}
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const y = e.clientY - rect.top
-                  const mins = Math.floor((y / (HOUR_HEIGHT * TOTAL_HOURS)) * TOTAL_HOURS * 60)
-                  const clickedDate = new Date(day)
-                  clickedDate.setHours(
-                    START_HOUR + Math.floor(mins / 60),
-                    Math.floor(mins / 60) * 60 === mins ? 0 : 30,
-                    0, 0
-                  )
-                  onSlotClick(clickedDate, prof.id)
-                }}
-              >
-                <HourGrid />
-                <NowLine />
-                {profAppts.map((a) => (
-                  <ApptBlock
-                    key={a.id}
-                    appt={a}
-                    color={prof.color}
-                    onClick={(e?: React.MouseEvent) => {
-                      e?.stopPropagation()
-                      onAppointmentClick(a)
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ─── Modal de detalhes ────────────────────────────────────────────────────────
-
-function ApptModal({
-  appt,
-  onClose,
-}: {
-  appt: Appointment
-  onClose: () => void
-}) {
-  const start = new Date(appt.start_at)
-  const end   = new Date(appt.end_at)
-  const durationMin = Math.round((end.getTime() - start.getTime()) / 60000)
-
-  const statusLabel: Record<string, string> = {
-    SCHEDULED:  "Agendado",
-    COMPLETED:  "Concluído",
-    CANCELLED:  "Cancelado",
-    NO_SHOW:    "Não compareceu",
-  }
-
-  const statusColor: Record<string, string> = {
-    SCHEDULED:  "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    COMPLETED:  "bg-success/15 text-success",
-    CANCELLED:  "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
-    NO_SHOW:    "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.35)" }}
-      onClick={onClose}
-    >
-      <div
-        className="bg-card rounded-2xl shadow-xl w-full max-w-sm p-6 relative"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Cor do profissional */}
-        <div
-          className="w-1 absolute left-0 top-6 bottom-6 rounded-full"
-          style={{ backgroundColor: appt.professional_color }}
-        />
-
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-lg leading-none"
-        >
-          ×
-        </button>
-
-        <div className="pl-3">
-          <p className="font-semibold text-foreground text-base leading-snug">
-            {appt.client_name}
-          </p>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {appt.service_name}
-          </p>
-
-          <span className={`inline-block mt-3 text-xs font-medium px-2 py-0.5 rounded-full ${statusColor[appt.status]}`}>
-            {statusLabel[appt.status]}
-          </span>
-
-          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              <span>
-                {formatTime(start)} – {formatTime(end)}
-                <span className="ml-1 text-muted-foreground">({durationMin} min)</span>
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              <span>{appt.professional_name}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              <span>
-                {start.getDate()} de {MONTHS_PT[start.getMonth()]} de {start.getFullYear()}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Componente principal ─────────────────────────────────────────────────────
+// ─── Componente ───────────────────────────────────────────────────────────────
+//
+// Layout em CSS grid (uma linha por hora). O container cresce com as linhas — não
+// há scroll interno vertical nem cabeçalho fixo, então nada fica escondido. Em
+// telas estreitas o container rola só na horizontal (min-w mantém a leitura), de
+// modo que o mesmo calendário serve desktop e mobile.
 
 export default function AgendaCalendar({
   appointments,
   professionals,
-  date: currentDate,
-  onDateChange,
+  date,
   onAppointmentClick,
   onSlotClick,
 }: AgendaCalendarProps) {
-  type ViewMode = "week" | "day"
+  const dayAppts = appointments.filter((a) => isSameDay(new Date(a.start_at), date))
+  const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
 
-  const [view, setView]         = useState<ViewMode>("day")
-  const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const columns = `64px repeat(${professionals.length}, minmax(0, 1fr))`
+  const minWidth = Math.max(560, 64 + professionals.length * 160)
 
-  // Scroll para hora atual ao montar
-  useEffect(() => {
-    if (!scrollRef.current) return
-    const now = new Date()
-    const offset = Math.max(0, (now.getHours() - START_HOUR - 1) * HOUR_HEIGHT + 48)
-    scrollRef.current.scrollTop = offset
-  }, [])
-
-  const weekStart = useMemo(() => startOfWeek(currentDate), [currentDate])
-
-  function prevPeriod() {
-    if (view === "week") onDateChange(addDays(currentDate, -7))
-    else onDateChange(addDays(currentDate, -1))
-  }
-
-  function nextPeriod() {
-    if (view === "week") onDateChange(addDays(currentDate, 7))
-    else onDateChange(addDays(currentDate, 1))
-  }
-
-  function goToday() {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    onDateChange(d)
-  }
-
-  const headerLabel = useMemo(() => {
-    if (view === "day") {
-      return `${DAYS_PT[currentDate.getDay()]}, ${currentDate.getDate()} de ${MONTHS_PT[currentDate.getMonth()]} de ${currentDate.getFullYear()}`
-    }
-    const wEnd = addDays(weekStart, 6)
-    if (weekStart.getMonth() === wEnd.getMonth()) {
-      return `${weekStart.getDate()}–${wEnd.getDate()} de ${MONTHS_PT[weekStart.getMonth()]} de ${weekStart.getFullYear()}`
-    }
-    return `${weekStart.getDate()} ${MONTHS_PT[weekStart.getMonth()]} – ${wEnd.getDate()} ${MONTHS_PT[wEnd.getMonth()]} ${wEnd.getFullYear()}`
-  }, [view, currentDate, weekStart])
-
-  function handleApptClick(a: Appointment) {
-    setSelectedAppt(a)
-    onAppointmentClick?.(a)
+  function handleSlot(hour: number, professionalId: string) {
+    const d = new Date(date)
+    d.setHours(hour, 0, 0, 0)
+    onSlotClick?.(d, professionalId)
   }
 
   return (
-    <div className="flex flex-col h-full bg-card rounded-2xl border border-border overflow-hidden">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+      <div style={{ minWidth }}>
 
-      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
-        {/* Hoje */}
-        <button
-          onClick={goToday}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-border
-            text-foreground hover:bg-muted transition-colors"
-        >
-          Hoje
-        </button>
-
-        {/* Prev / Next */}
-        <div className="flex gap-1">
-          {["‹", "›"].map((arrow, i) => (
-            <button
-              key={arrow}
-              onClick={i === 0 ? prevPeriod : nextPeriod}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-muted-foreground
-                hover:bg-muted transition-colors text-base leading-none"
-            >
-              {arrow}
-            </button>
-          ))}
-        </div>
-
-        {/* Título do período */}
-        <h2 className="flex-1 text-sm font-semibold text-foreground capitalize">
-          {headerLabel}
-        </h2>
-
-        {/* Toggle semana / dia */}
-        <div className="flex rounded-lg border border-border overflow-hidden">
-          {(["week", "day"] as ViewMode[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`
-                px-3 py-1.5 text-xs font-semibold transition-colors
-                ${view === v
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-                }
-              `}
-            >
-              {v === "week" ? "Semana" : "Dia"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Corpo ────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* Legenda lateral de profissionais */}
-        <div className="hidden lg:flex flex-col gap-6 px-4 py-4 border-r border-border flex-shrink-0">
-          <div className="space-y-2 w-40">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Profissionais
-            </p>
-            {professionals.map((p) => (
-              <div key={p.id} className="flex items-center gap-2">
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: p.color }}
-                />
-                <span className="text-xs text-muted-foreground truncate">
-                  {p.name}
-                </span>
-              </div>
-            ))}
+        {/* Cabeçalho — HORA + profissionais */}
+        <div className="grid border-b border-border" style={{ gridTemplateColumns: columns }}>
+          <div className="flex items-center justify-center px-2 py-3 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Hora
           </div>
+          {professionals.map((prof) => (
+            <div key={prof.id} className="border-l border-border px-3 py-3 text-center">
+              <p className="truncate text-lg font-semibold leading-tight text-foreground [font-family:var(--font-display)]">
+                {prof.name}
+              </p>
+              {prof.specialty && (
+                <p className="truncate text-xs text-muted-foreground">{prof.specialty}</p>
+              )}
+            </div>
+          ))}
         </div>
 
-        {/* Grade principal com scroll */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto overflow-x-auto"
-        >
-          {view === "week" ? (
-            <WeekView
-              weekStart={weekStart}
-              appointments={appointments}
-              onAppointmentClick={handleApptClick}
-              onSlotClick={(date) => onSlotClick?.(date)}
-            />
-          ) : (
-            <DayView
-              day={currentDate}
-              appointments={appointments}
-              professionals={professionals}
-              onAppointmentClick={handleApptClick}
-              onSlotClick={(date, profId) => onSlotClick?.(date, profId)}
-            />
-          )}
-        </div>
+        {/* Uma linha por hora — a altura acompanha o conteúdo */}
+        {hours.map((h) => (
+          <div
+            key={h}
+            className="grid border-b border-border last:border-b-0"
+            style={{ gridTemplateColumns: columns }}
+          >
+            <div className="px-2 py-2 text-right font-mono text-xs text-muted-foreground">
+              {String(h).padStart(2, "0")}:00
+            </div>
+            {professionals.map((prof) => {
+              const slot = dayAppts.filter(
+                (a) => a.professional_name === prof.name && new Date(a.start_at).getHours() === h,
+              )
+              return (
+                <div
+                  key={prof.id}
+                  className="min-h-[64px] space-y-1 border-l border-border p-1 transition-colors hover:bg-muted/20"
+                  onClick={() => slot.length === 0 && handleSlot(h, prof.id)}
+                >
+                  {slot.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={(e) => { e.stopPropagation(); onAppointmentClick?.(a) }}
+                      title={`${a.client_name} · ${a.service_name}`}
+                      className={`block w-full rounded-md border-l-4 border-primary bg-primary/10 px-2 py-1.5 text-left text-primary transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring ${STATUS_STYLES[a.status] ?? ""}`}
+                    >
+                      <p className="truncate text-xs font-semibold leading-tight">{a.client_name}</p>
+                      <p className="truncate text-[10px] leading-tight text-primary/80">{a.service_name}</p>
+                      <div className="mt-0.5 flex items-center justify-between gap-1">
+                        <span className="font-mono text-[10px] text-primary/70">{formatTime(a.start_at)}</span>
+                        {a.price != null && (
+                          <span className="font-mono text-[10px] text-primary/70">{formatBRL(a.price)}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
-
-      {/* Modal de detalhes */}
-      {selectedAppt && (
-        <ApptModal
-          appt={selectedAppt}
-          onClose={() => setSelectedAppt(null)}
-        />
-      )}
     </div>
   )
 }
