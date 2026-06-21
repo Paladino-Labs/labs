@@ -124,14 +124,14 @@ export default function AgendaCalendar({
                       key={a.id}
                       onClick={(e) => { e.stopPropagation(); onAppointmentClick?.(a) }}
                       title={`${a.client_name} · ${a.service_name}`}
-                      className={`block w-full rounded-md border-l-4 border-primary bg-primary/10 px-2 py-1.5 text-left text-primary transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring ${STATUS_STYLES[a.status] ?? ""}`}
+                      className={`block w-full rounded-md border-l-4 border-primary bg-primary/10 px-2 py-1.5 text-left text-foreground transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring ${STATUS_STYLES[a.status] ?? ""}`}
                     >
                       <p className="truncate text-xs font-semibold leading-tight">{a.client_name}</p>
-                      <p className="truncate text-[10px] leading-tight text-primary/80">{a.service_name}</p>
+                      <p className="truncate text-[10px] leading-tight text-muted-foreground">{a.service_name}</p>
                       <div className="mt-0.5 flex items-center justify-between gap-1">
-                        <span className="font-mono text-[10px] text-primary/70">{formatTime(a.start_at)}</span>
+                        <span className="font-mono text-[10px] text-foreground">{formatTime(a.start_at)}</span>
                         {a.price != null && (
-                          <span className="font-mono text-[10px] text-primary/70">{formatBRL(a.price)}</span>
+                          <span className="font-mono text-[10px] text-foreground">{formatBRL(a.price)}</span>
                         )}
                       </div>
                     </button>

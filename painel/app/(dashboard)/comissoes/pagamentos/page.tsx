@@ -220,7 +220,7 @@ function PageContent() {
                   </div>
 
                   <p className="text-sm font-medium">
-                    Total a pagar: <span className="text-primary">{formatBRL(totalPending)}</span>
+                    Total a pagar: <span className="text-foreground">{formatBRL(totalPending)}</span>
                   </p>
 
                   {/* Account selector */}

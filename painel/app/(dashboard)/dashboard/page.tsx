@@ -177,7 +177,7 @@ function KpiCard({ label, value, icon: Icon, href, delta }: KpiItem) {
         </span>
         <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
       </div>
-      <span className="font-display text-4xl text-primary">{value}</span>
+      <span className="font-display text-4xl text-foreground">{value}</span>
       {delta && <span className="text-xs text-muted-foreground">{delta}</span>}
     </div>
   )

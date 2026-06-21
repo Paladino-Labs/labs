@@ -553,7 +553,7 @@ export default function ServicesPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className="[font-family:var(--font-display)] text-lg text-primary">{formatBRL(s.price)}</span>
+                    <span className="[font-family:var(--font-display)] text-lg text-foreground">{formatBRL(s.price)}</span>
                   </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center gap-1 text-sm">

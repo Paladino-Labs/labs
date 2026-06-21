@@ -164,7 +164,7 @@ export default function ProfessionalsPage() {
                 <div className="flex items-center justify-between border-t border-border pt-4">
                   <span className="text-xs text-muted-foreground">Comissão</span>
                   {p.commission_rate != null
-                    ? <span className="[font-family:var(--font-display)] text-xl text-primary">{p.commission_rate}%</span>
+                    ? <span className="[font-family:var(--font-display)] text-xl text-foreground">{p.commission_rate}%</span>
                     : <span className="text-xs text-muted-foreground opacity-50">Em breve</span>
                   }
                 </div>
