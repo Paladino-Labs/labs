@@ -179,6 +179,21 @@ Login em `app/page.tsx`.
 - Sidebar: toggle Sun/Moon funcional
 - Pendente: grupo Unidade no sidebar (depende de company context no JWT)
 
+## Telas — consolidação visual (Dashboard · Agenda · Branding)
+
+### Agenda
+- Reescrita como CSS grid (referência: barberflow-system).
+- Container usa flex-1 min-h-0 — cresce com a viewport, sem altura fixa.
+- Sem AgendaCalendar interno (componente substituído ou reescrito).
+- Cabeçalho: "HORA" + nome/especialidade por coluna; sem dots, sem cores por profissional.
+
+### Dashboard
+- KpiCard: componente Link individual, rounded-2xl, font-display text-4xl,
+  clicável com href para a tela de detalhe de cada métrica.
+
+### Settings / Branding
+- Ordem de seções: Sobre → Vitrine pública → Visual do painel.
+
 ## O que NÃO fazer
 
 - Não criar lógica de negócio no frontend (validação de disponibilidade, cálculo financeiro, etc.)
