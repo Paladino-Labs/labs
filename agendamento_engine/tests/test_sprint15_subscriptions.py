@@ -56,6 +56,15 @@ def _make_db():
     return db
 
 
+def _make_item(item_type="SERVICE", service_id=None, product_id=None, quantity=4):
+    it = MagicMock()
+    it.item_type  = item_type
+    it.service_id = service_id if item_type == "SERVICE" else None
+    it.product_id = product_id if item_type == "PRODUCT" else None
+    it.quantity   = quantity
+    return it
+
+
 def _make_plan(
     plan_id=None,
     company_id=None,
@@ -65,6 +74,7 @@ def _make_plan(
     cycle_days=30,
     rollover_enabled=False,
     is_active=True,
+    items=None,
 ):
     p = MagicMock()
     p.plan_id          = plan_id or uuid.uuid4()
@@ -75,6 +85,11 @@ def _make_plan(
     p.cycle_days       = cycle_days
     p.rollover_enabled = rollover_enabled
     p.is_active        = is_active
+    # Sprint 26: plano multi-item. Default = 1 item SERVICE com quantity=cotas_per_cycle
+    # (preserva a equivalência credit.total_cotas == plan.cotas_per_cycle).
+    p.items = items if items is not None else [
+        _make_item("SERVICE", service_id=uuid.uuid4(), quantity=cotas_per_cycle)
+    ]
     return p
 
 
@@ -1004,8 +1019,8 @@ class TestSubscribeValidation:
         assert exc_info.value.status_code == 422
         assert "inativo" in exc_info.value.detail.lower()
 
-    def test_subscribe_active_plan_creates_subscription(self):
-        """subscribe() com plano ativo cria CustomerSubscription ACTIVE."""
+    def test_subscribe_active_plan_creates_subscription_and_payment(self):
+        """subscribe() com plano ativo cria CustomerSubscription ACTIVE + Payment PENDING."""
         company_id  = uuid.uuid4()
         customer_id = uuid.uuid4()
         plan = _make_plan(company_id=company_id, is_active=True)
@@ -1014,21 +1029,36 @@ class TestSubscribeValidation:
         added = []
         db.add.side_effect = lambda obj: added.append(obj)
 
-        with patch("app.modules.subscriptions.service._get_plan_or_404", return_value=plan):
+        mock_payment = MagicMock()
+        mock_payment.payment_id = uuid.uuid4()
+        mock_payment.status = "PENDING"
+
+        with (
+            patch("app.modules.subscriptions.service._get_plan_or_404", return_value=plan),
+            patch("app.modules.payments.service.create_payment", return_value=mock_payment) as mock_create,
+        ):
             from app.modules.subscriptions import service as svc
-            svc.subscribe(
+            subscription, payment = svc.subscribe(
                 customer_id=customer_id,
                 plan_id=plan.plan_id,
                 company_id=company_id,
                 db=db,
             )
 
+        # subscription adicionada (create_payment mockado não adiciona)
         assert len(added) == 1
         sub = added[0]
         assert sub.status == "ACTIVE"
         assert sub.company_id == company_id
         assert sub.customer_id == customer_id
         assert sub.plan_id == plan.plan_id
+
+        # Payment PENDING criado no mesmo request, vinculado à subscription
+        mock_create.assert_called_once()
+        ck = mock_create.call_args.kwargs
+        assert ck["subscription_id"] == sub.subscription_id
+        assert ck["gross_amount"] == Decimal(str(plan.price))
+        assert payment is mock_payment
         db.commit.assert_called()
 
 
@@ -1043,21 +1073,31 @@ class TestCRUDPlans:
         added = []
         db.add.side_effect = lambda obj: added.append(obj)
 
-        from app.modules.subscriptions import service as svc
-        svc.create_plan(
-            company_id=company_id,
-            name="Plano Premium",
-            cotas_per_cycle=8,
-            price=Decimal("199.00"),
-            cycle_days=30,
-            rollover_enabled=False,
-            db=db,
-        )
+        items = [
+            _make_item("SERVICE", service_id=uuid.uuid4(), quantity=5),
+            _make_item("PRODUCT", product_id=uuid.uuid4(), quantity=3),
+        ]
 
-        assert len(added) == 1
-        plan = added[0]
+        from app.modules.subscriptions import service as svc
+        with patch("app.modules.subscriptions.service._attach_plan_item_names", side_effect=lambda db, plans: plans):
+            svc.create_plan(
+                company_id=company_id,
+                name="Plano Premium",
+                items=items,
+                price=Decimal("199.00"),
+                cycle_days=30,
+                rollover_enabled=False,
+                db=db,
+            )
+
+        from app.infrastructure.db.models.subscription import SubscriptionPlan, PlanItem
+        plans = [o for o in added if isinstance(o, SubscriptionPlan)]
+        plan_items = [o for o in added if isinstance(o, PlanItem)]
+        assert len(plans) == 1
+        assert len(plan_items) == 2
+        plan = plans[0]
         assert plan.name == "Plano Premium"
-        assert plan.cotas_per_cycle == 8
+        assert plan.cotas_per_cycle == 8  # 5 + 3
         assert plan.is_active is True
         assert plan.company_id == company_id
         db.commit.assert_called()

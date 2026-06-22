@@ -24,17 +24,21 @@ def consume_for_operation(
     appointment_id: Optional[UUID],
     company_id: UUID,
     db: Session,
+    service_id: Optional[UUID] = None,
+    product_id: Optional[UUID] = None,
 ) -> CustomerCreditConsumption:
     """
     FEFO: ORDER BY expires_at NULLS LAST, granted_at ASC.
     SELECT FOR UPDATE SKIP LOCKED — concorrência segura.
     Filtra: status=ACTIVE AND (expires_at IS NULL OR expires_at > now()).
+    Match por alvo (Sprint 26): service_id ou product_id, se fornecido;
+    senão → cota genérica (sem serviço/produto).
     remaining_cotas -= 1.
     Se remaining_cotas == 0: status = EXHAUSTED.
     """
     now = datetime.now(timezone.utc)
 
-    credit = (
+    q = (
         db.query(CustomerCredit)
         .filter(
             CustomerCredit.company_id == company_id,
@@ -42,7 +46,16 @@ def consume_for_operation(
             CustomerCredit.status == "ACTIVE",
             (CustomerCredit.expires_at == None) | (CustomerCredit.expires_at > now),
         )
-        .order_by(
+    )
+
+    # Match por alvo: serviço ou produto (se fornecido)
+    if service_id:
+        q = q.filter(CustomerCredit.service_id == service_id)
+    elif product_id:
+        q = q.filter(CustomerCredit.product_id == product_id)
+
+    credit = (
+        q.order_by(
             CustomerCredit.expires_at.asc().nullslast(),
             CustomerCredit.granted_at.asc(),
         )
@@ -259,7 +272,7 @@ def list_credits(
     company_id: UUID,
     db: Session,
 ) -> List[CustomerCredit]:
-    return (
+    credits = (
         db.query(CustomerCredit)
         .filter(
             CustomerCredit.company_id == company_id,
@@ -268,3 +281,67 @@ def list_credits(
         .order_by(CustomerCredit.granted_at.desc())
         .all()
     )
+    return _attach_credit_names(db, credits)
+
+
+def find_available_credit(
+    customer_id: UUID,
+    company_id: UUID,
+    db: Session,
+    service_id: Optional[UUID] = None,
+    product_id: Optional[UUID] = None,
+) -> Optional[CustomerCredit]:
+    """Retorna a cota ACTIVE que seria consumida (FEFO) — SEM consumir.
+
+    Mesmo filtro de match de consume_for_operation, sem SELECT FOR UPDATE.
+    """
+    now = datetime.now(timezone.utc)
+    q = (
+        db.query(CustomerCredit)
+        .filter(
+            CustomerCredit.company_id == company_id,
+            CustomerCredit.customer_id == customer_id,
+            CustomerCredit.status == "ACTIVE",
+            (CustomerCredit.expires_at == None) | (CustomerCredit.expires_at > now),
+        )
+    )
+    if service_id:
+        q = q.filter(CustomerCredit.service_id == service_id)
+    elif product_id:
+        q = q.filter(CustomerCredit.product_id == product_id)
+
+    return (
+        q.order_by(
+            CustomerCredit.expires_at.asc().nullslast(),
+            CustomerCredit.granted_at.asc(),
+        )
+        .first()
+    )
+
+
+def _attach_credit_names(db: Session, credits: List[CustomerCredit]) -> List[CustomerCredit]:
+    """Resolve service_name/product_name (batch, sem N+1) e anexa como
+    atributos transientes para serialização Pydantic from_attributes."""
+    from app.infrastructure.db.models.product import Product
+    from app.infrastructure.db.models.service import Service
+
+    service_ids = {c.service_id for c in credits if c.service_id}
+    product_ids = {c.product_id for c in credits if c.product_id}
+
+    svc_names = {}
+    if service_ids:
+        svc_names = {
+            s.id: s.name
+            for s in db.query(Service).filter(Service.id.in_(service_ids)).all()
+        }
+    prod_names = {}
+    if product_ids:
+        prod_names = {
+            p.id: p.name
+            for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
+        }
+
+    for c in credits:
+        c.service_name = svc_names.get(c.service_id)
+        c.product_name = prod_names.get(c.product_id)
+    return credits

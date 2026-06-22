@@ -377,8 +377,32 @@ def reschedule_appointment(
 def complete_appointment(
     db: Session, company_id: UUID, appointment_id: UUID,
     user_id: UUID | None = None,
+    use_credit: bool = False,
 ) -> Appointment:
     appointment = get_appointment_or_404(db, company_id, appointment_id)
+
+    # Sprint 26: conclusão consumindo cota (pacote/assinatura). Consome ANTES da
+    # transição — sem cota disponível → 409, o appointment não muda de estado.
+    if use_credit:
+        from app.modules.customer_credit import service as credit_service
+        from app.modules.customer_credit.exceptions import NoCreditAvailableError
+
+        service_id = appointment.services[0].service_id if appointment.services else None
+        try:
+            credit_service.consume_for_operation(
+                customer_id=appointment.client_id,
+                appointment_id=appointment.id,
+                company_id=company_id,
+                db=db,
+                service_id=service_id,
+            )
+        except NoCreditAvailableError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Nenhuma cota disponível para concluir este agendamento com crédito",
+            )
+
     transition(db, appointment, AppointmentStatus.COMPLETED, changed_by_id=user_id,
                note="Concluído pelo painel")
     db.commit()

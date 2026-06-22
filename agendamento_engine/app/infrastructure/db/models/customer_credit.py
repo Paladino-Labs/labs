@@ -18,6 +18,9 @@ class CustomerCredit(Base):
     # PACKAGE | SUBSCRIPTION | GRANT_COTA
     entitlement_type = Column(String, nullable=False)
     source_id        = Column(UUID(as_uuid=True), nullable=True)
+    # Alvo direto da cota (Sprint 26) — match por serviço ou produto
+    service_id       = Column(UUID(as_uuid=True), ForeignKey("services.id", ondelete="SET NULL"), nullable=True)
+    product_id       = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
     total_cotas      = Column(Integer, nullable=False)
     remaining_cotas  = Column(Integer, nullable=False)
     # ACTIVE | EXHAUSTED | EXPIRED | REVOKED
@@ -26,6 +29,8 @@ class CustomerCredit(Base):
     expires_at       = Column(sa.TIMESTAMP(timezone=True), nullable=True)
 
     customer      = relationship("Customer")
+    service       = relationship("Service")
+    product       = relationship("Product")
     consumptions  = relationship("CustomerCreditConsumption", back_populates="credit")
 
 

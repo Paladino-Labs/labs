@@ -22,6 +22,10 @@ class CustomerCreditResponse(BaseModel):
     customer_id: UUID
     entitlement_type: str
     source_id: Optional[UUID] = None
+    service_id: Optional[UUID] = None
+    service_name: Optional[str] = None
+    product_id: Optional[UUID] = None
+    product_name: Optional[str] = None
     total_cotas: int
     remaining_cotas: int
     status: str
@@ -30,6 +34,17 @@ class CustomerCreditResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AvailableCreditResponse(BaseModel):
+    has_credit: bool
+    credit_id: Optional[UUID] = None
+    service_name: Optional[str] = None
+    remaining_cotas: Optional[int] = None
+
+
+class CompleteAppointmentRequest(BaseModel):
+    use_credit: bool = False
 
 
 class CustomerCreditConsumptionResponse(BaseModel):

@@ -8,9 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
 from app.core.deps import get_current_user, get_current_company_id
-from app.infrastructure.db.models import User
+from app.infrastructure.db.models import User, Service
 from app.modules.appointments import schemas, service as svc
 from app.modules.appointments.polices import PolicyViolationError
+from app.modules.customer_credit.schemas import (
+    AvailableCreditResponse,
+    CompleteAppointmentRequest,
+)
 from app.modules.whatsapp.helpers import first_name as _first_name
 
 logger = logging.getLogger(__name__)
@@ -128,18 +132,59 @@ def _send_pos_atendimento(
         db.close()
 
 
+@router.get("/{appointment_id}/available-credit", response_model=AvailableCreditResponse)
+def available_credit(
+    appointment_id: UUID,
+    company_id: UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """Verifica (sem consumir) se o cliente tem cota disponível para o serviço
+    deste agendamento."""
+    from app.modules.customer_credit import service as credit_service
+
+    appointment = svc.get_appointment_or_404(db, company_id, appointment_id)
+    service_id = appointment.services[0].service_id if appointment.services else None
+
+    credit = credit_service.find_available_credit(
+        customer_id=appointment.client_id,
+        company_id=company_id,
+        db=db,
+        service_id=service_id,
+    )
+    if credit is None:
+        return AvailableCreditResponse(has_credit=False)
+
+    service_name = None
+    if credit.service_id:
+        svc_obj = db.query(Service).filter(Service.id == credit.service_id).first()
+        service_name = svc_obj.name if svc_obj else None
+
+    return AvailableCreditResponse(
+        has_credit=True,
+        credit_id=credit.credit_id,
+        service_name=service_name,
+        remaining_cotas=credit.remaining_cotas,
+    )
+
+
 @router.patch("/{appointment_id}/complete", response_model=schemas.AppointmentResponse)
 def complete_appointment(
     appointment_id: UUID,
     background_tasks: BackgroundTasks,
+    body: CompleteAppointmentRequest = CompleteAppointmentRequest(),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Marca o agendamento como CONCLUÍDO e envia mensagem pós-atendimento via WhatsApp.
     Endpoint exclusivo do painel — requer autenticação de admin.
+
+    `use_credit=true` (Sprint 26): consome 1 cota do cliente em vez de abrir
+    janela de pagamento. Sem cota disponível → 409.
     """
-    appointment = svc.complete_appointment(db, user.company_id, appointment_id, user.id)
+    appointment = svc.complete_appointment(
+        db, user.company_id, appointment_id, user.id, use_credit=body.use_credit
+    )
 
     # Notificação em background (falha silenciosa — não afeta o complete)
     try:

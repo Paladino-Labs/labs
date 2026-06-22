@@ -9,6 +9,7 @@ from app.infrastructure.db.session import get_db
 from app.modules.subscriptions import service as subscription_service
 from app.modules.subscriptions.schemas import (
     SubscribeRequest,
+    SubscribeResponse,
     SubscriptionPlanCreate,
     SubscriptionPlanResponse,
     SubscriptionPlanUpdate,
@@ -35,11 +36,10 @@ def create_plan(
     return subscription_service.create_plan(
         company_id=current_user.company_id,
         name=body.name,
-        cotas_per_cycle=body.cotas_per_cycle,
+        items=body.items,
         price=body.price,
         cycle_days=body.cycle_days,
         rollover_enabled=body.rollover_enabled,
-        service_id=body.service_id,
         db=db,
     )
 
@@ -74,18 +74,24 @@ def list_subscriptions(
     )
 
 
-@router.post("/subscriptions", response_model=SubscriptionResponse, status_code=201)
+@router.post("/subscriptions", response_model=SubscribeResponse, status_code=201)
 def create_subscription(
     body: SubscribeRequest,
     current_user=Depends(require_role("OWNER", "ADMIN")),
     db: Session = Depends(get_db),
 ):
-    return subscription_service.subscribe(
+    subscription, payment = subscription_service.subscribe(
         customer_id=body.customer_id,
         plan_id=body.plan_id,
         company_id=current_user.company_id,
         db=db,
+        payment_method=body.payment_method,
+        target_account_id=body.target_account_id,
         first_billing_at=body.first_billing_at,
+    )
+    return SubscribeResponse(
+        subscription_id=subscription.subscription_id,
+        payment_id=payment.payment_id if payment else None,
     )
 
 

@@ -69,25 +69,30 @@ def handle_payment_confirmed_subscription(event) -> None:
 
         now = datetime.now(timezone.utc)
 
-        # Cria CustomerCredit para o ciclo renovado
+        # Sprint 26: 1 CustomerCredit por item do plano (com service_id/product_id)
         from app.infrastructure.db.models.customer_credit import CustomerCredit
         expires_at = None
         if not plan.rollover_enabled:
             expires_at = now + timedelta(days=plan.cycle_days)
 
-        credit = CustomerCredit(
-            credit_id=uuid.uuid4(),
-            company_id=company_id,
-            customer_id=subscription.customer_id,
-            entitlement_type="SUBSCRIPTION",
-            source_id=subscription.subscription_id,
-            total_cotas=plan.cotas_per_cycle,
-            remaining_cotas=plan.cotas_per_cycle,
-            status="ACTIVE",
-            granted_at=now,
-            expires_at=expires_at,
-        )
-        db.add(credit)
+        credits = []
+        for item in plan.items:
+            credit = CustomerCredit(
+                credit_id=uuid.uuid4(),
+                company_id=company_id,
+                customer_id=subscription.customer_id,
+                entitlement_type="SUBSCRIPTION",
+                source_id=subscription.subscription_id,
+                service_id=item.service_id,
+                product_id=item.product_id,
+                total_cotas=item.quantity,
+                remaining_cotas=item.quantity,
+                status="ACTIVE",
+                granted_at=now,
+                expires_at=expires_at,
+            )
+            db.add(credit)
+            credits.append(credit)
         db.flush()
 
         # Entry RECEITA ASSINATURA_RENOVACAO via FinancialCoreEngine
@@ -121,15 +126,15 @@ def handle_payment_confirmed_subscription(event) -> None:
                 payload={
                     "subscription_id": str(subscription.subscription_id),
                     "payment_id": payment_id_str,
-                    "credit_id": str(credit.credit_id),
+                    "credit_ids": [str(c.credit_id) for c in credits],
                 },
             ))
         except Exception:
             pass
 
         logger.info(
-            "handle_payment_confirmed_subscription: crédito renovado subscription_id=%s credit_id=%s",
-            subscription.subscription_id, credit.credit_id,
+            "handle_payment_confirmed_subscription: %d crédito(s) renovado(s) subscription_id=%s",
+            len(credits), subscription.subscription_id,
         )
 
     except Exception:

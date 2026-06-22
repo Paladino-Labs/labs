@@ -100,20 +100,26 @@ def activate(purchase_id: UUID, company_id: UUID, db: Session) -> PackagePurchas
     if package.validity_days:
         expires_at = now + timedelta(days=package.validity_days)
 
+    # Sprint 26: 1 CustomerCredit por item do pacote (com service_id/product_id persistidos)
     from app.infrastructure.db.models.customer_credit import CustomerCredit
-    credit = CustomerCredit(
-        credit_id=uuid.uuid4(),
-        company_id=company_id,
-        customer_id=pkg_purchase.customer_id,
-        entitlement_type="PACKAGE",
-        source_id=purchase_id,
-        total_cotas=package.total_cotas,
-        remaining_cotas=package.total_cotas,
-        status="ACTIVE",
-        granted_at=now,
-        expires_at=expires_at,
-    )
-    db.add(credit)
+    credits = []
+    for item in package.items:
+        credit = CustomerCredit(
+            credit_id=uuid.uuid4(),
+            company_id=company_id,
+            customer_id=pkg_purchase.customer_id,
+            entitlement_type="PACKAGE",
+            source_id=purchase_id,
+            service_id=item.service_id,
+            product_id=item.product_id,
+            total_cotas=item.quantity,
+            remaining_cotas=item.quantity,
+            status="ACTIVE",
+            granted_at=now,
+            expires_at=expires_at,
+        )
+        db.add(credit)
+        credits.append(credit)
 
     pkg_purchase.status = "ACTIVE"
     pkg_purchase.activated_at = now
@@ -125,7 +131,7 @@ def activate(purchase_id: UUID, company_id: UUID, db: Session) -> PackagePurchas
     _try_calculate_commission(pkg_purchase, package, company_id)
 
     # Evento best-effort
-    _publish_purchased(pkg_purchase, credit)
+    _publish_purchased(pkg_purchase, credits)
 
     return pkg_purchase
 
@@ -150,7 +156,7 @@ def _try_calculate_commission(
         from app.modules.commission import service as commission_service
         commission_service.calculate_commission(
             professional_id=professional_id,
-            service_id=package.service_id,
+            service_id=None,  # pacote multi-item — sem serviço único (Sprint 26)
             gross_amount=Decimal(str(package.price)),
             provider_fee=Decimal("0"),
             operation_type="PACKAGE_SOLD",
@@ -262,7 +268,7 @@ def _try_reverse_commissions(
         c.status = "REVERSED"
 
 
-def _publish_purchased(pkg_purchase: PackagePurchase, credit) -> None:
+def _publish_purchased(pkg_purchase: PackagePurchase, credits) -> None:
     try:
         from app.infrastructure.event_bus import DomainEvent, event_bus
         event_bus.publish(DomainEvent(
@@ -276,7 +282,7 @@ def _publish_purchased(pkg_purchase: PackagePurchase, credit) -> None:
                 "purchase_id": str(pkg_purchase.purchase_id),
                 "package_id": str(pkg_purchase.package_id),
                 "customer_id": str(pkg_purchase.customer_id),
-                "credit_id": str(credit.credit_id),
+                "credit_ids": [str(c.credit_id) for c in credits],
             },
         ))
     except Exception:
@@ -286,37 +292,54 @@ def _publish_purchased(pkg_purchase: PackagePurchase, credit) -> None:
 # ── CRUD Packages ─────────────────────────────────────────────────────────────
 
 def list_packages(company_id: UUID, db: Session) -> List[Package]:
-    return (
+    packages = (
         db.query(Package)
         .filter(Package.company_id == company_id)
         .order_by(Package.created_at.desc())
         .all()
     )
+    return _attach_item_names(db, packages)
 
 
 def create_package(
     company_id: UUID,
     name: str,
-    total_cotas: int,
+    items: list,  # List[PackageItemCreate] — objetos com item_type/service_id/product_id/quantity
     price: Decimal,
-    service_id: Optional[UUID],
     validity_days: Optional[int],
     db: Session,
 ) -> Package:
+    """Cria Package + 1 PackageItem por item. total_cotas = sum(item.quantity)."""
+    from app.infrastructure.db.models.package import PackageItem
+
+    total_cotas = sum(item.quantity for item in items)
     pkg = Package(
         package_id=uuid.uuid4(),
         company_id=company_id,
         name=name,
-        service_id=service_id,
         total_cotas=total_cotas,
         price=price,
         validity_days=validity_days,
         is_active=True,
     )
     db.add(pkg)
+    db.flush()
+
+    for order, item in enumerate(items):
+        db.add(PackageItem(
+            item_id=uuid.uuid4(),
+            package_id=pkg.package_id,
+            company_id=company_id,
+            item_type=item.item_type,
+            service_id=item.service_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            display_order=order,
+        ))
+
     db.commit()
     db.refresh(pkg)
-    return pkg
+    return _attach_item_names(db, [pkg])[0]
 
 
 def update_package(
@@ -326,14 +349,14 @@ def update_package(
     **kwargs,
 ) -> Package:
     pkg = _get_package_or_404(package_id, company_id, db)
-    allowed = {"name", "service_id", "total_cotas", "price", "validity_days", "is_active"}
+    allowed = {"name", "price", "validity_days", "is_active"}
     for k, v in kwargs.items():
         if k in allowed and v is not None:
             setattr(pkg, k, v)
     pkg.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(pkg)
-    return pkg
+    return _attach_item_names(db, [pkg])[0]
 
 
 def delete_package(package_id: UUID, company_id: UUID, db: Session) -> Package:
@@ -342,7 +365,41 @@ def delete_package(package_id: UUID, company_id: UUID, db: Session) -> Package:
     pkg.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(pkg)
-    return pkg
+    return _attach_item_names(db, [pkg])[0]
+
+
+def _attach_item_names(db: Session, packages: List[Package]) -> List[Package]:
+    """Resolve service_name/product_name de cada item (batch, sem N+1) e os
+    anexa como atributos transientes — Pydantic from_attributes os serializa."""
+    from app.infrastructure.db.models.product import Product
+    from app.infrastructure.db.models.service import Service
+
+    service_ids, product_ids = set(), set()
+    for pkg in packages:
+        for item in pkg.items:
+            if item.service_id:
+                service_ids.add(item.service_id)
+            if item.product_id:
+                product_ids.add(item.product_id)
+
+    svc_names = {}
+    if service_ids:
+        svc_names = {
+            s.id: s.name
+            for s in db.query(Service).filter(Service.id.in_(service_ids)).all()
+        }
+    prod_names = {}
+    if product_ids:
+        prod_names = {
+            p.id: p.name
+            for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
+        }
+
+    for pkg in packages:
+        for item in pkg.items:
+            item.service_name = svc_names.get(item.service_id)
+            item.product_name = prod_names.get(item.product_id)
+    return packages
 
 
 def list_purchases(

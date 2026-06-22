@@ -397,9 +397,11 @@ def _suggest_package(
         if p.status != "ACTIVE":
             continue
         pkg = getattr(p, "package", None)
-        # pacote sem service_id é genérico — cobre qualquer serviço
-        if pkg is not None and (pkg.service_id is None or pkg.service_id == top_service_id):
-            return None
+        # Sprint 26: pacote multi-item — cobre o serviço se algum item aponta p/ ele
+        if pkg is not None:
+            item_service_ids = {it.service_id for it in getattr(pkg, "items", []) if it.service_id}
+            if top_service_id in item_service_ids:
+                return None
 
     return {
         "type": "PACKAGE",

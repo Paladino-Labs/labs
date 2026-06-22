@@ -36,9 +36,8 @@ def create_package(
     return package_service.create_package(
         company_id=current_user.company_id,
         name=body.name,
-        total_cotas=body.total_cotas,
+        items=body.items,
         price=body.price,
-        service_id=body.service_id,
         validity_days=body.validity_days,
         db=db,
     )

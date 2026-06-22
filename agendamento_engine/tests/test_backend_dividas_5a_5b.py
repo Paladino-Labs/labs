@@ -165,13 +165,16 @@ def _appointment(db, customer, hours=-10, status="COMPLETED", service="Corte", p
     return a
 
 
-def _credit(db, customer, entitlement="PACKAGE", source_id=None, status="ACTIVE"):
+def _credit(db, customer, entitlement="PACKAGE", source_id=None, status="ACTIVE",
+            service_id=None, product_id=None):
     c = SimpleNamespace(
         credit_id=uuid.uuid4(),
         company_id=customer.company_id,
         customer_id=customer.id,
         entitlement_type=entitlement,
         source_id=source_id,
+        service_id=service_id,
+        product_id=product_id,
         total_cotas=4,
         remaining_cotas=2,
         status=status,
@@ -267,8 +270,8 @@ class TestB2ServiceName:
         _credit(db, cust, entitlement="GRANT_COTA", source_id=None)
         assert portal_service.get_credits(db, ident)[0]["service_name"] == "Cota cortesia"
 
-    def test_resolves_service_name_from_package_source(self):
-        """PACKAGE → PackagePurchase → Package.service_id → Service.name."""
+    def test_resolves_service_name_from_credit_service_id(self):
+        """Sprint 26: CustomerCredit.service_id → Service.name (FK direta)."""
         db = FakeDB()
         ident = _identity_id()
         comp = _company(db)
@@ -276,29 +279,22 @@ class TestB2ServiceName:
 
         service = SimpleNamespace(id=uuid.uuid4(), name="Barba Completa")
         db._store(Service).append(service)
-        package = SimpleNamespace(package_id=uuid.uuid4(), service_id=service.id)
-        db._store(Package).append(package)
-        purchase = SimpleNamespace(purchase_id=uuid.uuid4(), package_id=package.package_id)
-        db._store(PackagePurchase).append(purchase)
 
-        _credit(db, cust, entitlement="PACKAGE", source_id=purchase.purchase_id)
+        _credit(db, cust, entitlement="PACKAGE", service_id=service.id)
         assert portal_service.get_credits(db, ident)[0]["service_name"] == "Barba Completa"
 
-    def test_resolves_service_name_from_subscription_source(self):
+    def test_resolves_product_name_from_credit_product_id(self):
+        """Sprint 26: CustomerCredit.product_id → Product.name (FK direta)."""
         db = FakeDB()
         ident = _identity_id()
         comp = _company(db)
         cust = _customer(db, ident, comp.id)
 
-        service = SimpleNamespace(id=uuid.uuid4(), name="Corte Premium")
-        db._store(Service).append(service)
-        plan = SimpleNamespace(plan_id=uuid.uuid4(), service_id=service.id)
-        db._store(SubscriptionPlan).append(plan)
-        sub = SimpleNamespace(subscription_id=uuid.uuid4(), plan_id=plan.plan_id)
-        db._store(CustomerSubscription).append(sub)
+        product = SimpleNamespace(id=uuid.uuid4(), name="Pomada Modeladora")
+        db._store(Product).append(product)
 
-        _credit(db, cust, entitlement="SUBSCRIPTION", source_id=sub.subscription_id)
-        assert portal_service.get_credits(db, ident)[0]["service_name"] == "Corte Premium"
+        _credit(db, cust, entitlement="SUBSCRIPTION", product_id=product.id)
+        assert portal_service.get_credits(db, ident)[0]["service_name"] == "Pomada Modeladora"
 
 
 # ─── B3 — consumptions ────────────────────────────────────────────────────────

@@ -65,6 +65,15 @@ def _query_chain(db, value):
     return db
 
 
+def _make_item(item_type="SERVICE", service_id=None, product_id=None, quantity=10):
+    it = MagicMock()
+    it.item_type  = item_type
+    it.service_id = service_id if item_type == "SERVICE" else None
+    it.product_id = product_id if item_type == "PRODUCT" else None
+    it.quantity   = quantity
+    return it
+
+
 def _make_package(
     package_id=None,
     company_id=None,
@@ -74,6 +83,7 @@ def _make_package(
     service_id=None,
     validity_days=30,
     is_active=True,
+    items=None,
 ):
     pkg = MagicMock()
     pkg.package_id    = package_id or uuid.uuid4()
@@ -81,9 +91,13 @@ def _make_package(
     pkg.name          = name
     pkg.total_cotas   = total_cotas
     pkg.price         = price
-    pkg.service_id    = service_id
     pkg.validity_days = validity_days
     pkg.is_active     = is_active
+    # Sprint 26: pacote multi-item. Default = 1 item SERVICE com quantity=total_cotas
+    # (preserva a equivalência credit.total_cotas == package.total_cotas).
+    pkg.items = items if items is not None else [
+        _make_item("SERVICE", service_id=service_id or uuid.uuid4(), quantity=total_cotas)
+    ]
     return pkg
 
 
@@ -804,28 +818,37 @@ class TestMultipleListeners:
 
 class TestCRUDPackages:
     def test_create_package(self):
-        """create_package persiste pacote com is_active=True."""
+        """create_package persiste Package + 1 PackageItem por item; total_cotas = sum(quantity)."""
         company_id = uuid.uuid4()
         db = _make_db()
 
         added = []
         db.add.side_effect = lambda obj: added.append(obj)
 
-        from app.modules.packages import service as svc
-        svc.create_package(
-            company_id=company_id,
-            name="Pacote Gold",
-            total_cotas=12,
-            price=Decimal("250.00"),
-            service_id=None,
-            validity_days=30,
-            db=db,
-        )
+        items = [
+            _make_item("SERVICE", service_id=uuid.uuid4(), quantity=8),
+            _make_item("PRODUCT", product_id=uuid.uuid4(), quantity=4),
+        ]
 
-        assert len(added) == 1
-        pkg = added[0]
+        from app.modules.packages import service as svc
+        with patch("app.modules.packages.service._attach_item_names", side_effect=lambda db, pkgs: pkgs):
+            svc.create_package(
+                company_id=company_id,
+                name="Pacote Gold",
+                items=items,
+                price=Decimal("250.00"),
+                validity_days=30,
+                db=db,
+            )
+
+        from app.infrastructure.db.models.package import Package, PackageItem
+        packages = [o for o in added if isinstance(o, Package)]
+        pkg_items = [o for o in added if isinstance(o, PackageItem)]
+        assert len(packages) == 1
+        assert len(pkg_items) == 2
+        pkg = packages[0]
         assert pkg.name == "Pacote Gold"
-        assert pkg.total_cotas == 12
+        assert pkg.total_cotas == 12  # 8 + 4
         assert pkg.is_active is True
         assert pkg.company_id == company_id
         db.commit.assert_called()

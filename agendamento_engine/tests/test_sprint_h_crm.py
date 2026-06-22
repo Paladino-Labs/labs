@@ -405,8 +405,10 @@ class TestInsights:
             _appointment(start_delta_days=d, services=[_service_snapshot(svc)])
             for d in (10, 25, 40)
         ]
+        # Sprint 26: cobertura via itens do pacote (item SERVICE com service_id=svc)
         active_purchase = SimpleNamespace(
-            status="ACTIVE", package=SimpleNamespace(service_id=svc)
+            status="ACTIVE",
+            package=SimpleNamespace(items=[SimpleNamespace(service_id=svc, product_id=None)]),
         )
         db = FakeDB(
             first={CustomerClassification: [None]},

@@ -15,7 +15,7 @@ class Package(Base):
     package_id    = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id    = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     name          = Column(String, nullable=False)
-    service_id    = Column(UUID(as_uuid=True), ForeignKey("services.id"), nullable=True)
+    # total_cotas mantido como coluna derivada = sum(item.quantity), sincronizado na criação
     total_cotas   = Column(Integer, nullable=False)
     price         = Column(Numeric(10, 2), nullable=False)
     validity_days = Column(Integer, nullable=True)
@@ -23,8 +23,30 @@ class Package(Base):
     created_at    = Column(sa.TIMESTAMP(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at    = Column(sa.TIMESTAMP(timezone=True), nullable=True)
 
-    service   = relationship("Service")
+    items     = relationship(
+        "PackageItem",
+        back_populates="package",
+        order_by="PackageItem.display_order",
+        cascade="all, delete-orphan",
+    )
     purchases = relationship("PackagePurchase", back_populates="package")
+
+
+class PackageItem(Base):
+    __tablename__ = "package_items"
+
+    item_id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    package_id    = Column(UUID(as_uuid=True), ForeignKey("packages.package_id", ondelete="CASCADE"), nullable=False)
+    company_id    = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    item_type     = Column(String(10), nullable=False)   # 'SERVICE' | 'PRODUCT'
+    service_id    = Column(UUID(as_uuid=True), ForeignKey("services.id", ondelete="SET NULL"), nullable=True)
+    product_id    = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+    quantity      = Column(Integer, nullable=False)
+    display_order = Column(Integer, nullable=False, default=0)
+
+    service = relationship("Service")
+    product = relationship("Product")
+    package = relationship("Package", back_populates="items")
 
 
 class PackagePurchase(Base):

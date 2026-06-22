@@ -41,7 +41,8 @@ from .reservation import Reservation
 from .direct_occupancy import DirectOccupancy
 from .commission import CommissionPolicy, CommissionPayout, Commission
 from .customer_credit import CustomerCredit, CustomerCreditConsumption
-from .package import Package, PackagePurchase
+from .package import Package, PackageItem, PackagePurchase
+from .subscription import SubscriptionPlan, PlanItem, CustomerSubscription
 from .expense import Expense
 from .supplier import Supplier, SupplierOrder
 from .stock_movement import StockMovement
@@ -119,7 +120,11 @@ __all__ = [
     "CustomerCredit",
     "CustomerCreditConsumption",
     "Package",
+    "PackageItem",
     "PackagePurchase",
+    "SubscriptionPlan",
+    "PlanItem",
+    "CustomerSubscription",
     "Expense",
     "Supplier",
     "SupplierOrder",

@@ -215,6 +215,7 @@ def create_payment(
     provider: str = "manual",
     target_account_id: Optional[UUID] = None,
     appointment_id: Optional[UUID] = None,
+    subscription_id: Optional[UUID] = None,
     payment_source_id: Optional[UUID] = None,
     customer_cpf_cnpj: Optional[str] = None,
     due_date=None,          # date | None — padrão: hoje
@@ -244,6 +245,7 @@ def create_payment(
         company_id=company_id,
         customer_id=customer_id,
         appointment_id=appointment_id,
+        subscription_id=subscription_id,
         gross_catalog_amount=gross_amount,
         discount_amount=discount_amount,
         net_charged_amount=gross_amount - discount_amount,

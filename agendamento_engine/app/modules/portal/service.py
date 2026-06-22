@@ -24,6 +24,7 @@ from app.infrastructure.db.models import (
     PaladinoIdentity,
     PaymentSourceAuthorization,
     PortalCredential,
+    Product,
     Service,
     TenantConfig,
 )
@@ -81,48 +82,22 @@ def _entitlement_label(entitlement_type) -> Optional[str]:
 
 
 def _resolve_credit_service_name(db: Session, credit) -> Optional[str]:
-    """B2 — nome legível para o crédito.
+    """Nome legível para o crédito.
 
-    CustomerCredit não tem FK service_id. Quando a origem (pacote/assinatura)
-    aponta para um serviço específico, retorna o nome do serviço; caso
-    contrário (pacote/plano genérico com service_id NULL, GRANT_COTA ou
-    origem ausente) cai no rótulo legível do entitlement_type. Best-effort:
+    Sprint 26: CustomerCredit tem FK service_id/product_id direto. Resolve o
+    nome do serviço (ou produto); na ausência de ambos (cota genérica /
+    GRANT_COTA) cai no rótulo legível do entitlement_type. Best-effort:
     nunca levanta — a UI sempre recebe algo exibível.
     """
     try:
-        etype = getattr(credit, "entitlement_type", None)
-        source_id = getattr(credit, "source_id", None)
-        service_id = None
-        if source_id and etype == "PACKAGE":
-            purchase = (
-                db.query(PackagePurchase)
-                .filter(PackagePurchase.purchase_id == source_id)
-                .first()
-            )
-            if purchase:
-                package = (
-                    db.query(Package)
-                    .filter(Package.package_id == purchase.package_id)
-                    .first()
-                )
-                service_id = getattr(package, "service_id", None) if package else None
-        elif source_id and etype == "SUBSCRIPTION":
-            sub = (
-                db.query(CustomerSubscription)
-                .filter(CustomerSubscription.subscription_id == source_id)
-                .first()
-            )
-            if sub:
-                plan = (
-                    db.query(SubscriptionPlan)
-                    .filter(SubscriptionPlan.plan_id == sub.plan_id)
-                    .first()
-                )
-                service_id = getattr(plan, "service_id", None) if plan else None
-        if service_id:
-            service = db.query(Service).filter(Service.id == service_id).first()
+        if getattr(credit, "service_id", None):
+            service = db.query(Service).filter(Service.id == credit.service_id).first()
             if service and getattr(service, "name", None):
                 return service.name
+        if getattr(credit, "product_id", None):
+            product = db.query(Product).filter(Product.id == credit.product_id).first()
+            if product and getattr(product, "name", None):
+                return product.name
     except Exception:
         logger.debug("resolve_credit_service_name falhou", exc_info=True)
     return _entitlement_label(getattr(credit, "entitlement_type", None))
