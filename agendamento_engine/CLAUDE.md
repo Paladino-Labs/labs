@@ -1,4 +1,46 @@
-**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s25f_product_extras`.
+**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s26_multiitem_packages`.
+
+## Multi-item packages (2026-06-22)
+Pacotes e assinaturas multi-item. **HEAD migration: `e0s26_multiitem_packages`**
+(← e0s25f_product_extras). **988 testes** (976 + 12 novos), zero regressões.
+Branch `feat/multiitem-packages-backend`, commit `cdc500a`.
+
+### Modelos multi-item
+- `package_items`: {package_id, item_type SERVICE|PRODUCT, service_id?, product_id?,
+  quantity, display_order} — CHECK chk_package_item_target (exatamente 1 alvo);
+  CASCADE delete do pacote pai; FK service/product ON DELETE SET NULL; RLS canônico.
+- `plan_items`: mesma estrutura para `subscription_plans`.
+- `customer_credits`: ganha `service_id` FK (services) e `product_id` FK (products),
+  ambas ON DELETE SET NULL.
+- `Package.total_cotas` e `SubscriptionPlan.cotas_per_cycle`: **mantidos como colunas
+  derivadas** (= sum items.quantity, sincronizadas na criação) — o bot WhatsApp
+  (`comprando_pacote.py`) depende de `total_cotas`. Migration **não** as dropa.
+- `service_id` **dropado** de `packages` e `subscription_plans` (substituído por itens).
+
+### Lógica de negócio (multi-item)
+- `activate()`: 1 CustomerCredit por PackageItem (service_id/product_id persistidos).
+- subscription handler: 1 CustomerCredit por PlanItem por ciclo de renovação.
+- `subscribe()`: retorna `(subscription, payment)`; router responde
+  `SubscribeResponse {subscription_id, payment_id}`. Cria Payment PENDING
+  (provider=manual) no mesmo request (primeiro ciclo). `create_payment()` ganhou
+  param `subscription_id` (Payment.subscription_id já existia no modelo).
+- `consume_for_operation(... service_id?, product_id?)`: match por service_id (ou
+  product_id) se fornecido; senão cota genérica. FEFO + SELECT FOR UPDATE SKIP LOCKED
+  preservados. `NoCreditAvailableError` se não há cota para o alvo.
+- `find_available_credit()`: busca sem consumir (para o endpoint available-credit).
+- Comissão `PACKAGE_SOLD` usa `service_id=None` (pacote multi-item, sem serviço único).
+- Eventos `package.purchased`/`subscription.renewed`: `credit_id` → `credit_ids[]`.
+- portal `_resolve_credit_service_name()`: lê FK direta (sem cadeia source_id).
+- `crm/service.py`: cobertura de pacote migrada para `items[]` (pkg.service_id removido).
+- Serialização sem N+1: `_attach_item_names`/`_attach_plan_item_names`/`_attach_credit_names`
+  resolvem service_name/product_name em batch e setam atributos transientes (from_attributes).
+
+### Endpoints adicionados
+- `GET  /appointments/{id}/available-credit`
+  → `{has_credit, credit_id, service_name, remaining_cotas}`.
+- `PATCH /appointments/{id}/complete` aceita body `{use_credit: bool = false}`
+  (permanece PATCH — preserva contrato existente). `use_credit=true` consome 1 cota
+  ANTES da transição; **409** se não há cota disponível para o serviço.
 
 ## Dívidas de backend Fases 5A–5B (2026-06-19)
 Corrigidas as 6 lacunas de endpoint identificadas no frontend 5A–5B. **Sem migration**
