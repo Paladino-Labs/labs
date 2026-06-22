@@ -273,7 +273,24 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - Não usar emojis como ícones — sempre Lucide
 - Não usar inline styles para hover/focus — sempre classes Tailwind
 
+## Pacotes e assinaturas — multi-item
+- `Package.items[]` e `SubscriptionPlan.items[]` substituem o `service_id` único.
+- `total_cotas_per_cycle` (plano) — não usar `cotas_per_cycle` (campo antigo removido do backend).
+- Editor de itens: toggle SERVICE|PRODUCT (botões custom) + Select + Input Qty + Remove.
+- Criação: envia `items[]` (sem `service_id`, sem `total_cotas`/`cotas_per_cycle` no body).
+- Edição: itens read-only como chips — `PackageUpdate`/`PlanUpdate` não aceitam `items`.
+- Produtos carregados em `pacotes/page.tsx` e `assinaturas/planos/page.tsx` via `GET /products/`.
+
+## PaymentOnCompleteDialog
+- Ao abrir: `GET /appointments/{id}/available-credit`.
+- Se `has_credit=true`: exibe card "Usar cota" → `PATCH .../complete {use_credit:true}`.
+- 409 → mensagem "Cota não disponível para este serviço." inline.
+- `handleCompleteOnly` envia explicitamente `{use_credit:false}`.
+- Botões originais (confirmar pagamento / concluir sem registrar) inalterados.
+
 ## Dívidas conhecidas
+- Dialog de revogação em `customers/[id]` ainda exibe `entitlement_type` cru
+  (Passo 5 atualizou apenas o título do card, não o texto de confirmação) — cosmético, baixa prioridade.
 - book/[slug]: dias sem horários só são descobertos após seleção
   (business_hours retorna string livre — filtro visual preventivo
   requer backend retornar [{weekday, open, close}])
