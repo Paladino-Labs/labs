@@ -48,14 +48,19 @@ interface Insights {
   suggestions: Suggestion[]
 }
 interface CustomerCredit {
-  credit_id: string
-  customer_id: string
+  credit_id:        string
+  customer_id:      string
   entitlement_type: string
-  total_cotas: number
-  remaining_cotas: number
-  status: string
-  granted_at: string
-  expires_at?: string | null
+  source_id?:       string | null
+  service_id?:      string | null
+  service_name?:    string | null
+  product_id?:      string | null
+  product_name?:    string | null
+  total_cotas:      number
+  remaining_cotas:  number
+  status:           string
+  granted_at:       string
+  expires_at?:      string | null
 }
 interface ConsentRecord {
   id: string
@@ -80,6 +85,11 @@ const SUGGESTION_LABELS: Record<string, string> = {
   PRODUCT: "Recomendar produto",
 }
 const CHURN_LABELS: Record<string, string> = { LOW: "Baixo", MEDIUM: "Médio", HIGH: "Alto" }
+const CREDIT_TYPE_LABELS: Record<string, string> = {
+  PACKAGE:      "Pacote",
+  SUBSCRIPTION: "Assinatura",
+  GRANT_COTA:   "Cota cortesia",
+}
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -345,8 +355,17 @@ function QuotasTab({ id }: { id: string }) {
           {credits.map((c) => (
             <Card key={c.credit_id}>
               <CardContent className="space-y-2 pt-6">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">{c.entitlement_type}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">
+                      {c.service_name ?? c.product_name ?? CREDIT_TYPE_LABELS[c.entitlement_type] ?? c.entitlement_type}
+                    </p>
+                    {(c.service_name || c.product_name) && (
+                      <p className="text-xs text-muted-foreground">
+                        {CREDIT_TYPE_LABELS[c.entitlement_type] ?? c.entitlement_type}
+                      </p>
+                    )}
+                  </div>
                   <Badge variant={c.status === "ACTIVE" ? "default" : "outline"}>
                     {CUSTOMER_CREDIT_STATUS_LABELS[c.status] ?? c.status}
                   </Badge>

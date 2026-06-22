@@ -146,17 +146,28 @@ export interface PricingOverride {
   is_active: boolean
 }
 
+export interface PackageItem {
+  item_id:       string
+  item_type:     "SERVICE" | "PRODUCT"
+  service_id:    string | null
+  service_name:  string | null
+  product_id:    string | null
+  product_name:  string | null
+  quantity:      number
+  display_order: number
+}
+
 export interface Package {
-  package_id: string
-  company_id: string
-  name: string
-  service_id?: string | null
-  total_cotas: number
-  price: string
-  validity_days?: number | null
-  is_active: boolean
-  created_at: string
-  updated_at?: string | null
+  package_id:    string
+  company_id:    string
+  name:          string
+  items:         PackageItem[]
+  total_cotas:   number
+  price:         string
+  validity_days: number | null
+  is_active:     boolean
+  created_at:    string
+  updated_at?:   string | null
 }
 
 export interface PackagePurchase {
@@ -172,18 +183,22 @@ export interface PackagePurchase {
   created_at: string
 }
 
+export interface PlanItem extends Omit<PackageItem, "item_id"> {
+  item_id: string
+}
+
 export interface SubscriptionPlan {
-  plan_id: string
-  company_id: string
-  name: string
-  service_id?: string | null
-  cotas_per_cycle: number
-  price: string
-  cycle_days: number
-  rollover_enabled: boolean
-  is_active: boolean
-  created_at: string
-  updated_at?: string | null
+  plan_id:               string
+  company_id:            string
+  name:                  string
+  items:                 PlanItem[]
+  total_cotas_per_cycle: number
+  price:                 string
+  cycle_days:            number
+  rollover_enabled:      boolean
+  is_active:             boolean
+  created_at:            string
+  updated_at?:           string | null
 }
 
 export interface Subscription {

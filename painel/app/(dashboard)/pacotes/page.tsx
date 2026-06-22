@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { Pencil, Trash2, ShoppingCart } from "lucide-react"
+import { Pencil, Trash2, ShoppingCart, Plus, X } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/hooks/useAuth"
 import { formatBRLFromDecimal, cn } from "@/lib/utils"
-import type { Package, Service } from "@/types"
+import type { Package, Service, Product } from "@/types"
 import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
@@ -29,27 +29,29 @@ import {
 } from "@/components/ui/select"
 import { PAYMENT_METHOD_GROUPS, PAYMENT_METHOD_OPTIONS } from "@/lib/constants"
 
-const GENERIC = "__generic__"
-
-function serviceName(pkg: Package, map: Map<string, Service>): string {
-  if (!pkg.service_id) return "Genérico"
-  return map.get(pkg.service_id)?.name ?? pkg.service_id
+interface ItemDraft {
+  item_type:  "SERVICE" | "PRODUCT"
+  service_id: string | null
+  product_id: string | null
+  quantity:   number
 }
 
 /* ----------------------------- Form (criar/editar) ----------------------------- */
 function PackageFormDialog({
-  open, onOpenChange, initial, services, onSaved,
+  open, onOpenChange, initial, services, products, onSaved,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   initial: Package | null
   services: Service[]
+  products: Product[]
   onSaved: () => void
 }) {
   const [name, setName] = useState("")
-  const [cotas, setCotas] = useState("")
+  const [items, setItems] = useState<ItemDraft[]>([
+    { item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 },
+  ])
   const [price, setPrice] = useState("")
-  const [serviceId, setServiceId] = useState(GENERIC)
   const [validity, setValidity] = useState("")
   const [isActive, setIsActive] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -57,27 +59,43 @@ function PackageFormDialog({
   useEffect(() => {
     if (open) {
       setName(initial?.name ?? "")
-      setCotas(initial ? String(initial.total_cotas) : "")
+      setItems([{ item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 }])
       setPrice(initial?.price ?? "")
-      setServiceId(initial?.service_id ?? GENERIC)
       setValidity(initial?.validity_days != null ? String(initial.validity_days) : "")
       setIsActive(initial?.is_active ?? true)
     }
   }, [open, initial])
 
-  const serviceLabel = serviceId === GENERIC
-    ? "Genérico"
-    : (services.find((s) => s.id === serviceId)?.name ?? "Selecionar serviço")
+  function addItem() {
+    setItems((prev) => [...prev, { item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 }])
+  }
+  function removeItem(index: number) {
+    setItems((prev) => prev.filter((_, i) => i !== index))
+  }
+  function patchItem(index: number, patch: Partial<ItemDraft>) {
+    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+
+    const invalid = items.some((it) =>
+      (it.item_type === "SERVICE" && !it.service_id) ||
+      (it.item_type === "PRODUCT" && !it.product_id)
+    )
+    if (invalid) { toast.error("Selecione o serviço ou produto de cada item."); return }
+
     setSaving(true)
     try {
       const body = {
         name: name.trim(),
-        total_cotas: parseInt(cotas, 10),
-        price: parseFloat(price),
-        service_id: serviceId === GENERIC ? null : serviceId,
+        items: items.map((it) => ({
+          item_type:  it.item_type,
+          service_id: it.item_type === "SERVICE" ? it.service_id : null,
+          product_id: it.item_type === "PRODUCT" ? it.product_id : null,
+          quantity:   it.quantity,
+        })),
+        price:         parseFloat(price),
         validity_days: validity ? parseInt(validity, 10) : null,
         ...(initial ? { is_active: isActive } : {}),
       }
@@ -108,34 +126,113 @@ function PackageFormDialog({
             <Label htmlFor="pk-name">Nome *</Label>
             <Input id="pk-name" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+
+          {initial ? (
             <div className="space-y-1">
-              <Label htmlFor="pk-cotas">Cotas *</Label>
-              <Input id="pk-cotas" type="number" min="1" value={cotas}
-                onChange={(e) => setCotas(e.target.value)} required />
+              <Label>Itens</Label>
+              <div className="flex flex-wrap gap-2">
+                {initial.items.map((it) => (
+                  <span key={it.item_id}
+                    className="rounded-full border border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
+                    {it.service_name ?? it.product_name ?? it.item_type} × {it.quantity}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Para alterar os itens, crie um novo pacote.
+              </p>
             </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>Itens do pacote *</Label>
+              {items.map((item, i) => (
+                <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                  <div className="flex gap-2">
+                    {(["SERVICE", "PRODUCT"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => patchItem(i, { item_type: type, service_id: null, product_id: null })}
+                        className={cn(
+                          "flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                          item.item_type === type
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        {type === "SERVICE" ? "Serviço" : "Produto"}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      {item.item_type === "SERVICE" ? (
+                        <Select
+                          value={item.service_id ?? ""}
+                          onValueChange={(v) => patchItem(i, { service_id: v || null })}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecionar serviço…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {services.filter((s) => s.active).map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Select
+                          value={item.product_id ?? ""}
+                          onValueChange={(v) => patchItem(i, { product_id: v || null })}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecionar produto…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.filter((p) => p.active).map((p) => (
+                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    <Input
+                      type="number" min="1" value={String(item.quantity)}
+                      onChange={(e) => patchItem(i, { quantity: parseInt(e.target.value) || 1 })}
+                      className="w-20"
+                      placeholder="Qtd"
+                    />
+
+                    {items.length > 1 && (
+                      <button type="button" onClick={() => removeItem(i)}
+                        className="text-muted-foreground hover:text-destructive transition-colors px-1">
+                        <X size={16} strokeWidth={1.5} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <button type="button" onClick={addItem}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2 text-sm text-muted-foreground hover:bg-muted/30 transition-colors">
+                <Plus size={14} strokeWidth={1.5} /> Adicionar item
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label htmlFor="pk-price">Preço (R$) *</Label>
               <Input id="pk-price" type="number" min="0" step="0.01" value={price}
                 onChange={(e) => setPrice(e.target.value)} required placeholder="0.00" />
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Serviço</Label>
-            <Select value={serviceId} onValueChange={(v) => v && setServiceId(v)}>
-              <SelectTrigger className="w-full"><SelectValue>{serviceLabel}</SelectValue></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={GENERIC}>Genérico (qualquer serviço)</SelectItem>
-                {services.filter((s) => s.active).map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="pk-validity">Validade (dias)</Label>
-            <Input id="pk-validity" type="number" min="1" value={validity}
-              onChange={(e) => setValidity(e.target.value)} placeholder="Sem validade" />
+            <div className="space-y-1">
+              <Label htmlFor="pk-validity">Validade (dias)</Label>
+              <Input id="pk-validity" type="number" min="1" value={validity}
+                onChange={(e) => setValidity(e.target.value)} placeholder="Sem validade" />
+            </div>
           </div>
           {initial && (
             <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
@@ -240,7 +337,13 @@ function SellPackageDialog({
           {step === 1 && (
             <div className="rounded-lg border border-border bg-card p-4 text-sm space-y-2">
               <Row label="Plano" value={pkg.name} />
-              <Row label="Cotas" value={String(pkg.total_cotas)} />
+              {pkg.items.map((it, i) => (
+                <Row key={i}
+                  label={it.service_name ?? it.product_name ?? "Item"}
+                  value={`${it.quantity}× cota${it.quantity > 1 ? "s" : ""}`}
+                />
+              ))}
+              <Row label="Total de cotas" value={String(pkg.total_cotas)} />
               <Row label="Preço" value={formatBRLFromDecimal(pkg.price)} />
               <Row label="Validade" value={pkg.validity_days != null ? `${pkg.validity_days} dias` : "Sem validade"} />
             </div>
@@ -328,6 +431,7 @@ export default function PacotesPage() {
 
   const [packages, setPackages] = useState<Package[]>([])
   const [services, setServices] = useState<Service[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -339,12 +443,14 @@ export default function PacotesPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [pkgs, svc] = await Promise.all([
+      const [pkgs, svc, prod] = await Promise.all([
         api.get<Package[]>("/packages"),
         api.get<Service[]>("/services/").catch(() => [] as Service[]),
+        api.get<Product[]>("/products/").catch(() => [] as Product[]),
       ])
       setPackages(pkgs)
       setServices(svc)
+      setProducts(prod)
     } catch (err: unknown) {
       setError((err as Error).message)
     } finally {
@@ -353,8 +459,6 @@ export default function PacotesPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  const serviceMap = useMemo(() => new Map(services.map((s) => [s.id, s])), [services])
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -387,7 +491,7 @@ export default function PacotesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
-                <TableHead>Serviço</TableHead>
+                <TableHead>Itens</TableHead>
                 <TableHead className="text-right">Cotas</TableHead>
                 <TableHead className="text-right">Preço</TableHead>
                 <TableHead>Validade</TableHead>
@@ -399,7 +503,13 @@ export default function PacotesPage() {
               {packages.map((pkg) => (
                 <TableRow key={pkg.package_id}>
                   <TableCell className="font-medium">{pkg.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{serviceName(pkg, serviceMap)}</TableCell>
+                  <TableCell className="text-sm">
+                    {pkg.items.length === 0
+                      ? <span className="text-muted-foreground">—</span>
+                      : pkg.items.length === 1
+                        ? `${pkg.items[0].service_name ?? pkg.items[0].product_name ?? "Item"} ×${pkg.items[0].quantity}`
+                        : `${pkg.items.length} itens · ${pkg.total_cotas} cotas`}
+                  </TableCell>
                   <TableCell className="text-right">{pkg.total_cotas}</TableCell>
                   <TableCell className="text-right">{formatBRLFromDecimal(pkg.price)}</TableCell>
                   <TableCell>{pkg.validity_days != null ? `${pkg.validity_days} dias` : "Sem validade"}</TableCell>
@@ -429,6 +539,7 @@ export default function PacotesPage() {
         onOpenChange={setFormOpen}
         initial={editing}
         services={services}
+        products={products}
         onSaved={load}
       />
 

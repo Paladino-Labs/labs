@@ -45,6 +45,13 @@ interface ConfirmResult {
   fee_warning: FeeWarning | null
 }
 
+interface AvailableCredit {
+  has_credit:      boolean
+  credit_id:       string | null
+  service_name:    string | null
+  remaining_cotas: number | null
+}
+
 export interface PaymentOnCompleteDialogProps {
   open: boolean
   appointment: {
@@ -72,6 +79,8 @@ export function PaymentOnCompleteDialog({
   const [feeWarning, setFeeWarning] = useState<FeeWarning | null>(null)
   const [feeWarningDismissed, setFeeWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [availableCredit, setAvailableCredit] = useState<AvailableCredit | null>(null)
+  const [usingCredit, setUsingCredit] = useState(false)
 
   // Reset whenever the dialog opens with (possibly) a different appointment
   useEffect(() => {
@@ -84,6 +93,16 @@ export function PaymentOnCompleteDialog({
       setError(null)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, appointment.id])
+
+  // Fetch any quota credit available for this appointment's service
+  useEffect(() => {
+    if (!open || !appointment.id) return
+    setAvailableCredit(null)
+    api.get<AvailableCredit>(`/appointments/${appointment.id}/available-credit`)
+      .then(setAvailableCredit)
+      .catch(() => setAvailableCredit({ has_credit: false, credit_id: null,
+                                        service_name: null, remaining_cotas: null }))
   }, [open, appointment.id])
 
   const parsedAmount = parseFloat(grossAmount)
@@ -132,13 +151,35 @@ export function PaymentOnCompleteDialog({
     }
   }
 
+  // ── Consume quota credit ───────────────────────────────────────────────────
+
+  async function handleUseCredit() {
+    setUsingCredit(true)
+    setError(null)
+    setPhase("loading")
+    try {
+      await api.patch(`/appointments/${appointment.id}/complete`, { use_credit: true })
+      onSuccess()
+    } catch (err: unknown) {
+      const msg = (err as Error).message ?? ""
+      setError(
+        msg.includes("409") || msg.toLowerCase().includes("cota")
+          ? "Cota não disponível para este serviço."
+          : "Erro ao consumir cota."
+      )
+      setPhase("form")
+    } finally {
+      setUsingCredit(false)
+    }
+  }
+
   // ── Complete without payment ───────────────────────────────────────────────
 
   async function handleCompleteOnly() {
     setError(null)
     setPhase("loading")
     try {
-      await api.patch(`/appointments/${appointment.id}/complete`, {})
+      await api.patch(`/appointments/${appointment.id}/complete`, { use_credit: false })
       onSuccess()
     } catch (err: unknown) {
       setError((err as Error).message ?? "Erro ao concluir agendamento.")
@@ -197,6 +238,25 @@ export function PaymentOnCompleteDialog({
               <div className="space-y-0.5 text-sm text-muted-foreground -mt-1">
                 {appointment.customer_name && <p>{appointment.customer_name}</p>}
                 {serviceNames && <p>{serviceNames}</p>}
+              </div>
+            )}
+
+            {availableCredit?.has_credit && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                <p className="text-sm font-medium text-primary">
+                  Cota disponível — {availableCredit.service_name ?? "Serviço"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {availableCredit.remaining_cotas} cota{availableCredit.remaining_cotas !== 1 ? "s" : ""} restante{availableCredit.remaining_cotas !== 1 ? "s" : ""}
+                </p>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={handleUseCredit}
+                  disabled={usingCredit}
+                >
+                  {usingCredit ? "Consumindo…" : "Usar cota (sem cobrança)"}
+                </Button>
               </div>
             )}
 

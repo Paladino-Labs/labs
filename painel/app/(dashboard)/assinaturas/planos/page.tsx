@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Pencil, Power } from "lucide-react"
+import { Pencil, Power, Plus, X } from "lucide-react"
 import { api } from "@/lib/api"
-import { formatBRLFromDecimal } from "@/lib/utils"
-import type { SubscriptionPlan, Service } from "@/types"
+import { formatBRLFromDecimal, cn } from "@/lib/utils"
+import type { SubscriptionPlan, Service, Product } from "@/types"
 import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
@@ -26,53 +26,76 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 
-const GENERIC = "__generic__"
+interface ItemDraft {
+  item_type:  "SERVICE" | "PRODUCT"
+  service_id: string | null
+  product_id: string | null
+  quantity:   number
+}
 
 function PlanFormDialog({
-  open, onOpenChange, initial, services, onSaved,
+  open, onOpenChange, initial, services, products, onSaved,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   initial: SubscriptionPlan | null
   services: Service[]
+  products: Product[]
   onSaved: () => void
 }) {
   const [name, setName] = useState("")
-  const [cotas, setCotas] = useState("")
+  const [items, setItems] = useState<ItemDraft[]>([
+    { item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 },
+  ])
   const [price, setPrice] = useState("")
   const [cycle, setCycle] = useState("30")
   const [rollover, setRollover] = useState(false)
-  const [serviceId, setServiceId] = useState(GENERIC)
   const [isActive, setIsActive] = useState(true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (open) {
       setName(initial?.name ?? "")
-      setCotas(initial ? String(initial.cotas_per_cycle) : "")
+      setItems([{ item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 }])
       setPrice(initial?.price ?? "")
       setCycle(initial ? String(initial.cycle_days) : "30")
       setRollover(initial?.rollover_enabled ?? false)
-      setServiceId(initial?.service_id ?? GENERIC)
       setIsActive(initial?.is_active ?? true)
     }
   }, [open, initial])
 
-  const serviceLabel = serviceId === GENERIC
-    ? "Genérico"
-    : (services.find((s) => s.id === serviceId)?.name ?? "Selecionar serviço")
+  function addItem() {
+    setItems((prev) => [...prev, { item_type: "SERVICE", service_id: null, product_id: null, quantity: 1 }])
+  }
+  function removeItem(index: number) {
+    setItems((prev) => prev.filter((_, i) => i !== index))
+  }
+  function patchItem(index: number, patch: Partial<ItemDraft>) {
+    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+
+    const invalid = items.some((it) =>
+      (it.item_type === "SERVICE" && !it.service_id) ||
+      (it.item_type === "PRODUCT" && !it.product_id)
+    )
+    if (invalid) { toast.error("Selecione o serviço ou produto de cada item."); return }
+
     setSaving(true)
     try {
       const body = {
         name: name.trim(),
-        cotas_per_cycle: parseInt(cotas, 10),
-        price: parseFloat(price),
-        cycle_days: parseInt(cycle, 10) || 30,
+        items: items.map((it) => ({
+          item_type:  it.item_type,
+          service_id: it.item_type === "SERVICE" ? it.service_id : null,
+          product_id: it.item_type === "PRODUCT" ? it.product_id : null,
+          quantity:   it.quantity,
+        })),
+        price:            parseFloat(price),
+        cycle_days:       parseInt(cycle, 10) || 30,
         rollover_enabled: rollover,
-        service_id: serviceId === GENERIC ? null : serviceId,
         ...(initial ? { is_active: isActive } : {}),
       }
       if (initial) {
@@ -102,35 +125,112 @@ function PlanFormDialog({
             <Label htmlFor="sp-name">Nome *</Label>
             <Input id="sp-name" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+
+          {initial ? (
             <div className="space-y-1">
-              <Label htmlFor="sp-cotas">Cotas / ciclo *</Label>
-              <Input id="sp-cotas" type="number" min="1" value={cotas}
-                onChange={(e) => setCotas(e.target.value)} required />
+              <Label>Itens</Label>
+              <div className="flex flex-wrap gap-2">
+                {initial.items.map((it) => (
+                  <span key={it.item_id}
+                    className="rounded-full border border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
+                    {it.service_name ?? it.product_name ?? it.item_type} × {it.quantity}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Para alterar os itens, crie um novo plano.
+              </p>
             </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>Itens do plano *</Label>
+              {items.map((item, i) => (
+                <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                  <div className="flex gap-2">
+                    {(["SERVICE", "PRODUCT"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => patchItem(i, { item_type: type, service_id: null, product_id: null })}
+                        className={cn(
+                          "flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                          item.item_type === type
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        {type === "SERVICE" ? "Serviço" : "Produto"}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      {item.item_type === "SERVICE" ? (
+                        <Select
+                          value={item.service_id ?? ""}
+                          onValueChange={(v) => patchItem(i, { service_id: v || null })}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecionar serviço…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {services.filter((s) => s.active).map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Select
+                          value={item.product_id ?? ""}
+                          onValueChange={(v) => patchItem(i, { product_id: v || null })}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecionar produto…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.filter((p) => p.active).map((p) => (
+                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    <Input
+                      type="number" min="1" value={String(item.quantity)}
+                      onChange={(e) => patchItem(i, { quantity: parseInt(e.target.value) || 1 })}
+                      className="w-20"
+                      placeholder="Qtd"
+                    />
+
+                    {items.length > 1 && (
+                      <button type="button" onClick={() => removeItem(i)}
+                        className="text-muted-foreground hover:text-destructive transition-colors px-1">
+                        <X size={16} strokeWidth={1.5} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <button type="button" onClick={addItem}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2 text-sm text-muted-foreground hover:bg-muted/30 transition-colors">
+                <Plus size={14} strokeWidth={1.5} /> Adicionar item
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label htmlFor="sp-price">Preço (R$) *</Label>
               <Input id="sp-price" type="number" min="0" step="0.01" value={price}
                 onChange={(e) => setPrice(e.target.value)} required placeholder="0.00" />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label htmlFor="sp-cycle">Ciclo (dias)</Label>
               <Input id="sp-cycle" type="number" min="1" value={cycle}
                 onChange={(e) => setCycle(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Serviço</Label>
-              <Select value={serviceId} onValueChange={(v) => v && setServiceId(v)}>
-                <SelectTrigger className="w-full"><SelectValue>{serviceLabel}</SelectValue></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={GENERIC}>Genérico (qualquer serviço)</SelectItem>
-                  {services.filter((s) => s.active).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
           <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
@@ -158,6 +258,7 @@ function PlanFormDialog({
 export default function SubscriptionPlansPage() {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([])
   const [services, setServices] = useState<Service[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -167,12 +268,14 @@ export default function SubscriptionPlansPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [pl, svc] = await Promise.all([
+      const [pl, svc, prod] = await Promise.all([
         api.get<SubscriptionPlan[]>("/subscription-plans"),
         api.get<Service[]>("/services/").catch(() => [] as Service[]),
+        api.get<Product[]>("/products/").catch(() => [] as Product[]),
       ])
       setPlans(pl)
       setServices(svc)
+      setProducts(prod)
     } catch (err: unknown) {
       setError((err as Error).message)
     } finally {
@@ -181,8 +284,6 @@ export default function SubscriptionPlansPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  const serviceMap = useMemo(() => new Map(services.map((s) => [s.id, s])), [services])
 
   async function toggleActive(plan: SubscriptionPlan) {
     try {
@@ -212,7 +313,7 @@ export default function SubscriptionPlansPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
-                <TableHead>Serviço</TableHead>
+                <TableHead>Itens</TableHead>
                 <TableHead className="text-right">Cotas/ciclo</TableHead>
                 <TableHead className="text-right">Preço</TableHead>
                 <TableHead>Ciclo</TableHead>
@@ -225,10 +326,14 @@ export default function SubscriptionPlansPage() {
               {plans.map((plan) => (
                 <TableRow key={plan.plan_id}>
                   <TableCell className="font-medium">{plan.name}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {plan.service_id ? (serviceMap.get(plan.service_id)?.name ?? plan.service_id) : "Genérico"}
+                  <TableCell className="text-sm">
+                    {plan.items.length === 0
+                      ? <span className="text-muted-foreground">—</span>
+                      : plan.items.length === 1
+                        ? `${plan.items[0].service_name ?? plan.items[0].product_name ?? "Item"} ×${plan.items[0].quantity}`
+                        : `${plan.items.length} itens · ${plan.total_cotas_per_cycle} cotas`}
                   </TableCell>
-                  <TableCell className="text-right">{plan.cotas_per_cycle}</TableCell>
+                  <TableCell className="text-right">{plan.total_cotas_per_cycle}</TableCell>
                   <TableCell className="text-right">{formatBRLFromDecimal(plan.price)}</TableCell>
                   <TableCell>{plan.cycle_days} dias</TableCell>
                   <TableCell>
@@ -263,6 +368,7 @@ export default function SubscriptionPlansPage() {
         onOpenChange={setFormOpen}
         initial={editing}
         services={services}
+        products={products}
         onSaved={load}
       />
     </div>
