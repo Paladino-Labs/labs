@@ -116,11 +116,12 @@ function PlanFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>{initial ? "Editar plano" : "Novo plano"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSave} className="space-y-4 py-1">
+        <form onSubmit={handleSave} className="flex min-h-0 flex-col gap-4">
+          <div className="space-y-4 overflow-y-auto py-1">
           <div className="space-y-1">
             <Label htmlFor="sp-name">Nome *</Label>
             <Input id="sp-name" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -144,7 +145,10 @@ function PlanFormDialog({
           ) : (
             <div className="space-y-2">
               <Label>Itens do plano *</Label>
-              {items.map((item, i) => (
+              {items.map((item, i) => {
+                const serviceLabel = services.find((s) => s.id === item.service_id)?.name
+                const productLabel = products.find((p) => p.id === item.product_id)?.name
+                return (
                 <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-3">
                   <div className="flex gap-2">
                     {(["SERVICE", "PRODUCT"] as const).map((type) => (
@@ -165,14 +169,14 @@ function PlanFormDialog({
                   </div>
 
                   <div className="flex gap-2">
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
                       {item.item_type === "SERVICE" ? (
                         <Select
                           value={item.service_id ?? ""}
                           onValueChange={(v) => patchItem(i, { service_id: v || null })}
                         >
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecionar serviço…" />
+                            <SelectValue placeholder="Selecionar serviço…">{serviceLabel}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {services.filter((s) => s.active).map((s) => (
@@ -186,7 +190,7 @@ function PlanFormDialog({
                           onValueChange={(v) => patchItem(i, { product_id: v || null })}
                         >
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecionar produto…" />
+                            <SelectValue placeholder="Selecionar produto…">{productLabel}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {products.filter((p) => p.active).map((p) => (
@@ -200,19 +204,20 @@ function PlanFormDialog({
                     <Input
                       type="number" min="1" value={String(item.quantity)}
                       onChange={(e) => patchItem(i, { quantity: parseInt(e.target.value) || 1 })}
-                      className="w-20"
+                      className="w-20 shrink-0"
                       placeholder="Qtd"
                     />
 
                     {items.length > 1 && (
                       <button type="button" onClick={() => removeItem(i)}
-                        className="text-muted-foreground hover:text-destructive transition-colors px-1">
+                        className="text-muted-foreground hover:text-destructive transition-colors px-1 shrink-0">
                         <X size={16} strokeWidth={1.5} />
                       </button>
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
 
               <button type="button" onClick={addItem}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2 text-sm text-muted-foreground hover:bg-muted/30 transition-colors">
@@ -243,6 +248,7 @@ function PlanFormDialog({
               <Switch id="sp-active" checked={isActive} onCheckedChange={setIsActive} />
             </div>
           )}
+          </div>
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="ghost" />}>Cancelar</DialogClose>
             <Button type="submit" disabled={saving || !name.trim()}>
