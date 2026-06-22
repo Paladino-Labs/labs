@@ -116,7 +116,7 @@ function PlanFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)]">
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] w-fit min-w-[min(24rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{initial ? "Editar plano" : "Novo plano"}</DialogTitle>
         </DialogHeader>
@@ -176,7 +176,7 @@ function PlanFormDialog({
                           onValueChange={(v) => patchItem(i, { service_id: v || null })}
                         >
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecionar serviço…">{serviceLabel}</SelectValue>
+                            <SelectValue className="min-w-0" placeholder="Selecionar serviço…">{serviceLabel}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {services.filter((s) => s.active).map((s) => (
@@ -190,7 +190,7 @@ function PlanFormDialog({
                           onValueChange={(v) => patchItem(i, { product_id: v || null })}
                         >
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecionar produto…">{productLabel}</SelectValue>
+                            <SelectValue className="min-w-0" placeholder="Selecionar produto…">{productLabel}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {products.filter((p) => p.active).map((p) => (
