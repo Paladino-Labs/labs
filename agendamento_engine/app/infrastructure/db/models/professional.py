@@ -22,7 +22,17 @@ class Professional(Base, TimestampMixin):
     cpf_cnpj_masked = Column(String(18), nullable=True)   # "***.***.***-12"
     external_wallet_id = Column(String(255), nullable=True)
 
+    # Sprint 27 — vínculo 1:1 opcional com a conta de login (role=PROFESSIONAL)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
     company = relationship("Company", back_populates="professionals")
+    user = relationship("User", foreign_keys=[user_id])
     services = relationship("ProfessionalService", back_populates="professional", lazy="dynamic")
     appointments = relationship("Appointment", back_populates="professional", lazy="dynamic")
     working_hours = relationship("WorkingHour", back_populates="professional", lazy="dynamic")

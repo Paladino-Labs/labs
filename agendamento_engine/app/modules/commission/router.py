@@ -2,10 +2,10 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_role
+from app.core.deps import get_current_user, require_role
 from app.infrastructure.db.session import get_db
 from app.modules.commission import service as commission_service
 from app.modules.commission.schemas import (
@@ -75,6 +75,35 @@ def delete_policy(
 
 
 # ── Comissões ─────────────────────────────────────────────────────────────────
+
+@router.get("/commissions/me", response_model=List[CommissionResponse])
+def my_commissions(
+    status: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Comissões do profissional logado (role=PROFESSIONAL)."""
+    if current_user.role != "PROFESSIONAL":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas profissionais podem acessar este endpoint",
+        )
+    from app.modules.professionals.service import get_linked_professional
+
+    prof = get_linked_professional(db, current_user.id, current_user.company_id)
+    if not prof:
+        return []  # sem vínculo = sem comissões (não é erro)
+    return commission_service.list_commissions(
+        company_id=current_user.company_id,
+        db=db,
+        professional_id=prof.id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
 
 @router.get("/commissions", response_model=List[CommissionResponse])
 def list_commissions(

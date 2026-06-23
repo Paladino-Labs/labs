@@ -1,10 +1,10 @@
 from uuid import UUID
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_role
+from app.core.deps import get_current_company_id, get_current_user, require_role
 from app.infrastructure.db.models.user import User
 from app.modules.professionals import schemas, service
 
@@ -28,6 +28,20 @@ def create_professional(
     db: Session = Depends(get_db),
 ):
     return service.create_professional(db, user.company_id, body)
+
+
+@router.get("/me", response_model=schemas.ProfessionalResponse)
+def get_my_professional(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retorna o cadastro de profissional do usuário logado (role=PROFESSIONAL)."""
+    if user.role != "PROFESSIONAL":
+        raise HTTPException(status_code=403, detail="Apenas profissionais têm perfil próprio")
+    prof = service.get_linked_professional(db, user.id, user.company_id)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Perfil profissional não vinculado")
+    return prof
 
 
 @router.get("/{professional_id}", response_model=schemas.ProfessionalResponse)

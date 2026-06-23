@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password, create_access_token
 from app.infrastructure.db.models.user import User
 from app.infrastructure.db.models.user_invitation import UserInvitation
+from app.infrastructure.db.models.professional import Professional
 
 
 def activate_account(
@@ -64,6 +65,23 @@ def activate_account(
         name=name,
     )
     db.add(user)
+    db.flush()
+
+    # Sprint 27 — convite com professional_id → vincula a conta ao cadastro.
+    # with_for_update + user_id IS NULL evita sobrescrever vínculo existente.
+    if getattr(invitation, "professional_id", None):
+        prof = (
+            db.query(Professional)
+            .filter(
+                Professional.id == invitation.professional_id,
+                Professional.company_id == invitation.company_id,
+                Professional.user_id.is_(None),
+            )
+            .with_for_update()
+            .first()
+        )
+        if prof:
+            prof.user_id = user.id
 
     # Invalidar token imediatamente
     invitation.status = "ACCEPTED"

@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.infrastructure.db.models import Professional, Service, ProfessionalService
+from app.infrastructure.db.models import Professional, Service, ProfessionalService, User
 from app.modules.professionals.schemas import (
     ProfessionalCreate,
     ProfessionalUpdate,
@@ -40,6 +40,21 @@ def list_professionals(db: Session, company_id: UUID, active_only: bool = True):
     return q.order_by(Professional.name).all()
 
 
+def get_linked_professional(db: Session, user_id: UUID, company_id: UUID) -> Professional | None:
+    """Retorna o Professional vinculado à conta de login (role=PROFESSIONAL), ou None.
+
+    Usado por /auth/me, /professionals/me, escopo de /appointments e /commissions/me.
+    """
+    return (
+        db.query(Professional)
+        .filter(
+            Professional.user_id == user_id,
+            Professional.company_id == company_id,
+        )
+        .first()
+    )
+
+
 def get_professional_or_404(db: Session, company_id: UUID, professional_id: UUID) -> Professional:
     p = db.query(Professional).filter(
         Professional.id == professional_id,
@@ -63,7 +78,13 @@ def update_professional(
 ) -> Professional:
     p = get_professional_or_404(db, company_id, professional_id)
 
+    # Vínculo com conta de login (Sprint 27). Tratado à parte porque
+    # exclude_none descartaria user_id=None — e None aqui significa "desvincular".
+    if "user_id" in data.model_fields_set:
+        _apply_user_link(db, p, data.user_id, company_id)
+
     fields = data.model_dump(exclude_none=True)
+    fields.pop("user_id", None)  # já tratado acima
     raw_cpf_cnpj = fields.pop("cpf_cnpj", None)
 
     for field, value in fields.items():
@@ -75,6 +96,50 @@ def update_professional(
     db.commit()
     db.refresh(p)
     return p
+
+
+def _apply_user_link(
+    db: Session, professional: Professional, user_id: UUID | None, company_id: UUID
+) -> None:
+    """Vincula/desvincula a conta de login do profissional.
+
+    user_id None → desvincula. user_id preenchido → valida tenant + role=PROFESSIONAL
+    e exclusividade (1:1) antes de vincular.
+    """
+    if user_id is None:
+        professional.user_id = None
+        return
+
+    target_user = (
+        db.query(User)
+        .filter(
+            User.id == user_id,
+            User.company_id == company_id,
+            User.role == "PROFESSIONAL",
+        )
+        .first()
+    )
+    if not target_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Usuário não encontrado ou sem papel de profissional",
+        )
+
+    existing = (
+        db.query(Professional)
+        .filter(
+            Professional.user_id == user_id,
+            Professional.id != professional.id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Este usuário já está vinculado a outro profissional",
+        )
+
+    professional.user_id = user_id
 
 
 def _apply_pii(db: Session, professional: Professional, raw: str, company_id: UUID) -> None:

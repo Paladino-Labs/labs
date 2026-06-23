@@ -36,6 +36,7 @@ class InviteUserRequest(BaseModel):
     email: EmailStr
     role: str
     name: Optional[str] = None
+    professional_id: Optional[UUID] = None  # só relevante quando role=PROFESSIONAL
 
 
 class InviteUserResponse(BaseModel):

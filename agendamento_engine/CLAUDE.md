@@ -1,4 +1,35 @@
-**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s26_multiitem_packages`.
+**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s27_professional_user_link`.
+
+## Vínculo User↔Professional + escopo PROFESSIONAL (2026-06-22)
+Backend para o papel PROFESSIONAL ver os próprios dados. **HEAD migration:
+`e0s27_professional_user_link`** (← e0s26_multiitem_packages). Branch
+`feat/professional-scope-backend`. +19 testes (`tests/test_sprint27_professional_scope.py`).
+
+### Modelo / migration
+- `professionals.user_id` FK users(id) ON DELETE SET NULL, **UNIQUE parcial**
+  (`uq_professionals_user_id WHERE user_id IS NOT NULL`) — 1:1 opcional.
+  `Professional.user = relationship("User", foreign_keys=[user_id])`.
+- `user_invitations.professional_id` FK professionals(id) ON DELETE SET NULL — linka no aceite.
+
+### Endpoints / comportamento
+- `GET /auth/me` agora retorna `professional_id` (str ou None; só preenchido p/ role=PROFESSIONAL vinculado).
+- `GET /professionals/me` (declarado ANTES de `/{professional_id}`): 200 cadastro próprio;
+  403 não-PROFESSIONAL; 404 sem vínculo.
+- `PATCH /professionals/{id}` aceita `user_id`: UUID vincula (valida tenant + role=PROFESSIONAL;
+  400 inválido; 409 se já vinculado a outro), `null` explícito desvincula. Detecção via
+  `model_fields_set` (exclude_none descartaria o null). `ProfessionalResponse.user_id` exposto.
+- Convite: `InviteUserRequest.professional_id` opcional; persistido na UserInvitation;
+  `activate_account` linka `prof.user_id` no aceite (with_for_update + user_id IS NULL).
+- `GET /appointments/` ganhou param `professional_id`; **PROFESSIONAL tem o filtro forçado**
+  ao próprio cadastro (sem vínculo → lista vazia, serviço nem é chamado).
+- `GET /commissions/me` (antes de `/commissions`): comissões do profissional logado;
+  403 não-PROFESSIONAL; sem vínculo → `[]`.
+- Helper único `professionals/service.get_linked_professional(db, user_id, company_id)`
+  reusado por auth/me, professionals/me, appointments e commissions/me.
+- **Desvio do enunciado (implementação, não arquitetura):** lookup centralizado no helper
+  do service em vez de `db.query(Professional)` inline em cada router (DRY/testável).
+
+**HEAD migration:** e0s27_professional_user_link
 
 ## Multi-item packages (2026-06-22)
 Pacotes e assinaturas multi-item. **HEAD migration: `e0s26_multiitem_packages`**

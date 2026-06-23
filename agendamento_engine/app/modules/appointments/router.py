@@ -32,19 +32,33 @@ def _handle_policy_error(e: PolicyViolationError) -> JSONResponse:
 
 @router.get("/", response_model=List[schemas.AppointmentResponse])
 def list_appointments(
-    company_id: UUID = Depends(get_current_company_id),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     start_after: Optional[datetime] = Query(default=None),
     start_before: Optional[datetime] = Query(default=None),
     customer_id: Optional[UUID] = Query(default=None),
+    professional_id: Optional[UUID] = Query(default=None),
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
     db: Session = Depends(get_db),
 ):
+    # PROFESSIONAL só vê os próprios agendamentos — o filtro é forçado, ignorando
+    # qualquer professional_id enviado. Sem vínculo → lista vazia.
+    effective_professional_id = professional_id
+    if user.role == "PROFESSIONAL":
+        from app.modules.professionals.service import get_linked_professional
+
+        prof = get_linked_professional(db, user.id, company_id)
+        if not prof:
+            return []
+        effective_professional_id = prof.id
+
     return svc.list_appointments(
         db, company_id,
         page=page, page_size=page_size,
         start_after=start_after, start_before=start_before,
         customer_id=customer_id,
+        professional_id=effective_professional_id,
     )
 
 

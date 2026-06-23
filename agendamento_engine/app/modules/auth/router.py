@@ -24,13 +24,22 @@ def activate(body: schemas.ActivateRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-def me(user: User = Depends(get_current_user)):
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.modules.professionals.service import get_linked_professional
+
+    professional_id = None
+    if user.role == "PROFESSIONAL":
+        prof = get_linked_professional(db, user.id, user.company_id)
+        if prof:
+            professional_id = str(prof.id)
+
     return {
         "id": str(user.id),
         "email": user.email,
         "name": user.name,
         "company_id": str(user.company_id) if user.company_id else None,
         "role": user.role,
+        "professional_id": professional_id,  # None se não vinculado / não-profissional
     }
 
 

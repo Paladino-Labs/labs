@@ -13,6 +13,7 @@ class ProfessionalUpdate(BaseModel):
     active: Optional[bool] = None
     specialty: Optional[str] = None
     cpf_cnpj: Optional[str] = None  # recebido em plaintext; gravado encrypted+hash+masked
+    user_id: Optional[UUID] = None  # None (explícito) = desvincula; UUID = vincula
 
 
 class ProfessionalResponse(BaseModel):
@@ -22,6 +23,7 @@ class ProfessionalResponse(BaseModel):
     active: bool
     specialty: Optional[str] = None
     cpf_cnpj_masked: Optional[str] = None  # nunca retornar encrypted ou plaintext
+    user_id: Optional[UUID] = None  # conta de login vinculada (Sprint 27)
 
     model_config = {"from_attributes": True}
 

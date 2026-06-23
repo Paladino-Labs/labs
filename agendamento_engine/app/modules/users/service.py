@@ -112,6 +112,7 @@ def invite_user(
     request_ip: Optional[str] = None,
     request_ua: Optional[str] = None,
     name: Optional[str] = None,
+    professional_id: Optional[UUID] = None,
 ) -> UserInvitation:
     _assert_not_schema_only(role)
     _assert_not_platform_owner_by_tenant(actor, role)
@@ -132,6 +133,7 @@ def invite_user(
         expires_at=datetime.now(timezone.utc) + timedelta(hours=48),
         status="PENDING",
         invited_by_user_id=_s(actor.id),
+        professional_id=_s(professional_id),  # pode ser None
     )
     db.add(invitation)
     db.flush()

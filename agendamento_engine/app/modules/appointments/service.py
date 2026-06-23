@@ -153,6 +153,7 @@ def list_appointments(
     start_after: datetime | None = None,
     start_before: datetime | None = None,
     customer_id: UUID | None = None,
+    professional_id: UUID | None = None,
 ):
     query = (
         db.query(Appointment)
@@ -169,6 +170,8 @@ def list_appointments(
         query = query.filter(Appointment.start_at < start_before)
     if customer_id is not None:
         query = query.filter(Appointment.client_id == customer_id)
+    if professional_id is not None:
+        query = query.filter(Appointment.professional_id == professional_id)
     return (
         query.order_by(Appointment.start_at.desc())
         .offset((page - 1) * page_size)

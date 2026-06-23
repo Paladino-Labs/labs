@@ -72,6 +72,7 @@ class TUserInvitation(TestBase):
     expires_at = Column(TIMESTAMP, nullable=False)
     status = Column(String(20), nullable=False, default="PENDING")
     invited_by_user_id = Column(String(36), nullable=False)
+    professional_id = Column(String(36), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
 

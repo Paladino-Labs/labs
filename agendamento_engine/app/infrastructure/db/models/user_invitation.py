@@ -55,6 +55,12 @@ class UserInvitation(Base):
         ForeignKey("users.id"),
         nullable=False,
     )
+    # Sprint 27 — quando role=PROFESSIONAL, linka este cadastro no aceite do convite
+    professional_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("professionals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(
         TIMESTAMP(timezone=True),
         nullable=False,
