@@ -687,7 +687,8 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
 - `MAQUININHA` (genérico) + `payment_submethod`: DEBIT → MAQUININHA_DEBIT; CREDIT/None → MAQUININHA_CREDIT
 
 ### Taxa MDR — fee-policies
-- `GET  /financial/fee-policies` — OWNER/ADMIN; lista 8 políticas por tenant
+- `GET  /financial/fee-policies` — OWNER/ADMIN/**PROFESSIONAL** (leitura; tela Taxas
+  read-only do PROFESSIONAL) via `_fee_policies_read`; lista 8 políticas por tenant
 - `PATCH /financial/fee-policies/{fee_source}` — OWNER/ADMIN; atualiza fee_percentage / fee_flat
 - `fee_source` válidos agora incluem: `MAQUININHA_PIX` (adicionado neste sprint)
 - Novos tenants: MAQUININHA_PIX criado com fee_percentage=NULL; demais com fee_percentage=0

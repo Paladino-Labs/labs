@@ -58,6 +58,9 @@ router = APIRouter(prefix="/financial", tags=["financial"])
 
 _owner_admin = require_role("OWNER", "ADMIN", "PLATFORM_OWNER")
 _owner_admin_operator = require_role("OWNER", "ADMIN", "OPERATOR", "PLATFORM_OWNER")
+# Leitura de fee-policies liberada também ao PROFESSIONAL (tela Taxas read-only).
+# Writes (POST/PATCH/DELETE) permanecem OWNER/ADMIN via _owner_admin.
+_fee_policies_read = require_role("OWNER", "ADMIN", "PROFESSIONAL", "PLATFORM_OWNER")
 
 
 # ── Accounts ──────────────────────────────────────────────────────────────────
@@ -325,7 +328,7 @@ def record_cash_count(
 @router.get("/fee-policies", response_model=List[FeePolicyResponse])
 def list_fee_policies(
     company_id: UUID = Depends(get_current_company_id),
-    actor: User = Depends(_owner_admin),
+    actor: User = Depends(_fee_policies_read),
     db: Session = Depends(get_db),
 ):
     """Lista todas as políticas de taxa MDR do tenant (7 registros por tenant)."""
