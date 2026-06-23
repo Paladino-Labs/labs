@@ -1,4 +1,19 @@
-**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s27_professional_user_link`.
+**Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s28_professional_contact_customer_filter`. Suite: 1003 passed / 12 failed (12 pré-existentes por contaminação de ordenação em `test_sprint2_rbac` — `app.main` importado antes do monkey-patch de modelos; corrigir em sprint dedicado de housekeeping de testes, não é regressão nem dívida de lógica de produção).
+
+## e0s28 — Professional contact + customer filter (2026-06-23)
+Sprint complementar de backend. **HEAD migration: `e0s28_professional_contact_customer_filter`**
+(← e0s27_professional_user_link). Branch `feat/professional-scope-backend`, commit `def56aa`.
++8 testes (`tests/test_sprint28_professional_contact.py`).
+- `professionals`: `email VARCHAR(255)` nullable + `phone VARCHAR(20)` nullable (E.164, sem
+  normalização/validação no backend — campo livre, ao contrário de `Customer.phone`).
+- `ProfessionalCreate`/`Update`/`Response`: `email` e `phone` opcionais.
+- `GET /customers/`: `professional_id` como query param. **PROFESSIONAL tem o filtro forçado**
+  ao próprio cadastro (sem vínculo → `UUID(int=0)` → subquery não casa → lista vazia) — mesmo
+  padrão do `GET /appointments/` no Sprint 27; router passou a depender de `get_current_user`.
+  Subquery: `Customer.id IN (SELECT client_id FROM appointments WHERE professional_id = ? AND
+  company_id = ?)` — campo é **client_id**, não customer_id.
+
+**HEAD migration:** e0s28_professional_contact_customer_filter
 
 ## Vínculo User↔Professional + escopo PROFESSIONAL (2026-06-22)
 Backend para o papel PROFESSIONAL ver os próprios dados. **HEAD migration:
