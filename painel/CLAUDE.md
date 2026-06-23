@@ -1,7 +1,53 @@
 # painel — contexto operacional
 
-**Sprint atual:** Fase 5C concluída. Painel Owner (`(owner)/owner/*`)
-implementado — quarto shell, isolado dos demais. Próxima fase: a definir.
+**Sprint atual:** Escopo completo do papel PROFESSIONAL (frontend) concluído.
+Painel Owner (`(owner)/owner/*`) implementado — quarto shell, isolado dos demais.
+
+## Papel PROFESSIONAL — escopo implementado
+
+`professionalId` em `AuthContext` (lido de `/auth/me`, **não** do JWT).
+Toda lógica condicional aguarda `hydrated` antes de usar `professionalId`
+(resolução assíncrona via round-trip do `/auth/me`). `null` = não-PROFESSIONAL
+ou PROFESSIONAL sem vínculo.
+
+Superfícies:
+- **Dashboard** (`ProfessionalDashboard`): KPIs (agendamentos hoje +
+  comissões do mês via `/commissions/me`) + próximos atendimentos filtrados.
+  EmptyState se `professionalId` null (sem vínculo).
+- **Agenda**: prop `professionals` filtrada ao próprio profissional via
+  `useMemo` reativo (robusto à hidratação assíncrona). Backend já filtra os
+  appointments (e0s27) — não filtra no frontend.
+- **Operações**: selector "Barbeiro" oculto (backend já filtra).
+- **/comissoes/minhas**: tela nova, tabs Histórico + Pagamentos via
+  `/commissions/me`. Guard redirect para não-PROFESSIONAL.
+- **Taxas**: read-only para PROFESSIONAL (frontend pronto via `canEdit` por
+  role; ⚠ depende de fix de backend — ver gap abaixo).
+
+`Commission` (types/index.ts): os campos reais do backend são
+`commission_amount` e `gross_amount` (NÃO `amount`/`rate`); status
+CALCULATED | DUE | PAID | REVERSED.
+
+`Sidebar`: helper `roleVisible` filtra subitens de submenu por role; `SubItem`
+ganhou `roles?: Role[] | "ALL"` opcional. "Minhas comissões" (roles
+`["PROFESSIONAL"]`) no grupo Financeiro; Configurações visível a PROFESSIONAL
+com submenu filtrado (Meu Perfil/Segurança/Taxas).
+
+`professionals/[id]`: campos email/phone + card "Conta de acesso" (vincular
+usuário existente / enviar convite com `professional_id` pré-vinculado /
+desvincular). `/users/` **não** aceita `?role=` — filtro client-side;
+"disponíveis" = users PROFESSIONAL ativos cujo id não está em nenhum
+`professional.user_id` (fetch extra de `/professionals/`).
+
+`InviteDialog` (settings/usuarios): Select de profissional quando o papel do
+convite = PROFESSIONAL; sentinel `"__none__"` (não `value=""`, evita quirk do
+base-ui Select) → omite `professional_id` do body.
+
+### Gap pendente (backend)
+
+`GET /financial/fee-policies` exige OWNER/ADMIN (`_owner_admin` em
+`financial_core/router.py`) → PROFESSIONAL recebe **403** ao abrir Taxas.
+Fix: liberar leitura para PROFESSIONAL **apenas no GET** (manter
+POST/PATCH/DELETE em OWNER/ADMIN). Frontend já está pronto como read-only.
 
 ## Painel Owner — `app/(owner)/owner/`
 
