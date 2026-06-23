@@ -20,8 +20,9 @@ Superfícies:
 - **Operações**: selector "Barbeiro" oculto (backend já filtra).
 - **/comissoes/minhas**: tela nova, tabs Histórico + Pagamentos via
   `/commissions/me`. Guard redirect para não-PROFESSIONAL.
-- **Taxas**: read-only para PROFESSIONAL (frontend pronto via `canEdit` por
-  role; ⚠ depende de fix de backend — ver gap abaixo).
+- **Taxas**: read-only para PROFESSIONAL — funcional end-to-end (backend
+  liberado via `_fee_policies_read` + guard de layout corrigido; `canEdit` por
+  role esconde os forms/Save).
 
 `Commission` (types/index.ts): os campos reais do backend são
 `commission_amount` e `gross_amount` (NÃO `amount`/`rate`); status
@@ -38,16 +39,22 @@ desvincular). `/users/` **não** aceita `?role=` — filtro client-side;
 "disponíveis" = users PROFESSIONAL ativos cujo id não está em nenhum
 `professional.user_id` (fetch extra de `/professionals/`).
 
-`InviteDialog` (settings/usuarios): Select de profissional quando o papel do
-convite = PROFESSIONAL; sentinel `"__none__"` (não `value=""`, evita quirk do
-base-ui Select) → omite `professional_id` do body.
+`InviteDialog` (settings/usuarios): **restrito a PROFESSIONAL** — sem Select de
+papel; `role` fixo em `"PROFESSIONAL"` no submit; prop `actorRole` removida.
+Select de profissional sempre visível; sentinel `"__none__"` (não `value=""`,
+evita quirk do base-ui Select) → omite `professional_id` do body. Se outros
+roles forem habilitados no futuro, restaurar o Select de papel + prop `actorRole`.
 
-### Gap pendente (backend)
+### Layout financeiro — guard de PROFESSIONAL
 
-`GET /financial/fee-policies` exige OWNER/ADMIN (`_owner_admin` em
-`financial_core/router.py`) → PROFESSIONAL recebe **403** ao abrir Taxas.
-Fix: liberar leitura para PROFESSIONAL **apenas no GET** (manter
-POST/PATCH/DELETE em OWNER/ADMIN). Frontend já está pronto como read-only.
+`app/(dashboard)/layout.tsx` tem guard que redireciona PROFESSIONAL para
+`/dashboard` em todo `/financeiro/*`. **Exceção: `/financeiro/taxas`** é
+permitido (read-only). Ao adicionar rotas em `/financeiro/` que o PROFESSIONAL
+deva ver, incluir o pathname na exceção do guard.
+
+`GET /financial/fee-policies` ganhou `_fee_policies_read`
+(OWNER/ADMIN/PROFESSIONAL/PLATFORM_OWNER) **só no GET** — writes seguem
+OWNER/ADMIN. (commits backend `ae1da84` / cherry-pick frontend `4522c47`).
 
 ## Painel Owner — `app/(owner)/owner/`
 
