@@ -10,6 +10,11 @@ export interface Professional {
   commission_rate?: number
   specialties?: string[]
   cpf_cnpj_masked?: string
+  email?: string | null    // e0s28
+  phone?: string | null    // e0s28
+  user_id?: string | null  // e0s27 — conta de login vinculada
+  created_at?: string
+  updated_at?: string | null
 }
 
 export interface Service {
@@ -58,8 +63,25 @@ export interface User {
   id: string
   company_id: string
   email: string
+  name?: string | null
   role: string
   active: boolean
+}
+
+export interface Commission {
+  commission_id: string
+  company_id: string
+  professional_id: string
+  policy_id?: string | null
+  appointment_id?: string | null
+  operation_type: string
+  gross_amount: string | number
+  commission_amount: string | number
+  status: string                       // CALCULATED | DUE | PAID | REVERSED
+  due_date?: string | null
+  paid_at?: string | null
+  payout_id?: string | null
+  created_at: string
 }
 
 export interface AppointmentServiceSnapshot {

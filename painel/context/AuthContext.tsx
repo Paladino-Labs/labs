@@ -26,6 +26,7 @@ interface AuthContextValue {
   email: string | null
   companyId: string | null
   name: string | null
+  professionalId: string | null   // null se não-PROFESSIONAL ou sem vínculo
   isAdmin: boolean
   hydrated: boolean   // true após validação do token (localStorage + servidor)
   login: (token: string) => void
@@ -41,6 +42,7 @@ export const AuthContext = createContext<AuthContextValue>({
   email: null,
   companyId: null,
   name: null,
+  professionalId: null,
   isAdmin: false,
   hydrated: false,
   login: () => {},
@@ -88,6 +90,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [email, setEmail] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [name, setName] = useState<string | null>(null)
+  const [professionalId, setProfessionalId] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
 
   const isDev = process.env.NODE_ENV === "development"
@@ -120,6 +123,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     setEmail(null)
     setCompanyId(null)
     setName(null)
+    setProfessionalId(null)
     window.location.replace("/")
   }, [])
 
@@ -170,6 +174,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         // Token válido — aplica dados do payload (evita round-trip extra)
         applyUserData(stored, payload)
         if (data?.name) setName(data.name)
+        if (data?.professional_id !== undefined) setProfessionalId(data.professional_id ?? null)
         setHydrated(true)
       })
       .catch(() => {
@@ -188,7 +193,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     // Busca name do /auth/me após login (JWT não carrega name no payload)
     fetch(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${newToken}` } })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data?.name) setName(data.name) })
+      .then((data) => {
+        if (data?.name) setName(data.name)
+        if (data?.professional_id !== undefined) setProfessionalId(data.professional_id ?? null)
+      })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -203,6 +211,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         email,
         companyId,
         name,
+        professionalId,
         isAdmin: role === "ADMIN",
         hydrated,
         login,

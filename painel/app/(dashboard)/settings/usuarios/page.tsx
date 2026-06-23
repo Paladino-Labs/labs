@@ -11,6 +11,7 @@ import {
   INVITATION_STATUS_LABELS,
   ASSIGNABLE_ROLES_BY_ACTOR,
 } from "@/lib/constants"
+import type { Professional } from "@/types"
 import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/empty-state"
 import { ErrorState } from "@/components/ErrorState"
@@ -66,9 +67,25 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
   const [role, setRole] = useState(allowed[0] ?? "")
   const [saving, setSaving] = useState(false)
 
+  // Vínculo opcional com um cadastro de profissional (apenas quando role=PROFESSIONAL).
+  const [professionals, setProfessionals] = useState<Professional[]>([])
+  const [linkedProfId, setLinkedProfId] = useState("")
+
   useEffect(() => {
-    if (open) { setEmail(""); setName(""); setRole(allowed[0] ?? "") }
+    if (open) { setEmail(""); setName(""); setRole(allowed[0] ?? ""); setLinkedProfId("") }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Carrega profissionais sem vínculo quando o Dialog abre.
+  useEffect(() => {
+    if (!open) return
+    api.get<Professional[]>("/professionals/")
+      .then((profs) => setProfessionals(profs.filter((p) => !p.user_id && p.active)))
+      .catch(() => {})
+  }, [open])
+
+  const linkedProfLabel = linkedProfId
+    ? (professionals.find((p) => p.id === linkedProfId)?.name ?? "")
+    : ""
 
   async function handleInvite() {
     if (!email.trim() || !role) return
@@ -78,6 +95,7 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
         email: email.trim(),
         role,
         ...(name.trim() ? { name: name.trim() } : {}),
+        ...(role === "PROFESSIONAL" && linkedProfId ? { professional_id: linkedProfId } : {}),
       })
       toast.success(`Convite enviado — expira em ${formatDateTime(res.expires_at)}`)
       onOpenChange(false)
@@ -113,6 +131,32 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
               </SelectContent>
             </Select>
           </div>
+          {role === "PROFESSIONAL" && (
+            <div className="space-y-1.5">
+              <Label>
+                Profissional vinculado{" "}
+                <span className="text-muted-foreground text-xs">(opcional)</span>
+              </Label>
+              <Select value={linkedProfId} onValueChange={(v) => setLinkedProfId(v === "__none__" ? "" : (v ?? ""))}>
+                <SelectTrigger className="w-full">
+                  <span className={linkedProfId ? "text-foreground" : "text-muted-foreground"}>
+                    {linkedProfId ? linkedProfLabel : "Selecionar profissional…"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nenhum (vincular depois)</SelectItem>
+                  {professionals.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {professionals.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Todos os profissionais já têm conta vinculada.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" />}>Cancelar</DialogClose>

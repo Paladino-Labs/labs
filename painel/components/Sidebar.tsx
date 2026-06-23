@@ -32,6 +32,7 @@ import {
   Boxes,
   FileWarning,
   CircleDollarSign,
+  BadgeDollarSign,
   UserCheck,
   ShieldCheck,
   Settings,
@@ -52,6 +53,7 @@ type SubItem = {
   title: string
   url: string
   icon: LucideIcon
+  roles?: Role[] | "ALL"   // ausente = visível para quem vê o item pai
 }
 
 type NavItem = {
@@ -161,6 +163,7 @@ const NAV: NavGroup[] = [
           { title: "Pagamentos", url: "/comissoes/pagamentos", icon: Wallet },
         ],
       },
+      { title: "Minhas comissões", url: "/comissoes/minhas", icon: BadgeDollarSign, roles: ["PROFESSIONAL"] },
     ],
   },
   {
@@ -169,15 +172,15 @@ const NAV: NavGroup[] = [
       { title: "Profissionais",      url: "/professionals",     icon: UserCheck,   roles: ["OWNER", "ADMIN"] },
       { title: "Usuários e acessos", url: "/settings/usuarios", icon: ShieldCheck, roles: ["OWNER", "ADMIN"] },
       {
-        title: "Configurações", url: "/configuracoes", icon: Settings, roles: ["OWNER", "ADMIN"],
+        title: "Configurações", url: "/configuracoes", icon: Settings, roles: ["OWNER", "ADMIN", "PROFESSIONAL"],
         submenu: [
-          { title: "Meu Perfil",  url: "/settings/perfil",      icon: UserCircle },
-          { title: "Segurança",   url: "/settings/security",    icon: KeyRound },
-          { title: "Taxas",       url: "/financeiro/taxas",     icon: Percent },
-          { title: "Financeiro",  url: "/settings/financial",   icon: Wallet },
-          { title: "Integrações", url: "/settings/integracoes",  icon: Link2 },
-          { title: "Módulos",     url: "/settings/modulos",      icon: Blocks },
-          { title: "Branding",    url: "/settings/branding",     icon: Palette },
+          { title: "Meu Perfil",  url: "/settings/perfil",      icon: UserCircle, roles: "ALL" },
+          { title: "Segurança",   url: "/settings/security",    icon: KeyRound,   roles: "ALL" },
+          { title: "Taxas",       url: "/financeiro/taxas",     icon: Percent,    roles: ["OWNER", "ADMIN", "PROFESSIONAL"] },
+          { title: "Financeiro",  url: "/settings/financial",   icon: Wallet,     roles: ["OWNER", "ADMIN"] },
+          { title: "Integrações", url: "/settings/integracoes",  icon: Link2,     roles: ["OWNER", "ADMIN"] },
+          { title: "Módulos",     url: "/settings/modulos",      icon: Blocks,    roles: ["OWNER", "ADMIN"] },
+          { title: "Branding",    url: "/settings/branding",     icon: Palette,   roles: ["OWNER", "ADMIN"] },
         ],
       },
       { title: "Relatórios",         url: "/relatorios",        icon: BarChart3,   roles: ["OWNER", "ADMIN"] },
@@ -186,9 +189,13 @@ const NAV: NavGroup[] = [
   },
 ]
 
+function roleVisible(roles: Role[] | "ALL" | undefined, role: string | null): boolean {
+  if (!roles || roles === "ALL") return true
+  return roles.includes((role ?? "") as Role)
+}
+
 function isVisible(item: NavItem, role: string | null): boolean {
-  if (item.roles === "ALL") return true
-  return item.roles.includes((role ?? "") as Role)
+  return roleVisible(item.roles, role)
 }
 
 function isActive(pathname: string, url: string): boolean {
@@ -245,16 +252,19 @@ function NavLinkRow({
 function NavItemRow({
   item,
   pathname,
+  role,
   collapsed,
   onNavigate,
 }: {
   item: NavItem
   pathname: string
+  role: string | null
   collapsed: boolean
   onNavigate?: () => void
 }) {
+  const submenu = item.submenu?.filter((s) => roleVisible(s.roles, role))
   const selfActive = isActive(pathname, item.url)
-  const childActive = item.submenu?.some((s) => isActive(pathname, s.url)) ?? false
+  const childActive = submenu?.some((s) => isActive(pathname, s.url)) ?? false
   const [open, setOpen] = useState(selfActive || childActive)
 
   // Mantém o submenu aberto quando a rota ativa está dentro dele.
@@ -262,7 +272,7 @@ function NavItemRow({
     if (childActive) setOpen(true)
   }, [childActive])
 
-  if (!item.submenu || collapsed) {
+  if (!submenu || submenu.length === 0 || collapsed) {
     return (
       <NavLinkRow
         title={item.title}
@@ -302,7 +312,7 @@ function NavItemRow({
       </button>
       {open && (
         <div className="mt-0.5 space-y-0.5">
-          {item.submenu.map((sub) => (
+          {submenu.map((sub) => (
             <NavLinkRow
               key={sub.url}
               title={sub.title}
@@ -323,11 +333,13 @@ function NavItemRow({
 function NavGroupBlock({
   group,
   pathname,
+  role,
   collapsed,
   onNavigate,
 }: {
   group: NavGroup
   pathname: string
+  role: string | null
   collapsed: boolean
   onNavigate?: () => void
 }) {
@@ -348,6 +360,7 @@ function NavGroupBlock({
           key={item.url}
           item={item}
           pathname={pathname}
+          role={role}
           collapsed={collapsed}
           onNavigate={onNavigate}
         />
@@ -442,6 +455,7 @@ function SidebarContent({
               key={group.label}
               group={group}
               pathname={pathname}
+              role={role}
               collapsed={collapsed}
               onNavigate={onNavigate}
             />

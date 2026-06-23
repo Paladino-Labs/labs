@@ -37,7 +37,10 @@ export default function TaxasPage() {
   // Per-row saving flag
   const [saving, setSaving] = useState<Record<string, boolean>>({})
 
-  const canAccess = role === "OWNER" || role === "ADMIN"
+  const canEdit = role === "OWNER" || role === "ADMIN"
+  // PROFESSIONAL tem acesso somente leitura (Passo 10). ⚠ Depende de o backend
+  // permitir GET /financial/fee-policies para PROFESSIONAL (hoje OWNER/ADMIN-only).
+  const canAccess = canEdit || role === "PROFESSIONAL"
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -137,6 +140,8 @@ export default function TaxasPage() {
                         <td className="px-4 py-3">
                           {!editable ? (
                             <span className="text-muted-foreground">0% <span className="text-xs">— sem taxa</span></span>
+                          ) : !canEdit ? (
+                            <span>{policy.fee_percentage != null ? `${policy.fee_percentage}%` : "—"}</span>
                           ) : (
                             <div className="flex items-center gap-2">
                               <Input
@@ -157,6 +162,8 @@ export default function TaxasPage() {
                         <td className="px-4 py-3">
                           {!editable ? (
                             <span className="text-muted-foreground">—</span>
+                          ) : !canEdit ? (
+                            <span>R$ {Number(policy.fee_flat ?? 0).toFixed(2)}</span>
                           ) : (
                             <Input
                               type="number" step="0.01" min="0"
@@ -171,7 +178,7 @@ export default function TaxasPage() {
 
                         {/* Ações */}
                         <td className="px-4 py-3 text-right">
-                          {editable ? (
+                          {editable && canEdit ? (
                             <Button size="sm" variant="outline" onClick={() => handleSave(policy.fee_source)} disabled={isSaving}>
                               {isSaving ? "Salvando…" : "Salvar"}
                             </Button>

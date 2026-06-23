@@ -8,6 +8,7 @@ import {
 import { ptBR } from "date-fns/locale"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
+import { useAuth } from "@/context/AuthContext"
 import { formatDateTime, formatBRL, cn } from "@/lib/utils"
 import type { Appointment, Professional } from "@/types"
 import { ErrorState } from "@/components/ErrorState"
@@ -38,6 +39,7 @@ function toCalendarStatus(status: string): CalendarAppt["status"] {
 
 export default function AppointmentsPage() {
   const router = useRouter()
+  const { role, professionalId } = useAuth()
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [loading, setLoading] = useState(true)
@@ -130,13 +132,23 @@ export default function AppointmentsPage() {
     }))
   }, [appointments])
 
+  // PROFESSIONAL vê apenas a própria coluna. O backend (e0s27) já restringe os
+  // agendamentos retornados ao próprio profissional; aqui filtramos as colunas
+  // para não exibir barbeiros vazios. Reativo à hidratação do professionalId.
+  const visibleProfessionals = useMemo(() => {
+    if (role === "PROFESSIONAL" && professionalId) {
+      return professionals.filter((p) => p.id === professionalId)
+    }
+    return professionals
+  }, [professionals, role, professionalId])
+
   const calendarProfessionals = useMemo(() => {
-    return professionals.map((p) => ({
+    return visibleProfessionals.map((p) => ({
       id: p.id,
       name: p.name,
       specialty: p.specialty ?? p.specialties?.[0],
     }))
-  }, [professionals])
+  }, [visibleProfessionals])
 
   // ── Ações ────────────────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ import { formatDateTime, formatBRLFromDecimal } from "@/lib/utils"
 import type {
   Professional,
   Service,
+  User,
   WorkingHour,
   ScheduleBlock,
   ProfessionalService,
@@ -19,6 +20,7 @@ import { ActiveBadge } from "@/components/ActiveBadge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -334,7 +336,17 @@ export default function ProfessionalEditorPage() {
   const [prof, setProf] = useState<Professional | null>(null)
   const [editName, setEditName] = useState("")
   const [editSpecialty, setEditSpecialty] = useState("")
+  const [editEmail, setEditEmail] = useState("")
+  const [editPhone, setEditPhone] = useState("")
   const [savingInfo, setSavingInfo] = useState(false)
+
+  // ── Conta de acesso (vínculo User ↔ Professional) ───────────────────────────
+  const [allUsers, setAllUsers] = useState<User[]>([])
+  const [linkedUserIds, setLinkedUserIds] = useState<Set<string>>(new Set())
+  const [selectedUserId, setSelectedUserId] = useState("")
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [submittingInvite, setSubmittingInvite] = useState(false)
+  const [accountBusy, setAccountBusy] = useState(false)
 
   const [whRows, setWhRows] = useState<WhRow[]>(
     Array.from({ length: 7 }, (_, i) => defaultWh(i))
@@ -358,20 +370,28 @@ export default function ProfessionalEditorPage() {
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true)
-      const [profData, wh, ps, svc, bl] = await Promise.all([
+      const [profData, wh, ps, svc, bl, users, allProfs] = await Promise.all([
         api.get<Professional>(`/professionals/${profId}`),
         api.get<WorkingHour[]>(`/schedule/working-hours/${profId}`),
         api.get<ProfessionalService[]>(`/professionals/${profId}/services`),
         api.get<Service[]>("/services/"),
         api.get<ScheduleBlock[]>(`/schedule/blocks/${profId}`),
+        api.get<User[]>("/users/").catch(() => [] as User[]),
+        api.get<Professional[]>("/professionals/").catch(() => [] as Professional[]),
       ])
       setProf(profData)
       setEditName(profData.name)
       setEditSpecialty(profData.specialty ?? "")
+      setEditEmail(profData.email ?? "")
+      setEditPhone(profData.phone ?? "")
       setWhRows(mergeWh(wh))
       setProfServices(ps)
       setAllServices(svc)
       setBlocks(bl)
+      setAllUsers(users)
+      setLinkedUserIds(
+        new Set(allProfs.map((p) => p.user_id).filter((id): id is string => !!id)),
+      )
     } catch (e: unknown) {
       setLoadError((e as Error).message ?? "Erro ao carregar profissional")
     } finally {
@@ -385,13 +405,65 @@ export default function ProfessionalEditorPage() {
   async function handleSaveInfo() {
     setSavingInfo(true)
     try {
-      const body: Record<string, unknown> = { name: editName, specialty: editSpecialty || null }
+      const body: Record<string, unknown> = {
+        name: editName,
+        specialty: editSpecialty || null,
+        email: editEmail || null,
+        phone: editPhone || null,
+      }
       await api.patch(`/professionals/${profId}`, body)
       await fetchAll()
     } catch (e: unknown) {
       alert((e as Error).message)
     } finally {
       setSavingInfo(false)
+    }
+  }
+
+  // ── Conta de acesso ────────────────────────────────────────────────────────
+  async function handleLinkUser() {
+    if (!selectedUserId) return
+    setAccountBusy(true)
+    try {
+      await api.patch(`/professionals/${profId}`, { user_id: selectedUserId })
+      toast.success("Usuário vinculado")
+      setSelectedUserId("")
+      await fetchAll()
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao vincular usuário")
+    } finally {
+      setAccountBusy(false)
+    }
+  }
+
+  async function handleUnlinkUser() {
+    setAccountBusy(true)
+    try {
+      await api.patch(`/professionals/${profId}`, { user_id: null })
+      toast.success("Usuário desvinculado")
+      await fetchAll()
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao desvincular usuário")
+    } finally {
+      setAccountBusy(false)
+    }
+  }
+
+  async function handleSendInvite() {
+    if (!inviteEmail) return
+    setSubmittingInvite(true)
+    try {
+      await api.post("/users/invite", {
+        email: inviteEmail.trim(),
+        role: "PROFESSIONAL",
+        professional_id: profId,
+      })
+      toast.success("Convite enviado")
+      setInviteEmail("")
+    } catch (e: unknown) {
+      toast.error((e as Error).message ?? "Erro ao enviar convite")
+    } finally {
+      setSubmittingInvite(false)
     }
   }
 
@@ -506,6 +578,18 @@ export default function ProfessionalEditorPage() {
   if (loadError) return <p className="text-destructive">{loadError}</p>
   if (!prof)     return null
 
+  // Usuários PROFESSIONAL ativos ainda sem vínculo (o backend retorna todos;
+  // filtramos pelos user_ids já ocupados por algum professional do tenant).
+  const availableUsers = allUsers.filter(
+    (u) => u.role === "PROFESSIONAL" && u.active && !linkedUserIds.has(u.id),
+  )
+  const linkedUser = prof.user_id ? allUsers.find((u) => u.id === prof.user_id) : null
+  const linkedUserEmail = linkedUser?.email ?? prof.user_id ?? ""
+  const selectedUserLabel = selectedUserId
+    ? (allUsers.find((u) => u.id === selectedUserId)?.name ||
+       allUsers.find((u) => u.id === selectedUserId)?.email || "")
+    : ""
+
   return (
     <div className="max-w-3xl space-y-6">
 
@@ -549,10 +633,37 @@ export default function ProfessionalEditorPage() {
             />
           </div>
 
+          <div className="space-y-1">
+            <Label>E-mail</Label>
+            <Input
+              type="email"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+              placeholder="profissional@email.com"
+              className="max-w-xs"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Telefone</Label>
+            <Input
+              value={editPhone}
+              onChange={(e) => setEditPhone(e.target.value)}
+              placeholder="+55 62 99999-9999"
+              className="max-w-xs"
+            />
+          </div>
+
           <div>
             <Button
               onClick={handleSaveInfo}
-              disabled={savingInfo || (editName.trim() === prof.name && editSpecialty === (prof.specialty ?? ""))}
+              disabled={
+                savingInfo ||
+                (editName.trim() === prof.name &&
+                  editSpecialty === (prof.specialty ?? "") &&
+                  editEmail === (prof.email ?? "") &&
+                  editPhone === (prof.phone ?? ""))
+              }
             >
               {savingInfo ? "Salvando…" : "Salvar informações"}
             </Button>
@@ -570,6 +681,74 @@ export default function ProfessionalEditorPage() {
             </Button>
           </div>
         </CardContent>
+      </Card>
+
+      {/* ── 1b. Conta de acesso ──────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Conta de acesso</CardTitle>
+        </CardHeader>
+        {prof.user_id ? (
+          <CardContent className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Conta vinculada</p>
+              <p className="text-xs text-muted-foreground">{linkedUserEmail}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleUnlinkUser} disabled={accountBusy}>
+              {accountBusy ? "…" : "Desvincular"}
+            </Button>
+          </CardContent>
+        ) : (
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Este profissional não tem conta de acesso ao painel.
+            </p>
+            <div className="space-y-1">
+              <Label>Vincular usuário existente</Label>
+              <div className="flex gap-2">
+                <Select value={selectedUserId} onValueChange={(v) => v && setSelectedUserId(v)}>
+                  <SelectTrigger className="w-full max-w-xs">
+                    <span className={selectedUserId ? "text-foreground" : "text-muted-foreground"}>
+                      {selectedUserId ? selectedUserLabel : "Selecionar usuário…"}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" disabled={!selectedUserId || accountBusy} onClick={handleLinkUser}>
+                  Vincular
+                </Button>
+              </div>
+              {availableUsers.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Nenhum usuário profissional disponível para vínculo.
+                </p>
+              )}
+            </div>
+            <Separator />
+            <div className="space-y-1">
+              <Label>Ou enviar convite</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="email@profissional.com"
+                  className="max-w-xs"
+                />
+                <Button size="sm" onClick={handleSendInvite} disabled={!inviteEmail || submittingInvite}>
+                  {submittingInvite ? "…" : "Convidar"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                O convite será enviado com este profissional pré-vinculado.
+              </p>
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* ── 2. Horários de atendimento ───────────────────────────────────── */}

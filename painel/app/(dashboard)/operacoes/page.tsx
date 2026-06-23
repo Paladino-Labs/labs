@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Search, ChevronRight } from "lucide-react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/context/AuthContext"
 import { formatBRLFromDecimal, formatDateTime } from "@/lib/utils"
 import type { Appointment, Professional } from "@/types"
 import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
@@ -27,6 +28,7 @@ function today(): string {
 
 export default function OperacoesPage() {
   const router = useRouter()
+  const { role } = useAuth()
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [loading, setLoading] = useState(true)
@@ -77,18 +79,22 @@ export default function OperacoesPage() {
 
       {/* Filtros */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="space-y-1">
-          <Label>Barbeiro</Label>
-          <Select value={profFilter} onValueChange={(v) => v && setProfFilter(v)}>
-            <SelectTrigger className="w-full">
-              <SelectValue>{profFilter === "all" ? "Todos" : (profMap.get(profFilter) ?? "—")}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {professionals.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* O backend força o escopo do PROFESSIONAL; um selector de Barbeiro só
+            exibiria a si mesmo — ocultamos para não confundir. */}
+        {role !== "PROFESSIONAL" && (
+          <div className="space-y-1">
+            <Label>Barbeiro</Label>
+            <Select value={profFilter} onValueChange={(v) => v && setProfFilter(v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue>{profFilter === "all" ? "Todos" : (profMap.get(profFilter) ?? "—")}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {professionals.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-1">
           <Label>Status</Label>
           <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>

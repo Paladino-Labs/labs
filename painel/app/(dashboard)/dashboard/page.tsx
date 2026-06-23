@@ -14,6 +14,7 @@ import {
   CreditCard,
   Landmark,
   UserX,
+  BadgeDollarSign,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -31,6 +32,7 @@ import { api } from "@/lib/api"
 import { formatBRL, timeAgo } from "@/lib/utils"
 import type {
   Appointment,
+  Commission,
   Customer,
   Promotion,
   Payable,
@@ -690,22 +692,108 @@ function OperatorDashboard({ name }: { name: string }) {
 }
 
 // ── PROFESSIONAL ──────────────────────────────────────────────────────────────
-// ⛔ GAP DE BACKEND: não há vínculo User → Professional.
-// O JWT e GET /auth/me expõem apenas { id, email, name, company_id, role } — sem
-// professional_id. O modelo Professional também não tem user_id. Sem esse
-// vínculo é impossível filtrar agendamentos/comissões do profissional logado.
-// TODO(backend): expor professional_id em /auth/me (ou criar User.professional_id)
-// para então ligar "Próximos atendimentos" (GET /appointments/ + filtro client-side)
-// e "Comissões do mês" (GET /commissions?professional_id=...).
+// Vínculo User → Professional resolvido no e0s27/e0s28: /auth/me expõe
+// professional_id e o backend força o escopo do PROFESSIONAL em /appointments/
+// e /commissions/me. professionalId == null = usuário sem cadastro vinculado.
+interface ProfData {
+  appointments: Appointment[]
+  commissions: Commission[]
+}
+
 function ProfessionalDashboard({ name }: { name: string }) {
+  const { professionalId, hydrated } = useAuth()
+  const [data, setData] = useState<ProfData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (!professionalId) { setLoading(false); return } // sem vínculo → EmptyState
+
+    const today = new Date()
+    const monthStartDate = new Date(today.getFullYear(), today.getMonth(), 1)
+    const monthEndDate = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+
+    Promise.all([
+      api.get<Appointment[]>(`/appointments/?${todayApptParams()}`),
+      api.get<Commission[]>(
+        `/commissions/me?date_from=${monthStartDate.toISOString().slice(0, 10)}` +
+        `&date_to=${monthEndDate.toISOString().slice(0, 10)}`,
+      ),
+    ])
+      .then(([appointments, commissions]) => setData({ appointments, commissions }))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [hydrated, professionalId])
+
+  // Sem vínculo
+  if (hydrated && !professionalId) {
+    return (
+      <div className="flex flex-col gap-8">
+        <PageHeader eyebrow="Profissional" title={`Olá, ${name}.`} />
+        <EmptyState
+          icon={<UserX size={28} strokeWidth={1.5} />}
+          title="Perfil profissional não vinculado"
+          description="Seu usuário ainda não está associado a um cadastro de profissional. Solicite ao administrador que faça o vínculo em Configurações → Profissionais."
+        />
+      </div>
+    )
+  }
+
+  const kpis: KpiItem[] = [
+    {
+      label: "Agendamentos hoje",
+      value: data ? String(data.appointments.length) : "—",
+      icon: Calendar,
+      delta: "atendimentos",
+    },
+    {
+      label: "Comissões do mês",
+      value: data
+        ? formatBRL(data.commissions.reduce((s, c) => s + Number(c.commission_amount ?? 0), 0))
+        : "—",
+      icon: BadgeDollarSign,
+      href: "/comissoes/minhas",
+      delta: "a receber",
+    },
+  ]
+
+  const proximos = (data?.appointments ?? [])
+    .filter((a) => !["COMPLETED", "CANCELLED", "NO_SHOW", "FAILED"].includes(a.status))
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+    .slice(0, 5)
+
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Profissional" title={`Olá, ${name}.`} />
-      <EmptyState
-        icon={<UserX size={28} strokeWidth={1.5} />}
-        title="Perfil profissional não vinculado"
-        description="Seu usuário ainda não está associado a um cadastro de profissional. Assim que o vínculo existir, seus próximos atendimentos e comissões aparecerão aqui."
-      />
+
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {[1, 2].map((i) => <Skeleton key={i} className="h-32 rounded-2xl" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {kpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        </div>
+      )}
+
+      <Panel title="Próximos atendimentos" icon={Clock}>
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : proximos.length === 0 ? (
+          <EmptyHint>Nenhum atendimento pendente hoje.</EmptyHint>
+        ) : (
+          <ul className="divide-y divide-border -my-1">
+            {proximos.map((a) => (
+              <li key={a.id} className="flex items-center justify-between py-2.5 text-sm">
+                <span>
+                  {a.customer?.name ?? "—"} · {a.services?.[0]?.service_name ?? "—"}
+                </span>
+                <span className="text-muted-foreground">{hourLabel(a.start_at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
     </div>
   )
 }
