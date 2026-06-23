@@ -22,8 +22,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [hydrated, token, router])
 
   // PROFESSIONAL não acessa o financeiro → volta ao dashboard.
+  // Exceção: /financeiro/taxas é liberada em modo leitura (Passo 10 — escopo PROFESSIONAL).
   useEffect(() => {
-    if (hydrated && role === "PROFESSIONAL" && pathname.startsWith("/financeiro")) {
+    if (
+      hydrated &&
+      role === "PROFESSIONAL" &&
+      pathname.startsWith("/financeiro") &&
+      !pathname.startsWith("/financeiro/taxas")
+    ) {
       router.replace("/dashboard")
     }
   }, [hydrated, role, pathname, router])
