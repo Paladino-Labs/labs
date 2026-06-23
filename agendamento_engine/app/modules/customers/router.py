@@ -1,10 +1,11 @@
 from uuid import UUID
-from typing import List
-from fastapi import APIRouter, Depends
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import get_db
-from app.core.deps import get_current_company_id, require_role
+from app.core.deps import get_current_company_id, get_current_user, require_role
+from app.infrastructure.db.models.user import User
 from app.modules.customers import schemas, service
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -13,9 +14,20 @@ router = APIRouter(prefix="/customers", tags=["customers"])
 @router.get("/", response_model=List[schemas.CustomerResponse])
 def list_customers(
     company_id: UUID = Depends(get_current_company_id),
+    professional_id: Optional[UUID] = Query(default=None),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return service.list_customers(db, company_id)
+    # PROFESSIONAL tem o escopo forçado ao próprio cadastro (mesmo padrão do
+    # GET /appointments/ no Sprint 27). Sem vínculo → UUID fictício → lista vazia.
+    effective_professional_id = professional_id
+    if user.role == "PROFESSIONAL":
+        from app.modules.professionals.service import get_linked_professional
+        prof = get_linked_professional(db, user.id, company_id)
+        effective_professional_id = prof.id if prof else UUID(int=0)
+    return service.list_customers(
+        db, company_id, professional_id=effective_professional_id
+    )
 
 
 @router.post("/", response_model=schemas.CustomerResponse, status_code=201)

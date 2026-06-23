@@ -127,13 +127,26 @@ def _find_by_phone_smart(db: Session, company_id: UUID, phone: str) -> Optional[
     return None
 
 
-def list_customers(db: Session, company_id: UUID):
-    return (
-        db.query(Customer)
-        .filter(Customer.company_id == company_id, Customer.active == True)
-        .order_by(Customer.name)
-        .all()
+def list_customers(
+    db: Session, company_id: UUID, professional_id: Optional[UUID] = None
+):
+    q = db.query(Customer).filter(
+        Customer.company_id == company_id,
+        Customer.active == True,
     )
+    if professional_id:
+        # clientes que têm ao menos 1 appointment com este profissional
+        subq = (
+            db.query(Appointment.client_id)   # campo é client_id (não customer_id)
+            .filter(
+                Appointment.professional_id == professional_id,
+                Appointment.company_id == company_id,
+            )
+            .distinct()
+            .subquery()
+        )
+        q = q.filter(Customer.id.in_(subq))
+    return q.order_by(Customer.name.asc()).all()
 
 
 def get_customer_or_404(db: Session, company_id: UUID, customer_id: UUID) -> Customer:

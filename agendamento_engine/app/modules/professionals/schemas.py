@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 class ProfessionalCreate(BaseModel):
     name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class ProfessionalUpdate(BaseModel):
@@ -14,6 +16,8 @@ class ProfessionalUpdate(BaseModel):
     specialty: Optional[str] = None
     cpf_cnpj: Optional[str] = None  # recebido em plaintext; gravado encrypted+hash+masked
     user_id: Optional[UUID] = None  # None (explícito) = desvincula; UUID = vincula
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class ProfessionalResponse(BaseModel):
@@ -24,6 +28,8 @@ class ProfessionalResponse(BaseModel):
     specialty: Optional[str] = None
     cpf_cnpj_masked: Optional[str] = None  # nunca retornar encrypted ou plaintext
     user_id: Optional[UUID] = None  # conta de login vinculada (Sprint 27)
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
