@@ -1,3 +1,14 @@
+## OWNER bypass de horário de trabalho (2026-06-24)
+Branch `feat/owner-bypass-working-hours`, commit `021eb20`. **Sem migration** (head permanece `e0s28`).
+`_assert_slot_available(bypass_working_hours=False)`:
+  - `True` → pula passos 1 (dia sem escala) e 2 (janela opening/closing)
+  - `False` → comportamento original (todos os roles exceto OWNER)
+  - Passos 3 (conflito) e 4 (bloqueio manual) **sempre executados**.
+Router injeta `bypass_working_hours=(user.role == "OWNER")` em:
+  `POST /appointments/` e `PATCH /appointments/{id}/reschedule`.
+`create_appointment` e `reschedule_appointment` propagam o flag (assinatura usa `user_id`).
+Testes: `tests/test_owner_bypass_working_hours.py` (16 testes, 6 casos do DoD).
+
 **Fase 2 concluída.** Sprint 25 concluído (2026-06-13 — schema-only Estágio 1+ + suite de contrato + wiring DEPOSIT). **Estágio 0 fechado** (suite de contrato verde contra PostgreSQL real). HEAD migration: `e0s28_professional_contact_customer_filter`. Suite: 1003 passed / 12 failed (12 pré-existentes por contaminação de ordenação em `test_sprint2_rbac` — `app.main` importado antes do monkey-patch de modelos; corrigir em sprint dedicado de housekeeping de testes, não é regressão nem dívida de lógica de produção).
 
 ## e0s28 — Professional contact + customer filter (2026-06-23)
