@@ -69,49 +69,56 @@ def _assert_slot_available(
     start_at: datetime,
     end_at: datetime,
     exclude_appointment_id: UUID | None = None,
+    bypass_working_hours: bool = False,
 ) -> None:
     """
     Defense-in-depth: verifica se o slot [start_at, end_at) está disponível
     antes de tentar persistir. Levanta 422 para restrições de horário e 409
     para conflitos com agendamentos ou bloqueios existentes.
+
+    `bypass_working_hours=True` (usado pelo OWNER): pula os passos 1 e 2
+    (dia de trabalho + janela de horário). Os passos 3 e 4 (conflito de
+    agendamento + bloqueio manual) continuam validados para todos os papéis.
     """
-    weekday = start_at.weekday()
+    # Passos 1 e 2 — skippados para OWNER
+    if not bypass_working_hours:
+        weekday = start_at.weekday()
 
-    # 1. Profissional trabalha neste dia?
-    working_hour = db.query(WorkingHour).filter(
-        WorkingHour.company_id == company_id,
-        WorkingHour.professional_id == professional_id,
-        WorkingHour.weekday == weekday,
-        WorkingHour.is_active == True,
-    ).first()
+        # 1. Profissional trabalha neste dia?
+        working_hour = db.query(WorkingHour).filter(
+            WorkingHour.company_id == company_id,
+            WorkingHour.professional_id == professional_id,
+            WorkingHour.weekday == weekday,
+            WorkingHour.is_active == True,
+        ).first()
 
-    if not working_hour:
-        raise HTTPException(
-            status_code=422,
-            detail="Profissional não atende neste dia da semana",
-        )
+        if not working_hour:
+            raise HTTPException(
+                status_code=422,
+                detail="Profissional não atende neste dia da semana",
+            )
 
-    # 2. Slot dentro da janela de trabalho?
-    config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
-    tz_name = (getattr(config, "timezone", None) or "America/Sao_Paulo")
-    try:
-        tz = ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        tz = ZoneInfo("America/Sao_Paulo")
+        # 2. Slot dentro da janela de trabalho?
+        config = db.query(TenantConfig).filter(TenantConfig.company_id == company_id).first()
+        tz_name = (getattr(config, "timezone", None) or "America/Sao_Paulo")
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("America/Sao_Paulo")
 
-    slot_date = start_at.astimezone(tz).date()
-    day_start = datetime.combine(slot_date, working_hour.opening_time, tzinfo=tz).astimezone(timezone.utc)
-    day_end   = datetime.combine(slot_date, working_hour.closing_time, tzinfo=tz).astimezone(timezone.utc)
+        slot_date = start_at.astimezone(tz).date()
+        day_start = datetime.combine(slot_date, working_hour.opening_time, tzinfo=tz).astimezone(timezone.utc)
+        day_end   = datetime.combine(slot_date, working_hour.closing_time, tzinfo=tz).astimezone(timezone.utc)
 
-    if start_at < day_start or end_at > day_end:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Horário fora da janela de trabalho do profissional "
-                f"({working_hour.opening_time.strftime('%H:%M')}–"
-                f"{working_hour.closing_time.strftime('%H:%M')} horário local)"
-            ),
-        )
+        if start_at < day_start or end_at > day_end:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Horário fora da janela de trabalho do profissional "
+                    f"({working_hour.opening_time.strftime('%H:%M')}–"
+                    f"{working_hour.closing_time.strftime('%H:%M')} horário local)"
+                ),
+            )
 
     # 3. Conflito com agendamentos ativos?
     overlap_q = db.query(Appointment).filter(
@@ -224,7 +231,8 @@ def list_completed_by_client(
 
 
 def create_appointment(
-    db: Session, company_id: UUID, data: AppointmentCreate, user_id: UUID | None = None
+    db: Session, company_id: UUID, data: AppointmentCreate, user_id: UUID | None = None,
+    bypass_working_hours: bool = False,
 ) -> Appointment:
     # Valida profissional
     professional = db.query(Professional).filter(
@@ -259,7 +267,10 @@ def create_appointment(
     end_at = data.start_at + timedelta(minutes=total_minutes)
 
     # Defense in depth: verifica disponibilidade antes do INSERT
-    _assert_slot_available(db, company_id, data.professional_id, data.start_at, end_at)
+    _assert_slot_available(
+        db, company_id, data.professional_id, data.start_at, end_at,
+        bypass_working_hours=bypass_working_hours,
+    )
 
     appointment = Appointment(
         company_id=company_id,
@@ -335,6 +346,7 @@ def reschedule_appointment(
     db: Session, company_id: UUID, appointment_id: UUID,
     data: RescheduleRequest, user_id: UUID | None = None,
     skip_policy: bool = False,
+    bypass_working_hours: bool = False,
 ) -> Appointment:
     appointment = get_appointment_or_404(db, company_id, appointment_id)
 
@@ -357,6 +369,7 @@ def reschedule_appointment(
         db, company_id, appointment.professional_id,
         data.start_at, new_end_at,
         exclude_appointment_id=appointment_id,
+        bypass_working_hours=bypass_working_hours,
     )
 
     appointment.start_at = data.start_at

@@ -68,7 +68,10 @@ def create_appointment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.create_appointment(db, user.company_id, body, user.id)
+    return svc.create_appointment(
+        db, user.company_id, body, user.id,
+        bypass_working_hours=(user.role == "OWNER"),
+    )
 
 
 @router.get("/{appointment_id}", response_model=schemas.AppointmentResponse)
@@ -102,7 +105,8 @@ def reschedule_appointment(
 ):
     # skip_policy=True: o painel é operado por admins, sem restrição de prazo mínimo
     return svc.reschedule_appointment(
-        db, user.company_id, appointment_id, body, user.id, skip_policy=True
+        db, user.company_id, appointment_id, body, user.id, skip_policy=True,
+        bypass_working_hours=(user.role == "OWNER"),
     )
 
 
