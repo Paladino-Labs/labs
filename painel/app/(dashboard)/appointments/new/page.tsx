@@ -80,13 +80,23 @@ function NewAppointmentContent() {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`   // ex.: "10:00"
   })
 
-  // derivado (não é estado — recalcula ao render): customTime tem precedência
+  // derivado (não é estado — recalcula ao render).
+  // Slot selecionado: usa o ISO exato (UTC) que o backend devolveu — round-trip
+  // sem perda de fuso. OWNER que digita horário livre (o que limpa startAt):
+  // monta o instante a partir do wall-clock LOCAL e serializa em UTC via
+  // toISOString() — mesmo formato dos slots. Nunca enviar string naive (perde o
+  // offset −3 e desloca o horário).
   const effectiveStartAt = useMemo(() => {
+    if (startAt) return startAt
     if (isOwner && customTime && selectedDate) {
-      return `${selectedDate}T${customTime}:00`
+      const [y, mo, d] = selectedDate.split("-").map(Number)
+      const [h, mi]    = customTime.split(":").map(Number)
+      const local = new Date(y, mo - 1, d, h, mi, 0, 0)
+      if (isNaN(local.getTime())) return ""
+      return local.toISOString()
     }
-    return startAt   // slot selecionado (fluxo normal)
-  }, [isOwner, customTime, selectedDate, startAt])
+    return ""
+  }, [startAt, isOwner, customTime, selectedDate])
 
   // ── Slots ─────────────────────────────────────────────────────────────────
   const [slots,         setSlots]        = useState<AvailableSlot[]>([])
