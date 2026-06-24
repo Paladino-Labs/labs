@@ -341,6 +341,19 @@ se o campo não existir na resposta atual. Não criar dados mockados.
 - `handleCompleteOnly` envia explicitamente `{use_credit:false}`.
 - Botões originais (confirmar pagamento / concluir sem registrar) inalterados.
 
+## OWNER — agendamento fora do horário
+- `appointments/new/page.tsx`:
+  - `isOwner` (`role === "OWNER"`) habilita input `type="time"` acima dos slots.
+  - `customTime` (estado): inicializado da hora de `?start_at=`; sincronizado
+    ao clicar num slot; limpo ao digitar manualmente.
+  - `effectiveStartAt` (`useMemo`): `customTime` tem precedência sobre slot.
+  - Input dentro do gate `canFetchSlots` (exige profissional + serviço + data,
+    obrigatórios para o POST de qualquer forma).
+  - Não-OWNER: `customTime` sempre `""`, `effectiveStartAt === startAt` —
+    comportamento idêntico ao anterior.
+- Backend: `_assert_slot_available` com `bypass_working_hours=True` para OWNER
+  (ver `agendamento_engine/CLAUDE.md`).
+
 ## Dívidas conhecidas
 - Dialog de revogação em `customers/[id]` ainda exibe `entitlement_type` cru
   (Passo 5 atualizou apenas o título do card, não o texto de confirmação) — cosmético, baixa prioridade.
