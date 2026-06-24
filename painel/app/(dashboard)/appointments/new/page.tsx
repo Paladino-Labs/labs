@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
+import { useAuth } from "@/context/AuthContext"
 import { formatBRL } from "@/lib/utils"
 import type { Professional, Service, Customer } from "@/types"
 import { PageHeader } from "@/components/PageHeader"
@@ -47,6 +48,8 @@ export default function NewAppointmentPage() {
 function NewAppointmentContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
+  const { role }     = useAuth()
+  const isOwner      = role === "OWNER"
 
   // ── Dados do formulário principal ─────────────────────────────────────────
   const [professionals, setProfessionals] = useState<Professional[]>([])
@@ -65,6 +68,25 @@ function NewAppointmentContent() {
   })
   const [startAt,        setStartAt]        = useState("")
   const [endAt,          setEndAt]          = useState("")
+
+  // Estado para horário livre (só usado quando isOwner)
+  const [customTime, setCustomTime] = useState<string>(() => {
+    if (!isOwner) return ""
+    const raw = searchParams.get("start_at")
+    if (!raw) return ""
+    const d = new Date(raw)
+    if (isNaN(d.getTime())) return ""
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`   // ex.: "10:00"
+  })
+
+  // derivado (não é estado — recalcula ao render): customTime tem precedência
+  const effectiveStartAt = useMemo(() => {
+    if (isOwner && customTime && selectedDate) {
+      return `${selectedDate}T${customTime}:00`
+    }
+    return startAt   // slot selecionado (fluxo normal)
+  }, [isOwner, customTime, selectedDate, startAt])
 
   // ── Slots ─────────────────────────────────────────────────────────────────
   const [slots,         setSlots]        = useState<AvailableSlot[]>([])
@@ -143,6 +165,12 @@ function NewAppointmentContent() {
     setSelectedSlot(slot)
     setStartAt(slot.start_at)
     setEndAt(slot.end_at)
+    if (isOwner) {
+      // preencher o input de hora com a hora do slot selecionado
+      const d = new Date(slot.start_at)
+      const pad = (n: number) => String(n).padStart(2, "0")
+      setCustomTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`)
+    }
     // Se o profissional ainda não foi fixado e o slot tem profissional, mantém o selecionado
   }
 
@@ -186,8 +214,10 @@ function NewAppointmentContent() {
       toast.error("Selecione ou cadastre um cliente.")
       return
     }
-    if (!startAt) {
-      toast.error("Selecione um horário disponível.")
+    if (!effectiveStartAt) {
+      toast.error(isOwner
+        ? "Informe o horário do agendamento."
+        : "Selecione um horário disponível.")
       return
     }
     setLoading(true)
@@ -196,7 +226,7 @@ function NewAppointmentContent() {
         client_id:       clientId,
         professional_id: professionalId,
         services:        [{ service_id: serviceId }],
-        start_at:        startAt,
+        start_at:        effectiveStartAt,
         idempotency_key: crypto.randomUUID(),
       })
       toast.success("Agendamento criado")
@@ -302,6 +332,29 @@ function NewAppointmentContent() {
             </div>
 
             {/* ── Horários disponíveis ──────────────────────────────────────── */}
+            {isOwner && canFetchSlots && (
+              <div className="space-y-1">
+                <Label>Horário</Label>
+                <input
+                  type="time"
+                  value={customTime}
+                  onChange={e => {
+                    setCustomTime(e.target.value)
+                    setSelectedSlot(null)   // deseleciona slot ao digitar manualmente
+                    setStartAt("")
+                    setEndAt("")
+                  }}
+                  className="flex h-9 w-full rounded-md border border-input bg-background
+                             px-3 py-1 text-sm shadow-sm transition-colors
+                             focus-visible:outline-none focus-visible:ring-1
+                             focus-visible:ring-ring"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ou selecione um horário disponível abaixo.
+                </p>
+              </div>
+            )}
+
             {canFetchSlots && (
               <div className="space-y-1.5">
                 <Label>Horário disponível</Label>
@@ -495,7 +548,7 @@ function NewAppointmentContent() {
               <Button
                 type="submit"
                 className="flex-1"
-                disabled={loading || !professionalId || !serviceId || !clientId || !startAt}
+                disabled={loading || !professionalId || !serviceId || !clientId || !effectiveStartAt}
               >
                 {loading ? "Agendando…" : "Confirmar"}
               </Button>
