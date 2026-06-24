@@ -62,6 +62,37 @@ def _publish_slot_released(appointment: Appointment, event_type: str) -> None:
         )
 
 
+def _resolve_tenant_tz(db: Session, company_id: UUID) -> ZoneInfo:
+    """Timezone do tenant (TenantConfig.timezone), fallback America/Sao_Paulo."""
+    config = db.query(TenantConfig).filter(
+        TenantConfig.company_id == company_id
+    ).first()
+    tz_name = getattr(config, "timezone", None)
+    if not isinstance(tz_name, str) or not tz_name:
+        tz_name = "America/Sao_Paulo"
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("America/Sao_Paulo")
+
+
+def _normalize_start_at(db: Session, company_id: UUID, value: datetime) -> datetime:
+    """Garante datetime tz-aware em UTC antes de persistir.
+
+    A coluna é timestamptz, mas um datetime *naive* (sem offset — ex.: frontend
+    que montava string de horário local) faria o Postgres assumir o fuso da
+    SESSÃO do servidor (UTC em produção, local em dev) → horário deslocado e
+    divergência local×prod. Aqui um naive é interpretado como horário LOCAL do
+    tenant e convertido para UTC; um aware é apenas convertido para UTC. O
+    instante resultante é idêntico em qualquer servidor.
+    """
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=_resolve_tenant_tz(db, company_id)
+        ).astimezone(timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _assert_slot_available(
     db: Session,
     company_id: UUID,
@@ -234,6 +265,11 @@ def create_appointment(
     db: Session, company_id: UUID, data: AppointmentCreate, user_id: UUID | None = None,
     bypass_working_hours: bool = False,
 ) -> Appointment:
+    # Normaliza start_at para UTC tz-aware (naive → fuso do tenant) antes de
+    # qualquer cálculo/validação/persistência — evita deslocamento por fuso da
+    # sessão do servidor (divergência local×prod).
+    data.start_at = _normalize_start_at(db, company_id, data.start_at)
+
     # Valida profissional
     professional = db.query(Professional).filter(
         Professional.id == data.professional_id,
@@ -361,6 +397,10 @@ def reschedule_appointment(
         )
         if not allowed:
             raise PolicyViolationError(code=RESCHEDULE_TOO_LATE, detail=msg)
+
+    # Normaliza start_at para UTC tz-aware (naive → fuso do tenant) — ver
+    # _normalize_start_at; mesma proteção do create_appointment.
+    data.start_at = _normalize_start_at(db, company_id, data.start_at)
 
     total_minutes = sum(int(s.duration_snapshot) for s in appointment.services)
     new_end_at = data.start_at + timedelta(minutes=total_minutes)

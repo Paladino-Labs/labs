@@ -942,6 +942,15 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 
 ## Bugs conhecidos / corrigidos
 
+- [CORRIGIDO] Timezone no agendamento (local OK, prod −3h): `start_at` chegava
+  *naive* (frontend montava string de horário local sem offset). A coluna é
+  `timestamptz`, então o Postgres assumia o fuso da **sessão do servidor** — dev
+  em horário de Brasília gravava certo, mas Railway em **UTC** deslocava −3h.
+  Fix em `appointments/service.py`: `_normalize_start_at` (via `_resolve_tenant_tz`)
+  coage qualquer `start_at` naive para o fuso do tenant (fallback America/Sao_Paulo)
+  e converte para UTC, em `create_appointment` e `reschedule_appointment` —
+  instante idêntico em qualquer servidor. Frontend também passou a enviar UTC
+  (`toISOString()`); o backend é a defesa robusta contra qualquer cliente naive.
 - [CORRIGIDO] Timezone na geração de slots: working_hours eram tratados
   como UTC em vez de horário local do tenant.
   Fix em availability/service.py + appointments/service.py.
