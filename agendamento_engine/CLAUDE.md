@@ -1,3 +1,16 @@
+## Checkout unificado — B1 (2026-06-25)
+Branch `feat/checkout-unificado-backend`, commit `c9529d3`. **Sem migration** (head permanece `e0s28`).
+`create_appointment`: retorna `(appointment, raw_token: str)` como tupla.
+  Callers: router do painel ignora o raw_token (já enviado via notificação);
+  engine FSM usa para montar `manage_url` no `BookingResult`/`ConfirmationHTTP`.
+`BookingResult` + `ConfirmationHTTP`: `manage_url: Optional[str] = None`.
+`_handle_set_customer` (FSM web): usa `resolver.resolve_for_tenant` +
+  `grant_consent(COMMUNICATION, LINK)` quando `is_new=True`.
+  DDD inválido → `InvalidActionError` (não propaga HTTPException 422 cru).
+Consent: módulo real é `app.modules.identity.consent_service`
+  (não `app.modules.consent.service`).
+Testes: `tests/test_checkout_unificado.py` (8 testes).
+
 ## OWNER bypass de horário de trabalho (2026-06-24)
 Branch `feat/owner-bypass-working-hours`, commit `021eb20`. **Sem migration** (head permanece `e0s28`).
 `_assert_slot_available(bypass_working_hours=False)`:
