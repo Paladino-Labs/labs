@@ -738,6 +738,7 @@ def update_session(
             start_display=_display_time(c.start_at, tz),
             end_at=c.end_at,
             total_amount=str(c.total_amount),
+            manage_url=c.manage_url,
         )
 
     if result.cancel_data:

@@ -72,6 +72,7 @@ class BookingResult:
     start_at: datetime
     end_at: datetime
     total_amount: Decimal
+    manage_url: Optional[str] = None
 
 
 @dataclass
