@@ -38,6 +38,8 @@ from app.infrastructure.db.models.company_settings import CompanySettings
 from app.infrastructure.db.models.company_profile import CompanyProfile
 from app.infrastructure.db.models.booking_session import BookingSession
 from app.infrastructure.db.models.product import Product
+from app.infrastructure.db.models.package import Package
+from app.infrastructure.db.models.subscription import SubscriptionPlan
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.exceptions import SlotUnavailableError, BookingNotFoundError
 from app.modules.booking.actions import BookingAction, SessionExpiredError, InvalidActionError
@@ -79,9 +81,32 @@ from app.modules.booking.http_schemas import (
     SessionStateResponse,
     DatesPageResponse,
 )
+from app.modules.booking.checkout_schemas import (
+    PublicPackageOut,
+    PublicPackageItemOut,
+    PublicPlanOut,
+    PublicPlanItemOut,
+    PublicPromotionOut,
+    CouponValidateRequest,
+    CouponValidateResponse,
+    CheckoutRequest,
+    CheckoutResponse,
+    CheckoutAppointmentResult,
+    CheckoutPurchaseResult,
+    CheckoutSubscriptionResult,
+    CheckoutProductResult,
+)
 from app.modules.customers import service as customer_svc
 from app.modules.appointments.polices import PolicyViolationError
+from app.modules.appointments import service as appointment_svc
+from app.modules.packages import service as package_svc
+from app.modules.subscriptions import service as subscription_svc
+from app.modules.promotions import service as promotion_svc
+from app.modules.payments import service as payment_svc
+from app.modules.stock import service as stock_svc
+from app.modules.appointments.manage_tokens import build_manage_url
 from app.core.config import settings
+from decimal import Decimal
 import uuid as uuidlib
 
 logger = logging.getLogger(__name__)
@@ -833,4 +858,332 @@ def resume_session(
         company_timezone=tz,
         dates_has_next=bool(ctx_after.get("dates_has_next", False)),
         dates_has_previous=bool(ctx_after.get("dates_has_previous", False)),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Checkout unificado público — Sprint B2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _resolve_owner_user_id(db: Session, company_id: UUID):
+    """Primeiro User OWNER ativo do tenant (ator das baixas de estoque).
+
+    Mesma lógica do bot (whatsapp/handlers/comprando_produto._resolve_owner_user_id);
+    duplicada aqui para não acoplar o router público ao módulo do bot.
+    """
+    from app.infrastructure.db.models import User
+    owner = (
+        db.query(User)
+        .filter(
+            User.company_id == company_id,
+            User.role == "OWNER",
+            User.active == True,  # noqa: E712
+        )
+        .first()
+    )
+    return owner.id if owner else None
+
+
+def _serialize_public_package(p: Package) -> PublicPackageOut:
+    return PublicPackageOut(
+        package_id=p.package_id,
+        name=p.name,
+        items=[
+            PublicPackageItemOut(
+                item_type=item.item_type,
+                service_name=getattr(item, "service_name", None),
+                product_name=getattr(item, "product_name", None),
+                quantity=item.quantity,
+            )
+            for item in p.items
+        ],
+        total_cotas=p.total_cotas,
+        price=str(p.price),
+        validity_days=p.validity_days,
+    )
+
+
+def _serialize_public_plan(p: SubscriptionPlan) -> PublicPlanOut:
+    return PublicPlanOut(
+        plan_id=p.plan_id,
+        name=p.name,
+        items=[
+            PublicPlanItemOut(
+                item_type=item.item_type,
+                service_name=getattr(item, "service_name", None),
+                product_name=getattr(item, "product_name", None),
+                quantity=item.quantity,
+            )
+            for item in p.items
+        ],
+        total_cotas_per_cycle=getattr(p, "total_cotas_per_cycle", p.cotas_per_cycle),
+        price=str(p.price),
+        cycle_days=p.cycle_days,
+        rollover_enabled=p.rollover_enabled,
+    )
+
+
+# ─── GET /booking/{slug}/packages ─────────────────────────────────────────────
+
+@router.get("/{slug}/packages", response_model=list[PublicPackageOut])
+def list_packages(
+    slug: str,
+    service_id: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Pacotes ativos do tenant. service_id opcional filtra por serviço incluído."""
+    company, _ = _require_online_booking(slug, db)
+    pkgs = package_svc.get_packages_containing_service(db, company.id, service_id)
+    return [_serialize_public_package(p) for p in pkgs]
+
+
+# ─── GET /booking/{slug}/subscription-plans ───────────────────────────────────
+
+@router.get("/{slug}/subscription-plans", response_model=list[PublicPlanOut])
+def list_plans(
+    slug: str,
+    service_id: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Planos ativos do tenant. service_id opcional filtra por serviço incluído."""
+    company, _ = _require_online_booking(slug, db)
+    plans = subscription_svc.get_plans_containing_service(db, company.id, service_id)
+    return [_serialize_public_plan(p) for p in plans]
+
+
+# ─── GET /booking/{slug}/promotions ───────────────────────────────────────────
+
+@router.get("/{slug}/promotions", response_model=list[PublicPromotionOut])
+def list_promotions(
+    slug: str,
+    db: Session = Depends(get_db),
+):
+    """Promoções AUTOMATIC ativas e vigentes (vitrine pública)."""
+    company, _ = _require_online_booking(slug, db)
+    promos = promotion_svc.list_active_promotions(db, company.id)
+    return [
+        PublicPromotionOut(
+            promotion_id=p.id,
+            name=p.name,
+            description=p.description,
+            discount_type=p.discount_type,
+            discount_value=str(p.discount_value) if p.discount_value is not None else None,
+            valid_until=p.valid_until,
+        )
+        for p in promos
+    ]
+
+
+# ─── POST /booking/{slug}/coupon/validate ─────────────────────────────────────
+
+@router.post("/{slug}/coupon/validate", response_model=CouponValidateResponse)
+def validate_coupon(
+    slug: str,
+    body: CouponValidateRequest,
+    db: Session = Depends(get_db),
+):
+    """Valida um cupom sobre um valor bruto. Nunca persiste (compute_preview)."""
+    company, _ = _require_online_booking(slug, db)
+    try:
+        preview = promotion_svc.compute_preview(
+            db=db,
+            company_id=company.id,
+            gross_amount=Decimal(body.gross_amount),
+            service_ids=[str(s) for s in body.service_ids] or None,
+            product_ids=[str(p) for p in body.product_ids] or None,
+            coupon_code=body.coupon_code,
+        )
+    except HTTPException as e:
+        return CouponValidateResponse(valid=False, error=str(e.detail))
+
+    # compute_preview expõe final_amount/discount_total/applications/coupon_valid.
+    applications = preview.get("applications") or []
+    discount_type = applications[0]["discount_type"] if applications else None
+    return CouponValidateResponse(
+        valid=bool(preview.get("coupon_valid")),
+        discount_type=discount_type,
+        discount_value=str(preview.get("discount_total", "0")),
+        net_amount=str(preview.get("final_amount")),
+        description=None,
+    )
+
+
+# ─── POST /booking/{slug}/checkout ────────────────────────────────────────────
+
+@router.post("/{slug}/checkout", response_model=CheckoutResponse, status_code=201)
+def unified_checkout(
+    slug: str,
+    body: CheckoutRequest,
+    db: Session = Depends(get_db),
+):
+    """Checkout unificado: agendamentos + pacotes + assinaturas + produtos.
+
+    Cupom (se informado) aplicado ao primeiro Payment cobrável, na ordem:
+    pacote → assinatura → produto. Agendamentos não são cobrados aqui.
+    """
+    from app.modules.identity.resolver import resolver
+    from app.modules.identity.consent_service import (
+        grant_consent, ConsentType, SourceChannel,
+    )
+    from app.modules.appointments.schemas import AppointmentCreate, ServiceRequest
+
+    company, _ = _require_online_booking(slug, db)
+
+    # 1. Resolver cliente (cria PaladinoIdentity se novo) + consent na primeira vez
+    customer, is_new = resolver.resolve_for_tenant(
+        db, raw_phone=body.customer_phone,
+        company_id=company.id, name=body.customer_name,
+    )
+    if is_new:
+        grant_consent(
+            db, customer.identity_id, company.id,
+            ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+            notes="Checkout via link público",
+        )
+
+    warnings: list[str] = []
+    appointments_out: list[CheckoutAppointmentResult] = []
+    purchases_out: list[CheckoutPurchaseResult] = []
+    subscriptions_out: list[CheckoutSubscriptionResult] = []
+    product_sales_out: list[CheckoutProductResult] = []
+    total_charged = Decimal("0")
+    coupon_applied: Optional[str] = None
+
+    # Roteamento do cupom: pacote → assinatura → produto (só um destino).
+    coupon = body.coupon_code or None
+    coupon_for_packages = coupon if body.packages else None
+    coupon_for_subs = coupon if (coupon and not body.packages and body.subscriptions) else None
+    coupon_for_products = coupon if (
+        coupon and not body.packages and not body.subscriptions and body.products
+    ) else None
+
+    # 2. Agendamentos (sem cobrança; validação de slot obrigatória — sem bypass)
+    for svc_item in body.services:
+        appt_data = AppointmentCreate(
+            professional_id=svc_item.professional_id,
+            client_id=customer.id,
+            start_at=svc_item.start_at,
+            services=[ServiceRequest(service_id=svc_item.service_id)],
+            idempotency_key=str(uuidlib.uuid4()),
+        )
+        appt, raw_token = appointment_svc.create_appointment(
+            db, company.id, appt_data, user_id=None,
+            bypass_working_hours=False,
+        )
+        appointments_out.append(CheckoutAppointmentResult(
+            appointment_id=appt.id,
+            service_name=appt.services[0].service_name if appt.services else "",
+            professional_name=appt.professional.name if appt.professional else "",
+            start_at=appt.start_at,
+            total_amount=str(appt.total_amount),
+            manage_url=build_manage_url(raw_token) if raw_token else None,
+        ))
+
+    # 3. Pacotes
+    for i, pkg_item in enumerate(body.packages):
+        item_coupon = coupon_for_packages if i == 0 else None
+        purchase = package_svc.purchase(
+            customer_id=customer.id,
+            package_id=pkg_item.package_id,
+            seller_user_id=None,
+            payment_method=pkg_item.payment_method,
+            target_account_id=None,
+            company_id=company.id,
+            db=db,
+            coupon_code=item_coupon,
+        )
+        if item_coupon:
+            coupon_applied = item_coupon
+        pkg = db.query(Package).filter(
+            Package.package_id == pkg_item.package_id,
+            Package.company_id == company.id,
+        ).first()
+        price = pkg.price if pkg else Decimal("0")
+        total_charged += price
+        purchases_out.append(CheckoutPurchaseResult(
+            purchase_id=purchase.purchase_id,
+            package_name=pkg.name if pkg else "",
+            total_cotas=pkg.total_cotas if pkg else 0,
+            amount_paid=str(price),
+        ))
+
+    # 4. Assinaturas
+    for i, sub_item in enumerate(body.subscriptions):
+        item_coupon = coupon_for_subs if i == 0 else None
+        subscription, payment = subscription_svc.subscribe(
+            customer_id=customer.id,
+            plan_id=sub_item.plan_id,
+            company_id=company.id,
+            db=db,
+            payment_method=sub_item.payment_method,
+            coupon_code=item_coupon,
+        )
+        if item_coupon:
+            coupon_applied = item_coupon
+        plan = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.plan_id == sub_item.plan_id,
+            SubscriptionPlan.company_id == company.id,
+        ).first()
+        price = plan.price if plan else Decimal("0")
+        total_charged += price
+        subscriptions_out.append(CheckoutSubscriptionResult(
+            subscription_id=subscription.subscription_id,
+            plan_name=plan.name if plan else "",
+            next_billing_at=subscription.next_billing_at,
+            amount_paid=str(price),
+        ))
+
+    # 5. Produtos (Payment manual + baixa de estoque VENDA)
+    owner_id = _resolve_owner_user_id(db, company.id)
+    for i, prod_item in enumerate(body.products):
+        product = db.query(Product).filter(
+            Product.id == prod_item.product_id,
+            Product.company_id == company.id,
+        ).first()
+        if not product:
+            raise HTTPException(404, f"Produto não encontrado: {prod_item.product_id}")
+        gross = product.price * prod_item.quantity
+        item_coupon = coupon_for_products if i == 0 else None
+        payment_svc.create_payment(
+            company_id=company.id,
+            customer_id=customer.id,
+            gross_amount=gross,
+            payment_method="CASH",
+            provider="manual",
+            coupon_code=item_coupon,
+            db=db,
+        )
+        if item_coupon:
+            coupon_applied = item_coupon
+        if owner_id:
+            stock_svc.record_movement(
+                company_id=company.id,
+                product_id=prod_item.product_id,
+                movement_type="VENDA",
+                quantity=prod_item.quantity,
+                created_by=owner_id,
+                db=db,
+                source_type="OPERATION",
+            )
+        else:
+            warnings.append(
+                f"Estoque não atualizado para {product.name} — OWNER não encontrado"
+            )
+        total_charged += gross
+        product_sales_out.append(CheckoutProductResult(
+            product_name=product.name,
+            quantity=prod_item.quantity,
+            amount_paid=str(gross),
+        ))
+
+    return CheckoutResponse(
+        customer_id=customer.id,
+        appointments=appointments_out,
+        purchases=purchases_out,
+        subscriptions=subscriptions_out,
+        product_sales=product_sales_out,
+        coupon_applied=coupon_applied,
+        discount_amount=None,
+        total_charged=str(total_charged),
+        warnings=warnings,
     )

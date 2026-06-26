@@ -1,3 +1,31 @@
+## Checkout unificado — B2 endpoints públicos (2026-06-25)
+Branch `feat/checkout-unificado-backend` (continua do B1). **Sem migration** (head `e0s28`).
+5 endpoints novos em `booking/router.py` (prefixo `/booking/{slug}`, gate `_require_online_booking`):
+  - `GET /packages?service_id=` → `PublicPackageOut[]` (pacotes ativos; filtro opcional por serviço)
+  - `GET /subscription-plans?service_id=` → `PublicPlanOut[]`
+  - `GET /promotions` → `PublicPromotionOut[]` (só `ACTIVE` + `AUTOMATIC` vigentes)
+  - `POST /coupon/validate` → `CouponValidateResponse` (usa `compute_preview`, nunca persiste)
+  - `POST /checkout` (201) → `CheckoutResponse` (agendamento + pacote + assinatura + produto)
+Schemas em **`booking/checkout_schemas.py`** (arquivo novo).
+Service functions novas: `packages.get_packages_containing_service`,
+  `subscriptions.get_plans_containing_service` (ambas anexam item names via
+  `_attach_item_names`/`_attach_plan_item_names`), `promotions.list_active_promotions`.
+**`apply_coupon_to_payment` NÃO existe** — alternativa adotada (prevista no enunciado):
+  `packages.purchase()` e `subscriptions.subscribe()` ganharam param `coupon_code: Optional`
+  repassado a `create_payment` (que já aceitava `coupon_code`); produtos passam direto.
+  Cupom roteado a UM destino: pacote → senão assinatura → senão produto (1º item de cada).
+**`_resolve_owner_user_id` DUPLICADO** como helper local em `booking/router.py` (lógica idêntica
+  à de `whatsapp/handlers/comprando_produto`) para não acoplar router público ao módulo do bot.
+  Sem OWNER → produto cobra mas pula baixa de estoque + adiciona `warnings[]`.
+`compute_preview` retorna `{final_amount, discount_total, applications, coupon_valid}` (NÃO
+  `net_charged_amount`/`discount_amount`/`promotion_name` do enunciado) — `validate_coupon`
+  mapeia: net_amount=final_amount, discount_value=discount_total, discount_type=applications[0].
+Agendamentos: `bypass_working_hours=False` (cliente nunca bypassa); slot ocupado propaga **409**
+  (o DoD mencionava 422 genérico, mas `_assert_slot_available` real levanta 409 p/ conflito).
+`total_charged` = soma de pacotes+assinaturas+produtos (agendamento não cobra aqui);
+  `discount_amount` da resposta fica `None` (frontend usa `/coupon/validate` p/ exibir desconto).
+Testes: `tests/test_checkout_b2.py` (14 testes, estilo unitário com handlers + mocks). 1041 passed.
+
 ## Checkout unificado — B1 (2026-06-25)
 Branch `feat/checkout-unificado-backend`, commit `c9529d3`. **Sem migration** (head permanece `e0s28`).
 `create_appointment`: retorna `(appointment, raw_token: str)` como tupla.

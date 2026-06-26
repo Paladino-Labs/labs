@@ -124,6 +124,30 @@ def _attach_plan_item_names(db: Session, plans: List[SubscriptionPlan]) -> List[
     return plans
 
 
+def get_plans_containing_service(
+    db: Session, company_id: UUID, service_id: Optional[UUID] = None,
+) -> List[SubscriptionPlan]:
+    """Planos ativos do tenant (checkout público B2).
+
+    service_id informado → apenas planos com um PlanItem SERVICE desse serviço.
+    Item names + total_cotas_per_cycle anexados (sem N+1) para serialização.
+    """
+    from app.infrastructure.db.models.subscription import PlanItem
+
+    q = (
+        db.query(SubscriptionPlan)
+        .filter(SubscriptionPlan.company_id == company_id,
+                SubscriptionPlan.is_active == True)  # noqa: E712
+    )
+    if service_id:
+        q = q.join(PlanItem, PlanItem.plan_id == SubscriptionPlan.plan_id).filter(
+            PlanItem.item_type == "SERVICE",
+            PlanItem.service_id == service_id,
+        )
+    plans = q.order_by(SubscriptionPlan.name).all()
+    return _attach_plan_item_names(db, plans)
+
+
 def _get_plan_or_404(plan_id: UUID, company_id: UUID, db: Session) -> SubscriptionPlan:
     plan = db.query(SubscriptionPlan).filter(
         SubscriptionPlan.plan_id == plan_id,
@@ -144,11 +168,14 @@ def subscribe(
     payment_method: str = "manual",
     target_account_id: Optional[UUID] = None,
     first_billing_at: Optional[datetime] = None,
+    coupon_code: Optional[str] = None,
 ):
     """Cria CustomerSubscription ACTIVE + primeiro Payment PENDING (mesmo request).
 
     Retorna (subscription, payment). O Payment PENDING vincula subscription_id;
     quando confirmado, o subscription_payment_handler gera os créditos do ciclo.
+
+    coupon_code (B2): repassado a create_payment (desconto no primeiro ciclo).
     """
     from decimal import Decimal
 
@@ -179,6 +206,7 @@ def subscribe(
         provider="manual",
         target_account_id=target_account_id,
         subscription_id=subscription.subscription_id,
+        coupon_code=coupon_code,
         db=db,
     )
 
