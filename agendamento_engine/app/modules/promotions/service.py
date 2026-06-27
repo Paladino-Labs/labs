@@ -161,6 +161,28 @@ def get_promotion(promotion_id: UUID, company_id: UUID, db: Session) -> Promotio
     return _get_promotion(promotion_id, company_id, db)
 
 
+def list_active_promotions(db: Session, company_id: UUID) -> list[Promotion]:
+    """Promoções automáticas vigentes do tenant (vitrine pública B2).
+
+    Apenas ACTIVE + AUTOMATIC (COUPON_REQUIRED não se exibe na vitrine),
+    dentro da janela de validade e com cota de usos disponível.
+    """
+    now = datetime.now(timezone.utc)
+    return (
+        db.query(Promotion)
+        .filter(
+            Promotion.company_id == company_id,
+            Promotion.status == "ACTIVE",
+            Promotion.application_mode == "AUTOMATIC",
+            (Promotion.valid_from == None) | (Promotion.valid_from <= now),  # noqa: E711
+            (Promotion.valid_until == None) | (Promotion.valid_until >= now),  # noqa: E711
+            (Promotion.max_uses == None) | (Promotion.uses_count < Promotion.max_uses),  # noqa: E711
+        )
+        .order_by(Promotion.priority.desc())
+        .all()
+    )
+
+
 def transition_promotion(
     promotion_id: UUID, company_id: UUID, action: str, db: Session
 ) -> Promotion:

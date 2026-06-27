@@ -243,6 +243,7 @@ class ConfirmationHTTP(BaseModel):
     start_display: str          # "14:30" no timezone da empresa
     end_at: datetime            # UTC
     total_amount: str           # string para evitar problema de Decimal no JS
+    manage_url: Optional[str] = None  # link de gestão (cancelar/remarcar)
 
 
 class CancelConfirmationHTTP(BaseModel):

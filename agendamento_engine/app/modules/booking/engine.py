@@ -44,6 +44,7 @@ from app.modules.appointments.schemas import (
     RescheduleRequest,
     ServiceRequest,
 )
+from app.modules.appointments.manage_tokens import build_manage_url
 from app.modules.appointments.polices import PolicyViolationError
 from app.modules.availability import service as availability_svc
 from app.modules.customers import service as customer_svc
@@ -480,7 +481,7 @@ class BookingEngine:
             idempotency_key=intent.idempotency_key,
         )
         try:
-            appt = appointment_svc.create_appointment(
+            appt, manage_token = appointment_svc.create_appointment(
                 db, company_id, appt_data, user_id=None
             )
         except HTTPException as e:
@@ -490,6 +491,7 @@ class BookingEngine:
 
         svc_name  = appt.services[0].service_name if appt.services else ""
         prof_name = appt.professional.name if appt.professional else ""
+        manage_url = build_manage_url(manage_token) if manage_token else None
 
         return BookingResult(
             appointment_id=appt.id,
@@ -498,6 +500,7 @@ class BookingEngine:
             start_at=appt.start_at,
             end_at=appt.end_at,
             total_amount=appt.total_amount,
+            manage_url=manage_url,
         )
 
     # ─── Cancelar ─────────────────────────────────────────────────────────────
@@ -835,12 +838,28 @@ class BookingEngine:
         if len(phone) < 10:
             raise InvalidActionError("Telefone inválido")
 
-        customer = customer_svc.get_or_create_by_phone(
-            db,
-            company_id=session.company_id,
-            phone=phone,
-            name=name,
+        # Identidade Paladino (Sprint A): resolve o telefone para uma
+        # PaladinoIdentity global e garante o Customer tenant-scoped. DDD é
+        # obrigatório — telefone sem DDD levanta HTTPException 422 no resolver,
+        # convertida para InvalidActionError (contrato do FSM, agnóstico de canal).
+        from app.modules.identity.resolver import resolver
+        from app.modules.identity.consent_service import (
+            grant_consent, ConsentType, SourceChannel,
         )
+
+        try:
+            customer, is_new = resolver.resolve_for_tenant(
+                db, raw_phone=phone, company_id=session.company_id, name=name,
+            )
+        except HTTPException as e:
+            raise InvalidActionError(e.detail)
+
+        if is_new:
+            grant_consent(
+                db, customer.identity_id, session.company_id,
+                ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+                notes="Agendamento via link público",
+            )
 
         # [FIX 2] Montar ctx completo antes de uma única atribuição
         ctx = dict(session.context or {})

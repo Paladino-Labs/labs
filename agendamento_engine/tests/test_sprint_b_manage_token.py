@@ -194,7 +194,7 @@ class TestTokenIssue:
 
         with patch.object(appointment_svc, "_assert_slot_available"), \
              patch.object(appointment_svc, "send_booking_confirmation", fake_confirmation):
-            appt = appointment_svc.create_appointment(
+            appt, _manage_token = appointment_svc.create_appointment(
                 db, uuid.uuid4(), data, user_id=None
             )
 
