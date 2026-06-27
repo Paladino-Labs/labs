@@ -70,6 +70,50 @@ export interface PublicProduct {
   available: boolean
 }
 
+// Fase 1 — catálogo público da vitrine (/book/[slug])
+
+export interface PublicPackageItem {
+  item_type:    "SERVICE" | "PRODUCT"
+  service_name: string | null
+  product_name: string | null
+  quantity:     number
+}
+
+export interface PublicPackage {
+  package_id:    string
+  name:          string
+  items:         PublicPackageItem[]
+  total_cotas:   number
+  price:         string          // Decimal-string → formatBRLFromDecimal
+  validity_days: number | null
+}
+
+export interface PublicPlanItem {
+  item_type:    "SERVICE" | "PRODUCT"
+  service_name: string | null
+  product_name: string | null
+  quantity:     number
+}
+
+export interface PublicPlan {
+  plan_id:               string
+  name:                  string
+  items:                 PublicPlanItem[]
+  total_cotas_per_cycle: number           // NÃO cotas_per_cycle (campo antigo removido)
+  price:                 string           // Decimal-string → formatBRLFromDecimal
+  cycle_days:            number
+  rollover_enabled:      boolean
+}
+
+export interface PublicPromotion {
+  promotion_id:   string
+  name:           string
+  description:    string | null
+  discount_type:  string          // "PERCENTAGE" | "FIXED_AMOUNT" | "OVERRIDE_PRICE" | "FREE_ITEM"
+  discount_value: string | null   // Decimal-string | null → formatBRLFromDecimal
+  valid_until:    string | null   // ISO datetime | null
+}
+
 export interface PortalDashboardResponse {
   upcoming_appointments: PortalAppointmentItem[]
   active_credits: PortalCreditItem[]

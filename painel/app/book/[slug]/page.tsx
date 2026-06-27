@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react"
 import {
   Clock, CreditCard, ExternalLink, Frown,
-  MapPin, MessageCircle, Package, Phone, Scissors, Star,
+  MapPin, MessageCircle, Package, Phone, RefreshCw, Scissors, Star, Tag,
 } from "lucide-react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import BookingFlow from "./BookingFlow"
@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBRL, formatBRLFromDecimal, cn } from "@/lib/utils"
-import type { PublicProduct } from "@/lib/portal-types"
+import type { PublicProduct, PublicPackage, PublicPlan, PublicPromotion } from "@/lib/portal-types"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -81,6 +81,15 @@ function BookingContent() {
   const [products,        setProducts]        = useState<PublicProduct[]>([])
   const [productsState,   setProductsState]   = useState<"loading" | "ok" | "error">("loading")
   const [vitrineProfs,    setVitrineProfs]    = useState<ProfessionalOption[]>([])
+  // Pacotes
+  const [packages,        setPackages]        = useState<PublicPackage[]>([])
+  const [packagesState,   setPackagesState]   = useState<"loading" | "ok" | "error">("loading")
+  // Assinaturas
+  const [plans,           setPlans]           = useState<PublicPlan[]>([])
+  const [plansState,      setPlansState]      = useState<"loading" | "ok" | "error">("loading")
+  // Promoções
+  const [promotions,      setPromotions]      = useState<PublicPromotion[]>([])
+  const [promotionsState, setPromotionsState] = useState<"loading" | "ok" | "error">("loading")
   const [error,           setError]           = useState<string | null>(null)
   const [showBooking,       setShowBooking]       = useState(false)
   const [initialServiceId,  setInitialServiceId]  = useState<string | null>(null)
@@ -107,6 +116,33 @@ function BookingContent() {
     publicFetch<PublicProduct[]>(`/booking/${slug}/products`)
       .then((data) => { setProducts(data); setProductsState("ok") })
       .catch(() => setProductsState("error"))
+  }, [slug])
+
+  // Pacotes (público).
+  useEffect(() => {
+    if (!slug) return
+    setPackagesState("loading")
+    publicFetch<PublicPackage[]>(`/booking/${slug}/packages`)
+      .then((data) => { setPackages(data); setPackagesState("ok") })
+      .catch(() => setPackagesState("error"))
+  }, [slug])
+
+  // Assinaturas (público).
+  useEffect(() => {
+    if (!slug) return
+    setPlansState("loading")
+    publicFetch<PublicPlan[]>(`/booking/${slug}/subscription-plans`)
+      .then((data) => { setPlans(data); setPlansState("ok") })
+      .catch(() => setPlansState("error"))
+  }, [slug])
+
+  // Promoções (público).
+  useEffect(() => {
+    if (!slug) return
+    setPromotionsState("loading")
+    publicFetch<PublicPromotion[]>(`/booking/${slug}/promotions`)
+      .then((data) => { setPromotions(data); setPromotionsState("ok") })
+      .catch(() => setPromotionsState("error"))
   }, [slug])
 
   useEffect(() => {
@@ -298,7 +334,10 @@ function BookingContent() {
             <TabsList>
               <TabsTrigger value="services">Serviços</TabsTrigger>
               <TabsTrigger value="professionals">Barbeiros</TabsTrigger>
+              <TabsTrigger value="packages">Pacotes</TabsTrigger>
+              <TabsTrigger value="subscriptions">Assinaturas</TabsTrigger>
               <TabsTrigger value="products">Produtos</TabsTrigger>
+              <TabsTrigger value="promotions">Promoções</TabsTrigger>
               <TabsTrigger value="reviews">Avaliações</TabsTrigger>
             </TabsList>
 
@@ -373,6 +412,139 @@ function BookingContent() {
               )}
             </TabsContent>
 
+            <TabsContent value="packages">
+              {packagesState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                </div>
+              ) : packagesState === "error" ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar os pacotes."
+                />
+              ) : packages.length === 0 ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Em breve"
+                  description="Os pacotes do estabelecimento aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {packages.map((pkg) => (
+                    <div key={pkg.package_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{pkg.name}</p>
+
+                      {/* Chips de itens */}
+                      <div className="flex flex-wrap gap-1">
+                        {pkg.items.map((item, i) => (
+                          <span key={i}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                              item.item_type === "SERVICE"
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground border border-border"
+                            )}>
+                            {item.quantity}× {item.service_name ?? item.product_name ?? "Item"}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Cotas e validade */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{pkg.total_cotas} {pkg.total_cotas === 1 ? "cota" : "cotas"} no total</span>
+                        {pkg.validity_days && (
+                          <span>· Válido por {pkg.validity_days} dias</span>
+                        )}
+                      </div>
+
+                      {/* Preço + botão */}
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <span className="font-display text-lg text-primary">
+                          {formatBRLFromDecimal(pkg.price)}
+                        </span>
+                        <button
+                          disabled
+                          title="Em breve"
+                          className="book-btn-secondary px-3 py-1 text-xs opacity-50 cursor-not-allowed">
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="subscriptions">
+              {plansState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2].map((i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                </div>
+              ) : plansState === "error" ? (
+                <EmptyState
+                  icon={<RefreshCw size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar os planos."
+                />
+              ) : plans.length === 0 ? (
+                <EmptyState
+                  icon={<RefreshCw size={28} strokeWidth={1.5} />}
+                  title="Em breve"
+                  description="Os planos de assinatura aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {plans.map((plan) => (
+                    <div key={plan.plan_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{plan.name}</p>
+
+                      {/* Chips de itens */}
+                      <div className="flex flex-wrap gap-1">
+                        {plan.items.map((item, i) => (
+                          <span key={i}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                              item.item_type === "SERVICE"
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground border border-border"
+                            )}>
+                            {item.quantity}× {item.service_name ?? item.product_name ?? "Item"}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Cotas e ciclo */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{plan.total_cotas_per_cycle} {plan.total_cotas_per_cycle === 1 ? "cota" : "cotas"}/ciclo</span>
+                        <span>· Renova a cada {plan.cycle_days} dias</span>
+                      </div>
+
+                      {/* Preço + botão */}
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <div>
+                          <span className="font-display text-lg text-primary">
+                            {formatBRLFromDecimal(plan.price)}
+                          </span>
+                          <span className="text-xs text-muted-foreground ml-1">
+                            /{plan.cycle_days === 30 ? "mês" : plan.cycle_days === 7 ? "sem." : `${plan.cycle_days}d`}
+                          </span>
+                        </div>
+                        <button
+                          disabled
+                          title="Em breve"
+                          className="book-btn-secondary px-3 py-1 text-xs opacity-50 cursor-not-allowed">
+                          Assinar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
             <TabsContent value="products">
               {productsState === "loading" ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -436,10 +608,78 @@ function BookingContent() {
               )}
             </TabsContent>
 
+            <TabsContent value="promotions">
+              {promotionsState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+                </div>
+              ) : promotionsState === "error" ? (
+                <EmptyState
+                  icon={<Tag size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar as promoções."
+                />
+              ) : promotions.length === 0 ? (
+                <EmptyState
+                  icon={<Tag size={28} strokeWidth={1.5} />}
+                  title="Sem promoções ativas"
+                  description="As promoções do estabelecimento aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {promotions.map((promo) => (
+                    <div key={promo.promotion_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
+                      {/* Badge de tipo + validade — promoções públicas são automáticas */}
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          Promoção
+                        </Badge>
+                        {promo.valid_until && (
+                          <span className="text-xs text-muted-foreground">
+                            Válido até {new Date(promo.valid_until).toLocaleDateString("pt-BR", {
+                              day: "2-digit", month: "2-digit", year: "numeric"
+                            })}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{promo.name}</p>
+
+                      {/* Descrição */}
+                      {promo.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{promo.description}</p>
+                      )}
+
+                      {/* Desconto */}
+                      {promo.discount_value && (
+                        <p className="font-display text-lg text-primary">
+                          {promo.discount_type === "PERCENTAGE"
+                            ? `${parseFloat(promo.discount_value).toFixed(0)}% off`
+                            : promo.discount_type === "FIXED_AMOUNT"
+                            ? `${formatBRLFromDecimal(promo.discount_value)} off`
+                            : promo.discount_type === "OVERRIDE_PRICE"
+                            ? `Por ${formatBRLFromDecimal(promo.discount_value)}`
+                            : "Grátis"}
+                        </p>
+                      )}
+
+                      {/* Promoções públicas aplicam-se automaticamente no checkout */}
+                      <Badge variant="outline" className="text-xs w-fit mt-auto">
+                        Aplicado automaticamente
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
             <TabsContent value="reviews">
-              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                Avaliações em breve.
-              </div>
+              <EmptyState
+                icon={<Star size={28} strokeWidth={1.5} />}
+                title="Avaliações em breve"
+                description="Em breve você poderá ler e deixar avaliações sobre o atendimento."
+              />
             </TabsContent>
           </Tabs>
         </main>
