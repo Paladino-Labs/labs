@@ -117,6 +117,18 @@ URL) — telas em `/owner/*`.
 `/book/[slug]` permanece em `app/book/[slug]/` — **fora** do grupo `(public)`,
 com chrome próprio.
 
+### /book/[slug] — Fase 1 (feat/booking-vitrine-fase1, 7359330)
+- Tabs: Serviços | Barbeiros | Pacotes | Assinaturas | Produtos | Promoções | Avaliações
+- Novos tipos em `lib/portal-types.ts`: `PublicPackage`, `PublicPlan`, `PublicPromotion`
+- Pacotes/Assinaturas/Promoções: read-only, botões disabled "Em breve" (Fase 2 habilita)
+- Padrão de tab: 4 ramos (loading→Skeleton | error→EmptyState | vazio→EmptyState | ok→grid)
+- Cards: `<div>` manual (não `<Card>` shadcn) — consistência com tab Produtos
+- Botões: `.book-btn-secondary` disabled (não `<Button>` shadcn)
+- `discount_type` via switch inline (`DISCOUNT_TYPE_LABELS` em `constants.ts` mapeia
+  tipo→nome legível; propósito diferente da formatação tipo+valor da vitrine)
+- Ícones lucide adicionados: `RefreshCw` (assinaturas), `Tag` (promoções)
+- `BookingFlow.tsx` não modificado
+
 ## Portal do Cliente — `app/(portal)/portal/`
 
 Terceiro shell, isolado do painel do tenant e das superfícies públicas. JWT
