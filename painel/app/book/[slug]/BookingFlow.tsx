@@ -9,6 +9,7 @@ import { cn, formatBRL } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { CrossSellStep } from "@/components/booking/CrossSellStep"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ interface ConfirmData {
   start_display: string
   end_at: string
   total_amount: string
+  manage_url?: string | null  // NOVO — link de gestão via WhatsApp (Sprint B1)
 }
 
 export interface Session {
@@ -170,6 +172,12 @@ export default function BookingFlow({
   const [selectedDate, setSelectedDate] = useState<Date | null>(startOfDay(new Date()))
   const autoSelectedRef = useRef(false)
 
+  // IDs locais para cross-sell (não estão no context_summary)
+  const [localServiceId,      setLocalServiceId]      = useState<string | null>(null)
+  const [localProfessionalId, setLocalProfessionalId] = useState<string | null>(null)
+  // Flag de UI: mostrar Tela 4 (cross-sell) antes de AWAITING_CUSTOMER
+  const [showCrossSell, setShowCrossSell] = useState(false)
+
   const next14Days = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i))
 
   // ── Iniciar ou retomar sessão ─────────────────────────────────────────────
@@ -244,6 +252,7 @@ export default function BookingFlow({
       session?.state === "AWAITING_SERVICE"
     ) {
       autoSelectedRef.current = true
+      setLocalServiceId(initialServiceId)
       dispatch("SELECT_SERVICE", { service_id: initialServiceId })
     }
   }, [session?.state, initialServiceId, dispatch])
@@ -254,6 +263,14 @@ export default function BookingFlow({
       setSelectedDate(null)
     }
   }, [session?.state, session?.options])
+
+  // Tela 4 — ativa o cross-sell ao entrar em AWAITING_CUSTOMER (skip silencioso
+  // se não houver pacotes/planos é feito dentro do próprio CrossSellStep).
+  useEffect(() => {
+    if (session?.state === "AWAITING_CUSTOMER" && localServiceId) {
+      setShowCrossSell(true)
+    }
+  }, [session?.state, localServiceId])
 
   function handleSelectDate(d: Date) {
     setSelectedDate(d)
@@ -321,7 +338,10 @@ export default function BookingFlow({
             <div className="grid gap-3 sm:grid-cols-2">
               {(session.options as ServiceOpt[]).map(s => (
                 <button key={s.row_key}
-                  onClick={() => dispatch("SELECT_SERVICE", { service_id: s.id })}
+                  onClick={() => {
+                    setLocalServiceId(s.id)
+                    dispatch("SELECT_SERVICE", { service_id: s.id })
+                  }}
                   disabled={loading}
                   className="text-left rounded-lg border border-border bg-card p-4 transition-all hover:border-primary disabled:opacity-40">
                   <div className="flex items-start justify-between">
@@ -434,12 +454,15 @@ export default function BookingFlow({
                   <div className="flex flex-wrap gap-2">
                     {(session.options as SlotOpt[]).map(slot => (
                       <button key={slot.row_key}
-                        onClick={() => dispatch("SELECT_TIME", {
-                          start_at: slot.start_at,
-                          end_at: slot.end_at,
-                          professional_id: slot.professional_id,
-                          row_key: slot.row_key,
-                        })}
+                        onClick={() => {
+                          setLocalProfessionalId(slot.professional_id)
+                          dispatch("SELECT_TIME", {
+                            start_at: slot.start_at,
+                            end_at: slot.end_at,
+                            professional_id: slot.professional_id,
+                            row_key: slot.row_key,
+                          })
+                        }}
                         disabled={loading}
                         className="rounded-md border border-border px-4 py-2 font-mono text-sm hover:border-primary hover:bg-primary/5 transition-all disabled:opacity-40">
                         {slot.start_display}
@@ -459,8 +482,23 @@ export default function BookingFlow({
           </div>
         )}
 
+        {/* ── Tela 4 — Cross-sell contextual ──────────────────────────────── */}
+        {showCrossSell && session.state === "AWAITING_CUSTOMER" && (
+          <CrossSellStep
+            slug={slug}
+            serviceId={localServiceId!}
+            serviceName={ctx.service_name ?? ""}
+            servicePrice={ctx.service_price ?? "0"}
+            professionalId={localProfessionalId}
+            professionalName={ctx.professional_name ?? null}
+            startAt={ctx.slot_start_at ?? ""}
+            endAt={ctx.slot_end_at ?? ""}
+            onConfirmOnly={() => setShowCrossSell(false)}
+          />
+        )}
+
         {/* ── Step 4a — Dados do cliente (AWAITING_CUSTOMER) ──────────────── */}
-        {session.state === "AWAITING_CUSTOMER" && (
+        {!showCrossSell && session.state === "AWAITING_CUSTOMER" && (
           <div className="space-y-6">
             <h2 className="font-display text-2xl tracking-wide">Seus dados</h2>
 
@@ -593,9 +631,15 @@ export default function BookingFlow({
             <h1 className="font-display text-4xl tracking-wide">
               Agendamento confirmado!
             </h1>
-            <p className="text-muted-foreground max-w-sm">
-              Você receberá uma confirmação em breve. Não se atrase!
-            </p>
+            {session.confirmation?.manage_url ? (
+              <p className="text-muted-foreground max-w-sm text-sm">
+                📱 Enviamos o link de gestão para o seu WhatsApp.
+              </p>
+            ) : (
+              <p className="text-muted-foreground max-w-sm text-sm">
+                Você receberá uma confirmação em breve.
+              </p>
+            )}
             {session.confirmation && (
               <div className="rounded-2xl border border-border bg-card p-6 text-left space-y-3 w-full max-w-sm text-sm">
                 <div className="flex justify-between">
@@ -626,6 +670,11 @@ export default function BookingFlow({
             <p className="font-mono text-xs text-muted-foreground">
               Código: {(session.booking_code ?? session.token.slice(0, 8)).toUpperCase()}
             </p>
+            <a
+              href="/portal/login"
+              className="book-btn-secondary px-4 py-2 text-sm inline-flex items-center gap-2">
+              Acessar Painel do Cliente
+            </a>
             <button onClick={handleReset}
               className="mt-4 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">
               Fazer novo agendamento

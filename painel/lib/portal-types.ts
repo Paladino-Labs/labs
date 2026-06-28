@@ -114,6 +114,45 @@ export interface PublicPromotion {
   valid_until:    string | null   // ISO datetime | null
 }
 
+// Fase 2 — checkout unificado público (POST /booking/{slug}/checkout)
+
+export interface CheckoutAppointmentResult {
+  appointment_id:    string
+  service_name:      string
+  professional_name: string
+  start_at:          string
+  total_amount:      string
+  manage_url:        string | null
+}
+export interface CheckoutPurchaseResult {
+  purchase_id:  string
+  package_name: string
+  total_cotas:  number
+  amount_paid:  string
+}
+export interface CheckoutSubscriptionResult {
+  subscription_id: string
+  plan_name:       string
+  next_billing_at: string
+  amount_paid:     string
+}
+export interface CheckoutProductResult {
+  product_name: string
+  quantity:     number
+  amount_paid:  string
+}
+export interface CheckoutResponse {
+  customer_id:    string
+  appointments:   CheckoutAppointmentResult[]
+  purchases:      CheckoutPurchaseResult[]
+  subscriptions:  CheckoutSubscriptionResult[]
+  product_sales:  CheckoutProductResult[]
+  coupon_applied: string | null
+  discount_amount: string | null
+  total_charged:  string
+  warnings:       string[]
+}
+
 export interface PortalDashboardResponse {
   upcoming_appointments: PortalAppointmentItem[]
   active_credits: PortalCreditItem[]

@@ -22,7 +22,7 @@ function parseDetailMessage(detail: unknown): string {
   return "Erro desconhecido"
 }
 
-function getPortalToken(): string | null {
+export function getPortalToken(): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem(PORTAL_TOKEN_KEY)
 }

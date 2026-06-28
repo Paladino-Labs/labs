@@ -6,6 +6,7 @@ import {
   MapPin, MessageCircle, Package, Phone, RefreshCw, Scissors, Star, Tag,
 } from "lucide-react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
 import BookingFlow from "./BookingFlow"
 import { publicFetch } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBRL, formatBRLFromDecimal, cn } from "@/lib/utils"
 import type { PublicProduct, PublicPackage, PublicPlan, PublicPromotion } from "@/lib/portal-types"
+import { CartProvider, useCart } from "@/context/CartContext"
+import { CartButton } from "@/components/booking/CartButton"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -66,9 +69,19 @@ export default function BookingPage() {
 }
 
 function BookingContent() {
+  const { slug } = useParams<{ slug: string }>()
+  return (
+    <CartProvider slug={slug}>
+      <BookingInner />
+    </CartProvider>
+  )
+}
+
+function BookingInner() {
   const { slug }       = useParams<{ slug: string }>()
   const searchParams   = useSearchParams()
   const router         = useRouter()
+  const { addItem }    = useCart()
 
   interface ProfessionalOption {
     id: string | null
@@ -465,9 +478,17 @@ function BookingContent() {
                           {formatBRLFromDecimal(pkg.price)}
                         </span>
                         <button
-                          disabled
-                          title="Em breve"
-                          className="book-btn-secondary px-3 py-1 text-xs opacity-50 cursor-not-allowed">
+                          onClick={() => {
+                            addItem({
+                              kind:         "package",
+                              package_id:   pkg.package_id,
+                              package_name: pkg.name,
+                              price:        pkg.price,
+                              total_cotas:  pkg.total_cotas,
+                            })
+                            toast.success(`${pkg.name} adicionado ao carrinho`)
+                          }}
+                          className="book-btn-secondary px-3 py-1 text-xs">
                           Adicionar
                         </button>
                       </div>
@@ -533,9 +554,17 @@ function BookingContent() {
                           </span>
                         </div>
                         <button
-                          disabled
-                          title="Em breve"
-                          className="book-btn-secondary px-3 py-1 text-xs opacity-50 cursor-not-allowed">
+                          onClick={() => {
+                            addItem({
+                              kind:       "subscription",
+                              plan_id:    plan.plan_id,
+                              plan_name:  plan.name,
+                              price:      plan.price,
+                              cycle_days: plan.cycle_days,
+                            })
+                            toast.success(`${plan.name} adicionado ao carrinho`)
+                          }}
+                          className="book-btn-secondary px-3 py-1 text-xs">
                           Assinar
                         </button>
                       </div>
@@ -599,9 +628,27 @@ function BookingContent() {
                           </Badge>
                         )}
                       </div>
-                      <span className="font-display text-lg text-primary">
-                        {formatBRLFromDecimal(p.price)}
-                      </span>
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <span className="font-display text-lg text-primary">
+                          {formatBRLFromDecimal(p.price)}
+                        </span>
+                        {p.available && (
+                          <button
+                            onClick={() => {
+                              addItem({
+                                kind:         "product",
+                                product_id:   p.id,
+                                product_name: p.name,
+                                price:        p.price,
+                                quantity:     1,
+                              })
+                              toast.success(`${p.name} adicionado ao carrinho`)
+                            }}
+                            className="book-btn-secondary px-3 py-1 text-xs">
+                            Adicionar
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -814,6 +861,9 @@ function BookingContent() {
 
       {/* Espaço para o botão fixo mobile */}
       {!showBooking && <div className="h-24 lg:hidden" />}
+
+      {/* ══ CARRINHO FLUTUANTE ════════════════════════════════════════════════ */}
+      <CartButton slug={slug} />
     </div>
   )
 }
