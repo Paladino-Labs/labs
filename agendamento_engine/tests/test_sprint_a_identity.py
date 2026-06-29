@@ -193,6 +193,39 @@ class TestNormalizePhone:
             normalize_phone_e164("")
         assert exc.value.status_code == 422
 
+    def test_leading_zero_antes_do_ddd(self):
+        # Hábito brasileiro de discagem interurbana — "0" antes do DDD
+        e164, _ = normalize_phone_e164("011999990000")
+        assert e164 == "+5511999990000"
+
+    def test_leading_zero_com_formatacao(self):
+        e164, _ = normalize_phone_e164("011 9 9999-0000")
+        assert e164 == "+5511999990000"
+
+    def test_leading_zero_celular_goias(self):
+        e164, _ = normalize_phone_e164("062985657312")
+        assert e164 == "+5562985657312"
+
+    def test_duplo_zero_e_ddi_internacional_nao_remove(self):
+        # "00" inicial pode ser DDI internacional — não strip do zero;
+        # resultado não casa com formato BR válido → 422
+        with pytest.raises(HTTPException) as exc:
+            normalize_phone_e164("0062985657312")
+        assert exc.value.status_code == 422
+
+    def test_numero_fake_so_zeros_422(self):
+        with pytest.raises(HTTPException) as exc:
+            normalize_phone_e164("00000000000000000")
+        assert exc.value.status_code == 422
+
+    def test_celular_padrao_sem_leading_zero_nao_regride(self):
+        e164, _ = normalize_phone_e164("62985657312")
+        assert e164 == "+5562985657312"
+
+    def test_celular_com_ddi_nao_regride(self):
+        e164, _ = normalize_phone_e164("5562985657312")
+        assert e164 == "+5562985657312"
+
 
 # ─── Resolver ─────────────────────────────────────────────────────────────────
 

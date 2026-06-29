@@ -61,6 +61,11 @@ def normalize_phone_e164(raw_phone: str, default_country: str = "BR") -> tuple[s
 
     digits = re.sub(r"\D", "", raw_phone or "")
 
+    # Tratar leading zero (hábito brasileiro de discagem interurbana)
+    # Ex.: "062..." → "62...", "0062..." → ignorar (pode ser DDI internacional)
+    if digits.startswith("0") and not digits.startswith("00"):
+        digits = digits[1:]
+
     if len(digits) in (12, 13) and digits.startswith("55"):
         pass  # DDI 55 presente
     elif len(digits) in (10, 11):

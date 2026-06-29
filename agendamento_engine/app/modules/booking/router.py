@@ -354,10 +354,23 @@ def confirm_booking(
     """
     company, _ = _require_online_booking(slug, db)
 
-    # Identifica ou cria o cliente pelo telefone
-    customer = customer_svc.get_or_create_by_phone(
-        db, company.id, body.customer_phone, body.customer_name
+    # Identifica ou cria o cliente pelo telefone via resolver de identidade
+    # (mesmo padrão de booking/engine.py desde o Sprint B1).
+    from app.modules.identity.resolver import resolver
+    from app.modules.identity.consent_service import (
+        grant_consent, ConsentType, SourceChannel,
     )
+
+    customer, is_new = resolver.resolve_for_tenant(
+        db, raw_phone=body.customer_phone,
+        company_id=company.id, name=body.customer_name,
+    )
+    if is_new:
+        grant_consent(
+            db, customer.identity_id, company.id,
+            ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+            notes="Agendamento via link público (confirm legado)",
+        )
 
     intent = BookingIntent(
         company_id=company.id,
@@ -606,12 +619,24 @@ def start_session(
 
     # Atalho: cliente se identificou na abertura — salvar no contexto imediatamente
     if body.customer_phone:
-        customer = customer_svc.get_or_create_by_phone(
-            db,
-            company.id,
-            body.customer_phone,
-            body.customer_name or "",
+        # Resolve via identidade Paladino (mesmo padrão de booking/engine.py).
+        from app.modules.identity.resolver import resolver
+        from app.modules.identity.consent_service import (
+            grant_consent, ConsentType, SourceChannel,
         )
+
+        customer, is_new = resolver.resolve_for_tenant(
+            db,
+            raw_phone=body.customer_phone,
+            company_id=company.id,
+            name=body.customer_name or "",
+        )
+        if is_new:
+            grant_consent(
+                db, customer.identity_id, company.id,
+                ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+                notes="Agendamento via link público (start shortcut)",
+            )
         session.customer_id = customer.id
         # Não atribuir session.context aqui ainda — será feito junto com
         # last_listed_services logo abaixo para garantir atribuição única
