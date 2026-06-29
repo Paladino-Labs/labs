@@ -334,15 +334,16 @@ export default function BookingFlow({
 
       {/* Header — esquerda volta à vitrine; direita: wordmark + tema */}
       <header className="border-b border-border">
-        <div className="mx-auto max-w-3xl px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto grid max-w-3xl grid-cols-[1fr_auto_1fr] items-center px-6 py-4">
           <a href={`/book/${slug}`}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" /> {companyName || "Voltar"}
+            className="inline-flex min-w-0 items-center gap-2 justify-self-start text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span className="truncate">{companyName || "Voltar"}</span>
           </a>
-          <div className="flex items-center gap-3">
-            <span className="font-display text-xl tracking-[0.3em] text-primary leading-none">
-              PALADINO
-            </span>
+          <span className="justify-self-center font-display text-2xl tracking-[0.3em] text-primary leading-none">
+            PALADINO
+          </span>
+          <div className="justify-self-end">
             <ThemeToggle />
           </div>
         </div>

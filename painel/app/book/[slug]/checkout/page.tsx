@@ -185,14 +185,16 @@ function CheckoutContent({ slug }: { slug: string }) {
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
-        <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto grid max-w-4xl grid-cols-[1fr_auto_1fr] items-center px-6 py-4">
           <a href={`/book/${slug}`}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Voltar ao catálogo
+            className="inline-flex min-w-0 items-center gap-2 justify-self-start text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span className="truncate">Voltar ao catálogo</span>
           </a>
-          <span className="font-display text-xl tracking-[0.3em] text-primary leading-none">
+          <span className="justify-self-center font-display text-2xl tracking-[0.3em] text-primary leading-none">
             PALADINO
           </span>
+          <div aria-hidden className="justify-self-end" />
         </div>
       </header>
       <div className="mx-auto max-w-4xl px-6 py-8">{children}</div>
