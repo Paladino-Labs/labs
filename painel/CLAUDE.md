@@ -129,6 +129,61 @@ com chrome próprio.
 - Ícones lucide adicionados: `RefreshCw` (assinaturas), `Tag` (promoções)
 - `BookingFlow.tsx` não modificado
 
+### /book/[slug] — Fase 2 (feat/booking-vitrine-fase1)
+Commits: 3b695f8, 23ee7f5, 549b1e6, d70a9dc, 20d6a26, a5be65e. Auditada/aprovada.
+
+Arquitetura de rotas:
+- `/book/[slug]` → vitrine (7 tabs + `CartProvider`)
+- `/book/[slug]/agendar` → fluxo FSM dedicado (`BookingFlow`) — booking NÃO é mais
+  inline na vitrine; vitrine navega via `router.push` (`goToBooking`)
+- `/book/[slug]/checkout` → checkout unificado (`CartProvider` próprio, mesmo localStorage)
+
+`CartContext` (`context/CartContext.tsx`):
+- localStorage `paladino_cart_v1_{slug}` — escopado por slug; hidratação padrão
+  AuthContext (useState + useEffect + guard `typeof window`)
+- 4 tipos discriminados: `CartServiceItem | CartPackageItem | CartSubscriptionItem | CartProductItem`
+- expõe `subtotalCents`/`totalCents` (= subtotal − discount_cents)/`itemCount`
+
+`CartButton`/`CartDrawer` (`components/booking/`): Sheet (base-ui) lateral; cupom via
+`POST /booking/{slug}/coupon/validate` (discountCents = `discount_value`, fallback
+subtotal−`net_amount`); stepper de qty só para produto.
+
+`BookingFlow` — mudanças cirúrgicas (G13 não tocado):
+- `localServiceId`/`localProfessionalId` capturados em SELECT_SERVICE/SELECT_TIME
+- `showCrossSell`: flag de UI (Tela 4 antes de AWAITING_CUSTOMER)
+- `bootstrappedRef`: guard contra double-mount do StrictMode (fix 549b1e6 — sem ele,
+  2 sessões no backend → `session_id`×`state` divergem → SELECT_PROFESSIONAL em
+  AWAITING_SERVICE → 422). `autoDateRef`: auto-seleciona HOJE na 1ª entrada em
+  AWAITING_DATE (cai direto nos slots)
+- `ConfirmData.manage_url?: string | null`
+- Header: link esquerdo → vitrine `/book/[slug]` (os "Voltar" por step seguem FSM);
+  wordmark PALADINO **texto** (grid 3 colunas centraliza) + `ThemeToggle`
+- CONFIRMED: diferencia logado (`getPortalToken()` → CTA `/portal/dashboard`) de
+  visitante (mensagem WhatsApp / link de gestão)
+
+`CrossSellStep`: busca packages+subscription-plans por service_id; **skip silencioso**
+(`onConfirmOnly`) quando ambos vazios.
+
+Wordmark: sempre **texto** (`font-display tracking-[0.3em] text-primary`) — não imagem
+(herda o tema). Idem na Sidebar/shell público.
+
+`ThemeToggle` (`components/booking/ThemeToggle.tsx`): usa `useTheme` de `lib/theme`
+(ThemeProvider está no root layout, vale nas páginas /book).
+
+Checkout — sessão do portal:
+- `getPortalToken` **exportado** de `lib/portal-api.ts`
+- usa `phone_e164` (NÃO `.phone` — campo inexistente em `PortalIdentity`; o resolver do
+  backend rejeita telefone vazio com 422). Fix 20d6a26.
+- Logado: card "Olá, {name}" + confirma sem digitar; CTA → `/portal/dashboard`
+- Visitante: CTA login (`?redirect=…` validado interno) + formulário completo
+
+### Dívida registrada (Fase 2)
+Cancelar/remarcar **agendamento** no portal: requer endpoints de backend novos
+(validar posse por identity → customers.identity_id → appointment.client_id) + UI no
+portal. Hoje o portal só tem cancelar/remarcar de **assinaturas**; o cliente logado vê o
+agendamento no dashboard (read-only) e, para ações, depende do link do WhatsApp
+(`/manage/{token}`). Decisão registrada em a5be65e (usuário optou por só redirecionar).
+
 ## Portal do Cliente — `app/(portal)/portal/`
 
 Terceiro shell, isolado do painel do tenant e das superfícies públicas. JWT
