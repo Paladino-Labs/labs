@@ -1,13 +1,12 @@
 "use client"
 
-import { Suspense, useEffect, useRef, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import {
   Clock, CreditCard, ExternalLink, Frown,
   MapPin, MessageCircle, Package, Phone, RefreshCw, Scissors, Star, Tag,
 } from "lucide-react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
-import BookingFlow from "./BookingFlow"
 import { publicFetch } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/empty-state"
@@ -79,7 +78,6 @@ function BookingContent() {
 
 function BookingInner() {
   const { slug }       = useParams<{ slug: string }>()
-  const searchParams   = useSearchParams()
   const router         = useRouter()
   const { addItem }    = useCart()
 
@@ -104,17 +102,6 @@ function BookingInner() {
   const [promotions,      setPromotions]      = useState<PublicPromotion[]>([])
   const [promotionsState, setPromotionsState] = useState<"loading" | "ok" | "error">("loading")
   const [error,           setError]           = useState<string | null>(null)
-  const [showBooking,       setShowBooking]       = useState(false)
-  const [initialServiceId,  setInitialServiceId]  = useState<string | null>(null)
-  const [bookingToken,      setBookingToken]       = useState<string | null>(
-    searchParams.get("t")
-  )
-
-  const bookingRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (searchParams.get("book") === "1") setShowBooking(true)
-  }, [searchParams])
 
   useEffect(() => {
     publicFetch<CompanyProfile>(`/booking/${slug}/profile`)
@@ -177,27 +164,13 @@ function BookingInner() {
       .catch(() => {})
   }, [slug])
 
-  function handleStartBooking() {
-    setInitialServiceId(null)
-    setShowBooking(true)
-    setTimeout(() => {
-      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-    }, 80)
-  }
-
-  function handleBookService(serviceId: string) {
-    setInitialServiceId(serviceId)
-    setShowBooking(true)
-    setTimeout(() => {
-      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-    }, 80)
-  }
-
-  function handleTokenChange(token: string) {
-    setBookingToken(token)
-    const url = new URL(window.location.href)
-    url.searchParams.set("t", token)
-    router.replace(url.pathname + url.search, { scroll: false })
+  // Direciona para a tela dedicada de agendamento (em vez de expandir inline).
+  function goToBooking(serviceId?: string) {
+    router.push(
+      serviceId
+        ? `/book/${slug}/agendar?service=${serviceId}`
+        : `/book/${slug}/agendar`
+    )
   }
 
   // ── Guards ────────────────────────────────────────────────────────────────
@@ -284,7 +257,7 @@ function BookingInner() {
 
               {profile.online_booking_enabled && (
                 <button
-                  onClick={handleStartBooking}
+                  onClick={() => goToBooking()}
                   className="book-btn-primary mt-5 px-8 py-3 text-base"
                 >
                   Agendar agora
@@ -384,8 +357,8 @@ function BookingInner() {
                       </span>
                       {profile.online_booking_enabled && (
                         <button
-                          onClick={() => handleBookService(s.id)}
-                          className="book-btn-secondary px-3 py-1 text-xs"
+                          onClick={() => goToBooking(s.id)}
+                          className="book-btn-primary px-4 py-1.5 text-xs"
                         >
                           Agendar
                         </button>
@@ -815,13 +788,13 @@ function BookingInner() {
       </div>
 
       {/* ══ BOTÃO FIXO MOBILE ════════════════════════════════════════════════ */}
-      {profile.online_booking_enabled && !showBooking && (
+      {profile.online_booking_enabled && (
         <div
           className="fixed bottom-0 left-0 right-0 z-30 p-4 lg:hidden"
           style={{ background: "linear-gradient(to top, var(--background) 60%, transparent)" }}
         >
           <button
-            onClick={handleStartBooking}
+            onClick={() => goToBooking()}
             className="book-btn-primary w-full py-4 text-base font-semibold"
           >
             Agendar agora
@@ -829,38 +802,8 @@ function BookingInner() {
         </div>
       )}
 
-      {/* ══ FLUXO DE AGENDAMENTO ═════════════════════════════════════════════ */}
-      <div
-        ref={bookingRef}
-        className="transition-all duration-500"
-        style={{
-          overflow: showBooking ? "visible" : "hidden",
-          maxHeight: showBooking ? "9999px" : 0,
-          opacity: showBooking ? 1 : 0,
-        }}
-      >
-        {showBooking && (
-          <section>
-            <div className="flex items-center gap-3 max-w-lg mx-auto px-6 py-6">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Agendamento
-              </span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-            <BookingFlow
-              slug={slug}
-              companyName={profile.company_name}
-              initialToken={bookingToken}
-              onTokenChange={handleTokenChange}
-              initialServiceId={initialServiceId}
-            />
-          </section>
-        )}
-      </div>
-
       {/* Espaço para o botão fixo mobile */}
-      {!showBooking && <div className="h-24 lg:hidden" />}
+      <div className="h-24 lg:hidden" />
 
       {/* ══ CARRINHO FLUTUANTE ════════════════════════════════════════════════ */}
       <CartButton slug={slug} />

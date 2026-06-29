@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CrossSellStep } from "@/components/booking/CrossSellStep"
+import { ThemeToggle } from "@/components/booking/ThemeToggle"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,9 @@ export default function BookingFlow({
   // o merge de setSession mistura session_id de uma com o state de outra →
   // SELECT_PROFESSIONAL chega numa sessão ainda em AWAITING_SERVICE (422).
   const bootstrappedRef = useRef(false)
+  // Auto-seleciona o dia de hoje na primeira entrada em AWAITING_DATE — assim o
+  // cliente cai direto nos horários do dia pré-selecionado (menos cliques).
+  const autoDateRef = useRef(false)
 
   // IDs locais para cross-sell (não estão no context_summary)
   const [localServiceId,      setLocalServiceId]      = useState<string | null>(null)
@@ -279,6 +283,18 @@ export default function BookingFlow({
     }
   }, [session?.state, localServiceId])
 
+  // Tela Horário — ao chegar em AWAITING_DATE, seleciona o dia de hoje uma vez
+  // para já exibir os slots (o cliente só clica no horário se o dia for este).
+  useEffect(() => {
+    if (session?.state === "AWAITING_DATE" && !autoDateRef.current) {
+      autoDateRef.current = true
+      const todayStr = format(startOfDay(new Date()), "yyyy-MM-dd")
+      const opts = (session.options ?? []) as DateOpt[]
+      const opt = opts.find(o => o.date === todayStr)
+      dispatch("SELECT_DATE", opt ? { date: opt.date, row_key: opt.row_key } : { date: todayStr })
+    }
+  }, [session?.state, session?.options, dispatch])
+
   function handleSelectDate(d: Date) {
     setSelectedDate(d)
     const dateStr = format(d, "yyyy-MM-dd")
@@ -316,14 +332,17 @@ export default function BookingFlow({
   return (
     <div className="min-h-screen bg-background text-foreground">
 
-      {/* Header */}
+      {/* Header — esquerda volta à vitrine; direita: wordmark + tema */}
       <header className="border-b border-border">
         <div className="mx-auto max-w-3xl px-6 py-4 flex items-center justify-between">
-          <button onClick={handleBack}
+          <a href={`/book/${slug}`}
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" /> {companyName}
-          </button>
-          <img src="/paladino-wordmark.png" alt="Paladino" className="h-8 w-auto" />
+            <ArrowLeft className="h-4 w-4" /> {companyName || "Voltar"}
+          </a>
+          <div className="flex items-center gap-3">
+            <img src="/paladino-wordmark.png" alt="Paladino" className="h-10 w-auto md:h-12" />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
