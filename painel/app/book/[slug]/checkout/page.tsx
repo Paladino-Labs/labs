@@ -190,7 +190,9 @@ function CheckoutContent({ slug }: { slug: string }) {
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="h-4 w-4" /> Voltar ao catálogo
           </a>
-          <img src="/paladino-wordmark.png" alt="Paladino" className="h-8 w-auto" />
+          <span className="font-display text-xl tracking-[0.3em] text-primary leading-none">
+            PALADINO
+          </span>
         </div>
       </header>
       <div className="mx-auto max-w-4xl px-6 py-8">{children}</div>

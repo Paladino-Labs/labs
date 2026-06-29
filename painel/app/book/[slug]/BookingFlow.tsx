@@ -340,7 +340,9 @@ export default function BookingFlow({
             <ArrowLeft className="h-4 w-4" /> {companyName || "Voltar"}
           </a>
           <div className="flex items-center gap-3">
-            <img src="/paladino-wordmark.png" alt="Paladino" className="h-10 w-auto md:h-12" />
+            <span className="font-display text-xl tracking-[0.3em] text-primary leading-none">
+              PALADINO
+            </span>
             <ThemeToggle />
           </div>
         </div>
