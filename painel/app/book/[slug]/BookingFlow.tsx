@@ -171,6 +171,11 @@ export default function BookingFlow({
   const [custEmail,    setCustEmail]    = useState("")
   const [selectedDate, setSelectedDate] = useState<Date | null>(startOfDay(new Date()))
   const autoSelectedRef = useRef(false)
+  // Garante UMA única criação/retomada de sessão no mount. Sem isso, o React
+  // StrictMode (dev) invoca o efeito 2× e cria 2 sessões de booking no backend;
+  // o merge de setSession mistura session_id de uma com o state de outra →
+  // SELECT_PROFESSIONAL chega numa sessão ainda em AWAITING_SERVICE (422).
+  const bootstrappedRef = useRef(false)
 
   // IDs locais para cross-sell (não estão no context_summary)
   const [localServiceId,      setLocalServiceId]      = useState<string | null>(null)
@@ -182,6 +187,8 @@ export default function BookingFlow({
 
   // ── Iniciar ou retomar sessão ─────────────────────────────────────────────
   useEffect(() => {
+    if (bootstrappedRef.current) return
+    bootstrappedRef.current = true
     if (initialToken) {
       publicFetch<Session>(`/booking/${slug}/session/${initialToken}`)
         .then(s => {
