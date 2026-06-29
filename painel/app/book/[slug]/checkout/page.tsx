@@ -13,7 +13,7 @@ import {
   type CartItem, type CartServiceItem, type CartPackageItem,
   type CartSubscriptionItem, type CartProductItem,
 } from "@/context/CartContext"
-import type { CheckoutResponse } from "@/lib/portal-types"
+import type { CheckoutResponse, PortalIdentity } from "@/lib/portal-types"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -81,10 +81,8 @@ function CheckoutContent({ slug }: { slug: string }) {
   const [couponError, setCouponError] = useState<string | null>(null)
   const [validating, setValidating]   = useState(false)
 
-  // Dados do cliente
-  const [portalIdentity, setPortalIdentity] = useState<{
-    name: string; phone: string; email?: string | null
-  } | null>(null)
+  // Dados do cliente (logado via portal)
+  const [portalIdentity, setPortalIdentity] = useState<PortalIdentity | null>(null)
   const [name, setName]   = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
@@ -98,9 +96,7 @@ function CheckoutContent({ slug }: { slug: string }) {
   useEffect(() => {
     const token = getPortalToken()
     if (!token) return
-    portalFetch<{ name: string; phone: string; email?: string | null }>(
-      "/portal/identity/me"
-    )
+    portalFetch<PortalIdentity>("/portal/identity/me")
       .then(setPortalIdentity)
       .catch(() => {})  // falha silenciosa — tratar como não logado
   }, [])
@@ -145,8 +141,8 @@ function CheckoutContent({ slug }: { slug: string }) {
     setSubmitting(true)
     setSubmitError(null)
     const body = {
-      customer_name:  portalIdentity?.name  ?? name,
-      customer_phone: portalIdentity?.phone ?? phone,
+      customer_name:  portalIdentity?.name ?? name,
+      customer_phone: portalIdentity?.phone_e164 ?? phone,
       services: cart.items
         .filter((i): i is CartServiceItem => i.kind === "service")
         .map((i) => ({
@@ -416,8 +412,10 @@ function CheckoutContent({ slug }: { slug: string }) {
                 <>
                   <div className="rounded-lg border border-border bg-card p-6 space-y-2">
                     <p className="text-xs text-muted-foreground uppercase tracking-widest">Logado como</p>
-                    <p className="font-display text-2xl">Olá, {portalIdentity.name}</p>
-                    <p className="text-muted-foreground">{portalIdentity.phone}</p>
+                    <p className="font-display text-2xl">Olá, {portalIdentity.name ?? "cliente"}</p>
+                    <p className="text-muted-foreground">
+                      {portalIdentity.phone_national_normalized || portalIdentity.phone_e164}
+                    </p>
                   </div>
                   {submitError && <p className="text-sm text-destructive">{submitError}</p>}
                   <div className="flex justify-between pt-4">
