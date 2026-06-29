@@ -5,6 +5,7 @@ import { addDays, format, isSameDay, startOfDay } from "date-fns"
 import { ptBR } from "date-fns/locale/pt-BR"
 import { ArrowLeft, Check, CheckCircle2, Clock, Scissors, User } from "lucide-react"
 import { publicFetch } from "@/lib/api"
+import { getPortalToken } from "@/lib/portal-api"
 import { cn, formatBRL } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -186,6 +187,9 @@ export default function BookingFlow({
   const [localProfessionalId, setLocalProfessionalId] = useState<string | null>(null)
   // Flag de UI: mostrar Tela 4 (cross-sell) antes de AWAITING_CUSTOMER
   const [showCrossSell, setShowCrossSell] = useState(false)
+  // Cliente logado no portal → gerencia o agendamento no portal (não pelo link).
+  const [portalLoggedIn, setPortalLoggedIn] = useState(false)
+  useEffect(() => { setPortalLoggedIn(!!getPortalToken()) }, [])
 
   const next14Days = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i))
 
@@ -660,7 +664,11 @@ export default function BookingFlow({
             <h1 className="font-display text-4xl tracking-wide">
               Agendamento confirmado!
             </h1>
-            {session.confirmation?.manage_url ? (
+            {portalLoggedIn ? (
+              <p className="text-muted-foreground max-w-sm text-sm">
+                Acompanhe e gerencie seu agendamento no Painel do Cliente.
+              </p>
+            ) : session.confirmation?.manage_url ? (
               <p className="text-muted-foreground max-w-sm text-sm">
                 📱 Enviamos o link de gestão para o seu WhatsApp.
               </p>
@@ -700,9 +708,9 @@ export default function BookingFlow({
               Código: {(session.booking_code ?? session.token.slice(0, 8)).toUpperCase()}
             </p>
             <a
-              href="/portal/login"
+              href={portalLoggedIn ? "/portal/dashboard" : "/portal/login"}
               className="book-btn-secondary px-4 py-2 text-sm inline-flex items-center gap-2">
-              Acessar Painel do Cliente
+              {portalLoggedIn ? "Gerenciar no Painel do Cliente" : "Acessar Painel do Cliente"}
             </a>
             <button onClick={handleReset}
               className="mt-4 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">

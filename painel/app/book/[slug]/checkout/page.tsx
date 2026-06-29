@@ -264,9 +264,15 @@ function CheckoutContent({ slug }: { slug: string }) {
           </div>
 
           {checkoutResult.appointments.length > 0 && (
-            <p className="text-sm text-muted-foreground">
-              📱 Enviamos o link de gestão do agendamento para o seu WhatsApp.
-            </p>
+            portalIdentity ? (
+              <p className="text-sm text-muted-foreground">
+                Acompanhe e gerencie este agendamento no seu Painel do Cliente.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                📱 Enviamos o link de gestão do agendamento para o seu WhatsApp.
+              </p>
+            )
           )}
 
           {checkoutResult.warnings.length > 0 && (
@@ -275,9 +281,9 @@ function CheckoutContent({ slug }: { slug: string }) {
             </div>
           )}
 
-          <a href="/portal/login"
+          <a href={portalIdentity ? "/portal/dashboard" : "/portal/login"}
              className="book-btn-secondary px-6 py-2 text-sm inline-flex items-center gap-2">
-            Acessar Painel do Cliente
+            {portalIdentity ? "Gerenciar no Painel do Cliente" : "Acessar Painel do Cliente"}
           </a>
           <a href={`/book/${slug}`}
              className="text-sm text-muted-foreground hover:text-foreground transition-colors">
