@@ -46,6 +46,30 @@ function itemSubtitle(item: CartItem): string | null {
   return null
 }
 
+// Shell em escopo de módulo — identidade estável entre renders. Se ficasse
+// dentro de CheckoutContent, cada setState (ex.: digitar no telefone) criaria
+// um novo componente e o React remontaria a subárvore, perdendo o foco do input.
+function Shell({ slug, children }: { slug: string; children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border">
+        <div className="mx-auto grid max-w-4xl grid-cols-[1fr_auto_1fr] items-center px-6 py-4">
+          <a href={`/book/${slug}`}
+            className="inline-flex min-w-0 items-center gap-2 justify-self-start text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span className="truncate">Voltar ao catálogo</span>
+          </a>
+          <span className="justify-self-center font-display text-2xl tracking-[0.3em] text-primary leading-none">
+            PALADINO
+          </span>
+          <div aria-hidden className="justify-self-end" />
+        </div>
+      </header>
+      <div className="mx-auto max-w-4xl px-6 py-8">{children}</div>
+    </div>
+  )
+}
+
 // ─── Página ─────────────────────────────────────────────────────────────────
 
 export default function CheckoutPage() {
@@ -177,30 +201,10 @@ function CheckoutContent({ slug }: { slug: string }) {
     }
   }
 
-  // ── Shell ──────────────────────────────────────────────────────────────────
-  const Shell = ({ children }: { children: React.ReactNode }) => (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto grid max-w-4xl grid-cols-[1fr_auto_1fr] items-center px-6 py-4">
-          <a href={`/book/${slug}`}
-            className="inline-flex min-w-0 items-center gap-2 justify-self-start text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4 shrink-0" />
-            <span className="truncate">Voltar ao catálogo</span>
-          </a>
-          <span className="justify-self-center font-display text-2xl tracking-[0.3em] text-primary leading-none">
-            PALADINO
-          </span>
-          <div aria-hidden className="justify-self-end" />
-        </div>
-      </header>
-      <div className="mx-auto max-w-4xl px-6 py-8">{children}</div>
-    </div>
-  )
-
   // ── Carrinho vazio ──────────────────────────────────────────────────────────
   if (hydrated && cart.items.length === 0 && step !== "success") {
     return (
-      <Shell>
+      <Shell slug={slug}>
         <div className="flex flex-col items-center text-center py-20 space-y-4">
           <h1 className="font-display text-3xl tracking-wide">Seu carrinho está vazio</h1>
           <p className="text-sm text-muted-foreground">
@@ -217,7 +221,7 @@ function CheckoutContent({ slug }: { slug: string }) {
   // ── Sucesso ──────────────────────────────────────────────────────────────────
   if (step === "success" && checkoutResult) {
     return (
-      <Shell>
+      <Shell slug={slug}>
         <div className="flex flex-col items-center text-center py-12 space-y-6 max-w-lg mx-auto">
           <div className="h-16 w-16 rounded-full bg-success/15 text-success flex items-center justify-center">
             <CheckCircle2 className="h-8 w-8" />
@@ -321,7 +325,7 @@ function CheckoutContent({ slug }: { slug: string }) {
 
   // ── Steps ────────────────────────────────────────────────────────────────────
   return (
-    <Shell>
+    <Shell slug={slug}>
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
         <div className="space-y-6">
 
