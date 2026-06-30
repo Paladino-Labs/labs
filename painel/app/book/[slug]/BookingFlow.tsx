@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { addDays, format, isSameDay, startOfDay } from "date-fns"
 import { ptBR } from "date-fns/locale/pt-BR"
 import { ArrowLeft, Check, CheckCircle2, Clock, Scissors, User } from "lucide-react"
@@ -187,9 +188,17 @@ export default function BookingFlow({
   const [localProfessionalId, setLocalProfessionalId] = useState<string | null>(null)
   // Flag de UI: mostrar Tela 4 (cross-sell) antes de AWAITING_CUSTOMER
   const [showCrossSell, setShowCrossSell] = useState(false)
-  // Cliente logado no portal → gerencia o agendamento no portal (não pelo link).
-  const [portalLoggedIn, setPortalLoggedIn] = useState(false)
-  useEffect(() => { setPortalLoggedIn(!!getPortalToken()) }, [])
+  // Logado: ao confirmar, redireciona ao portal (o agendamento já aparece lá).
+  // Visitante: permanece na tela de confirmação com o link de gestão.
+  const router = useRouter()
+  const [redirecting, setRedirecting] = useState(false)
+  useEffect(() => {
+    if (session?.state !== "CONFIRMED") return
+    if (!getPortalToken()) return  // visitante — não redireciona
+    setRedirecting(true)
+    const timer = setTimeout(() => router.push("/portal/dashboard"), 2500)
+    return () => clearTimeout(timer)
+  }, [session?.state, router])
 
   const next14Days = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i))
 
@@ -664,58 +673,68 @@ export default function BookingFlow({
             <h1 className="font-display text-4xl tracking-wide">
               Agendamento confirmado!
             </h1>
-            {portalLoggedIn ? (
+
+            {redirecting ? (
               <p className="text-muted-foreground max-w-sm text-sm">
-                Acompanhe e gerencie seu agendamento no Painel do Cliente.
-              </p>
-            ) : session.confirmation?.manage_url ? (
-              <p className="text-muted-foreground max-w-sm text-sm">
-                📱 Enviamos o link de gestão para o seu WhatsApp.
+                Redirecionando para o seu painel…
               </p>
             ) : (
-              <p className="text-muted-foreground max-w-sm text-sm">
-                Você receberá uma confirmação em breve.
-              </p>
+              <>
+                <p className="text-muted-foreground max-w-sm text-sm">
+                  Também enviamos este link por WhatsApp.
+                </p>
+
+                {session.confirmation && (
+                  <div className="rounded-2xl border border-border bg-card p-6 text-left space-y-3 w-full max-w-sm text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Serviço</span>
+                      <span className="font-medium">{session.confirmation.service_name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Barbeiro</span>
+                      <span className="font-medium">{session.confirmation.professional_name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Data e hora</span>
+                      <span className="font-medium text-right">
+                        {new Date(session.confirmation.start_at).toLocaleString("pt-BR", {
+                          dateStyle: "short", timeStyle: "short",
+                          timeZone: session.company_timezone,
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-2 mt-1">
+                      <span className="text-muted-foreground">Total</span>
+                      <span className="font-display text-lg text-primary">
+                        {formatBRL(session.confirmation.total_amount)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {session.confirmation?.manage_url && (
+                  <a
+                    href={session.confirmation.manage_url}
+                    className="book-btn-primary px-6 py-3 text-sm inline-flex items-center gap-2">
+                    Gerenciar meu agendamento
+                  </a>
+                )}
+
+                <p className="font-mono text-xs text-muted-foreground">
+                  Código: {(session.booking_code ?? session.token.slice(0, 8)).toUpperCase()}
+                </p>
+
+                <a href="/portal/login"
+                   className="text-sm text-muted-foreground hover:text-foreground transition-colors underline">
+                  Criar conta no Painel do Cliente
+                </a>
+
+                <button onClick={handleReset}
+                  className="mt-2 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">
+                  Fazer novo agendamento
+                </button>
+              </>
             )}
-            {session.confirmation && (
-              <div className="rounded-2xl border border-border bg-card p-6 text-left space-y-3 w-full max-w-sm text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Serviço</span>
-                  <span className="font-medium">{session.confirmation.service_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Barbeiro</span>
-                  <span className="font-medium">{session.confirmation.professional_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Data e hora</span>
-                  <span className="font-medium text-right">
-                    {new Date(session.confirmation.start_at).toLocaleString("pt-BR", {
-                      dateStyle: "short", timeStyle: "short",
-                      timeZone: session.company_timezone,
-                    })}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border pt-2 mt-1">
-                  <span className="text-muted-foreground">Total</span>
-                  <span className="font-display text-lg text-primary">
-                    {formatBRL(session.confirmation.total_amount)}
-                  </span>
-                </div>
-              </div>
-            )}
-            <p className="font-mono text-xs text-muted-foreground">
-              Código: {(session.booking_code ?? session.token.slice(0, 8)).toUpperCase()}
-            </p>
-            <a
-              href={portalLoggedIn ? "/portal/dashboard" : "/portal/login"}
-              className="book-btn-secondary px-4 py-2 text-sm inline-flex items-center gap-2">
-              {portalLoggedIn ? "Gerenciar no Painel do Cliente" : "Acessar Painel do Cliente"}
-            </a>
-            <button onClick={handleReset}
-              className="mt-4 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent transition-colors">
-              Fazer novo agendamento
-            </button>
           </div>
         )}
 

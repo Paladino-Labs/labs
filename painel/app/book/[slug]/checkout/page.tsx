@@ -125,6 +125,17 @@ function CheckoutContent({ slug }: { slug: string }) {
       .catch(() => {})  // falha silenciosa — tratar como não logado
   }, [])
 
+  // Logado: ao concluir, redireciona ao portal (pedido já aparece lá).
+  // Visitante: permanece na tela de sucesso com o link de gestão.
+  const [redirecting, setRedirecting] = useState(false)
+  useEffect(() => {
+    if (step !== "success") return
+    if (!portalIdentity) return  // visitante — não redireciona
+    setRedirecting(true)
+    const timer = setTimeout(() => router.push("/portal/dashboard"), 2500)
+    return () => clearTimeout(timer)
+  }, [step, portalIdentity, router])
+
   async function handleApplyCoupon() {
     const code = couponInput.trim()
     if (!code) return
@@ -228,71 +239,82 @@ function CheckoutContent({ slug }: { slug: string }) {
           </div>
           <h1 className="font-display text-4xl tracking-wide">Pedido confirmado!</h1>
 
-          <div className="w-full rounded-xl border border-border bg-card p-4 text-sm text-left space-y-2">
-            {checkoutResult.appointments.map((a) => (
-              <div key={a.appointment_id} className="flex justify-between">
-                <span className="text-muted-foreground">Agendamento — {a.service_name}</span>
-                <span>{formatBRLFromDecimal(a.total_amount)}</span>
+          {redirecting ? (
+            <p className="text-sm text-muted-foreground">
+              Redirecionando para o seu painel…
+            </p>
+          ) : (
+            <>
+              <div className="w-full rounded-xl border border-border bg-card p-4 text-sm text-left space-y-2">
+                {checkoutResult.appointments.map((a) => (
+                  <div key={a.appointment_id} className="flex justify-between">
+                    <span className="text-muted-foreground">Agendamento — {a.service_name}</span>
+                    <span>{formatBRLFromDecimal(a.total_amount)}</span>
+                  </div>
+                ))}
+                {checkoutResult.purchases.map((p) => (
+                  <div key={p.purchase_id} className="flex justify-between">
+                    <span className="text-muted-foreground">Pacote — {p.package_name}</span>
+                    <span>{formatBRLFromDecimal(p.amount_paid)}</span>
+                  </div>
+                ))}
+                {checkoutResult.subscriptions.map((s) => (
+                  <div key={s.subscription_id} className="flex justify-between">
+                    <span className="text-muted-foreground">Assinatura — {s.plan_name}</span>
+                    <span>{formatBRLFromDecimal(s.amount_paid)}</span>
+                  </div>
+                ))}
+                {checkoutResult.product_sales.map((p, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span className="text-muted-foreground">Produto — {p.product_name}</span>
+                    <span>{formatBRLFromDecimal(p.amount_paid)}</span>
+                  </div>
+                ))}
+                {checkoutResult.discount_amount && (
+                  <div className="flex justify-between text-success border-t border-border pt-2">
+                    <span>Desconto ({checkoutResult.coupon_applied})</span>
+                    <span>−{formatBRLFromDecimal(checkoutResult.discount_amount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-semibold border-t border-border pt-2">
+                  <span>Total</span>
+                  <span className="font-display text-primary">
+                    {formatBRLFromDecimal(checkoutResult.total_charged)}
+                  </span>
+                </div>
               </div>
-            ))}
-            {checkoutResult.purchases.map((p) => (
-              <div key={p.purchase_id} className="flex justify-between">
-                <span className="text-muted-foreground">Pacote — {p.package_name}</span>
-                <span>{formatBRLFromDecimal(p.amount_paid)}</span>
-              </div>
-            ))}
-            {checkoutResult.subscriptions.map((s) => (
-              <div key={s.subscription_id} className="flex justify-between">
-                <span className="text-muted-foreground">Assinatura — {s.plan_name}</span>
-                <span>{formatBRLFromDecimal(s.amount_paid)}</span>
-              </div>
-            ))}
-            {checkoutResult.product_sales.map((p, i) => (
-              <div key={i} className="flex justify-between">
-                <span className="text-muted-foreground">Produto — {p.product_name}</span>
-                <span>{formatBRLFromDecimal(p.amount_paid)}</span>
-              </div>
-            ))}
-            {checkoutResult.discount_amount && (
-              <div className="flex justify-between text-success border-t border-border pt-2">
-                <span>Desconto ({checkoutResult.coupon_applied})</span>
-                <span>−{formatBRLFromDecimal(checkoutResult.discount_amount)}</span>
-              </div>
-            )}
-            <div className="flex justify-between font-semibold border-t border-border pt-2">
-              <span>Total</span>
-              <span className="font-display text-primary">
-                {formatBRLFromDecimal(checkoutResult.total_charged)}
-              </span>
-            </div>
-          </div>
 
-          {checkoutResult.appointments.length > 0 && (
-            portalIdentity ? (
-              <p className="text-sm text-muted-foreground">
-                Acompanhe e gerencie este agendamento no seu Painel do Cliente.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                📱 Enviamos o link de gestão do agendamento para o seu WhatsApp.
-              </p>
-            )
+              {checkoutResult.appointments.length > 0 &&
+               checkoutResult.appointments[0].manage_url && (
+                <div className="w-full space-y-2">
+                  <a
+                    href={checkoutResult.appointments[0].manage_url!}
+                    className="book-btn-primary px-6 py-3 text-sm inline-flex items-center gap-2 w-full justify-center">
+                    Gerenciar meu agendamento
+                  </a>
+                  <p className="text-xs text-muted-foreground">
+                    Também enviamos este link por WhatsApp
+                    {phone ? ` para ${phone}` : ""}.
+                  </p>
+                </div>
+              )}
+
+              {checkoutResult.warnings.length > 0 && (
+                <div className="w-full rounded-lg border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground space-y-1">
+                  {checkoutResult.warnings.map((w, i) => <p key={i}>{w}</p>)}
+                </div>
+              )}
+
+              <a href="/portal/login"
+                 className="text-sm text-muted-foreground hover:text-foreground transition-colors underline">
+                Criar conta no Painel do Cliente
+              </a>
+              <a href={`/book/${slug}`}
+                 className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                Voltar ao catálogo
+              </a>
+            </>
           )}
-
-          {checkoutResult.warnings.length > 0 && (
-            <div className="w-full rounded-lg border border-border bg-muted/40 p-3 text-left text-xs text-muted-foreground space-y-1">
-              {checkoutResult.warnings.map((w, i) => <p key={i}>{w}</p>)}
-            </div>
-          )}
-
-          <a href={portalIdentity ? "/portal/dashboard" : "/portal/login"}
-             className="book-btn-secondary px-6 py-2 text-sm inline-flex items-center gap-2">
-            {portalIdentity ? "Gerenciar no Painel do Cliente" : "Acessar Painel do Cliente"}
-          </a>
-          <a href={`/book/${slug}`}
-             className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Voltar ao catálogo
-          </a>
         </div>
       </Shell>
     )
