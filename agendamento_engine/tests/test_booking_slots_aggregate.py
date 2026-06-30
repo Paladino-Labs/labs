@@ -6,11 +6,13 @@ limit=0, fazendo sumir os horários da tarde/noite na web E no bot.
 Correção: com limit=0 coleta o dia inteiro de cada profissional e ordena
 cronologicamente; com limit>0 mantém o corte para paginação.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from app.modules.booking import engine as engine_mod
+from app.modules.booking.actions import BookingAction
 from app.modules.booking.engine import booking_engine
 
 
@@ -87,6 +89,55 @@ def test_aggregate_limit_zero_is_chronological(monkeypatch):
 
     starts = [s.start_at for s in result]
     assert starts == sorted(starts), "slots devem vir em ordem cronológica"
+
+
+def test_aggregate_load_balancing_picks_least_busy(monkeypatch):
+    p1, p2 = _patch_two_profs_full_day(monkeypatch)
+    # Ana(p1) com 5 agendamentos, Bia(p2) com 0 → Bia tem prioridade nos
+    # horários em que ambos estão livres (14h e 15h).
+    monkeypatch.setattr(
+        booking_engine, "_professional_day_load",
+        lambda db, cid, td, tz: {p1: 5, p2: 0},
+    )
+
+    result = booking_engine.list_available_slots(
+        db=None, company_id=uuid4(), professional_id=None,
+        service_id=uuid4(), target_date=datetime(2026, 7, 1).date(),
+        limit=0, company_timezone="UTC",
+    )
+
+    by_hour = {s.start_at.hour: s.professional_id for s in result}
+    # 14h: ambos livres → menos ocupado (Bia/p2)
+    assert by_hour[14] == p2
+    # 9h: só Ana tem → continua Ana
+    assert by_hour[9] == p1
+
+
+def test_select_time_sets_professional_name_on_context():
+    """Após escolher um horário, o ctx guarda o nome real (não 'Qualquer disponível')."""
+    prof_id = uuid4()
+    start = datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+    session = MagicMock()
+    session.company_id = uuid4()
+    session.company_timezone = "UTC"
+    session.customer_id = None
+    session.context = {
+        "service_id": str(uuid4()),
+        "professional_id": None,
+        "professional_name": "Qualquer disponível",   # rótulo da etapa anterior
+        "last_listed_slots": [{
+            "start_at": start.isoformat(),
+            "end_at": (start + timedelta(minutes=30)).isoformat(),
+            "professional_id": str(prof_id),
+            "professional_name": "Bia",
+            "row_key": "slot_1",
+        }],
+    }
+
+    booking_engine._handle_select_time(None, session, {"row_key": "slot_1"})
+
+    assert session.context["professional_name"] == "Bia"
+    assert session.context["professional_id"] == str(prof_id)
 
 
 def test_aggregate_with_limit_still_caps(monkeypatch):

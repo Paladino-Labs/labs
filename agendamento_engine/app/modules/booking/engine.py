@@ -313,6 +313,48 @@ class BookingEngine:
 
     # ─── Slots disponíveis ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _professional_day_load(
+        db: Session, company_id: UUID, target_date: date, company_timezone: str
+    ) -> dict:
+        """
+        Nº de agendamentos ativos por profissional na data (para balanceamento
+        do "qualquer profissional"). Best-effort: qualquer falha → {} (cai na
+        ordem natural da lista, sem balancear).
+        """
+        try:
+            from datetime import time as _time
+            from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+            from sqlalchemy import func
+            from app.infrastructure.db.models.appointment import Appointment
+
+            try:
+                tz = ZoneInfo(company_timezone)
+            except ZoneInfoNotFoundError:
+                tz = ZoneInfo("America/Sao_Paulo")
+
+            day_start = datetime.combine(target_date, _time.min, tzinfo=tz).astimezone(timezone.utc)
+            day_end = day_start + timedelta(days=1)
+
+            rows = (
+                db.query(Appointment.professional_id, func.count(Appointment.id))
+                .filter(
+                    Appointment.company_id == company_id,
+                    Appointment.start_at >= day_start,
+                    Appointment.start_at < day_end,
+                    Appointment.status.notin_(["CANCELLED", "NO_SHOW"]),
+                )
+                .group_by(Appointment.professional_id)
+                .all()
+            )
+            return {pid: count for pid, count in rows}
+        except Exception:
+            logger.warning(
+                "_professional_day_load falhou — seguindo sem balanceamento "
+                "(company_id=%s date=%s)", company_id, target_date, exc_info=True,
+            )
+            return {}
+
     def list_available_slots(
         self,
         db: Session,
@@ -336,6 +378,11 @@ class BookingEngine:
         else:
             raw = []
             profs = professional_svc.list_by_service(db, company_id, service_id)
+            # Balanceamento de carga: prioriza quem tem MENOS agendamentos no
+            # dia. Como o sort por start_at abaixo é estável e o dedup mantém a
+            # 1ª ocorrência, o profissional menos ocupado fica com cada horário.
+            load = self._professional_day_load(db, company_id, target_date, company_timezone)
+            profs = sorted(profs, key=lambda p: load.get(p.id, 0))
             for p in profs:
                 try:
                     slots = availability_svc.get_available_slots(
@@ -1169,6 +1216,7 @@ class BookingEngine:
             slot_start = matched["start_at"]
             slot_end   = matched["end_at"]
             prof_id    = matched["professional_id"]
+            prof_name  = matched.get("professional_name") or ""
         elif "start_at" in payload:
             # [FIX 3] Web envia ISO — converter para timezone da empresa antes de salvar
             raw_start = datetime.fromisoformat(str(payload["start_at"]))
@@ -1179,8 +1227,25 @@ class BookingEngine:
                 if raw_end else ""
             )
             prof_id = str(payload.get("professional_id", ctx.get("professional_id", "")))
+            # Nome do profissional do slot escolhido (resolvido na seleção do
+            # horário — em "qualquer disponível" o slot já carrega o profissional real)
+            prof_name = ""
+            for s in ctx.get("last_listed_slots", []):
+                if s.get("start_at") == slot_start and str(s.get("professional_id")) == prof_id:
+                    prof_name = s.get("professional_name") or ""
+                    break
         else:
             raise InvalidActionError("payload deve ter 'start_at' ou 'row_key'")
+
+        # Resolve nome se ainda vazio (fallback ao cadastro); nunca mantém o
+        # rótulo "Qualquer disponível" depois que um horário concreto foi escolhido.
+        if not prof_name and prof_id:
+            try:
+                prof_name = professional_svc.get_professional_or_404(
+                    db, session.company_id, UUID(prof_id)
+                ).name
+            except Exception:
+                prof_name = ctx.get("professional_name", "")
 
         # Gerar chave de idempotência — evita double-booking por duplo clique
         customer_phone = ctx.get("customer_phone", str(session.customer_id or ""))
@@ -1193,6 +1258,7 @@ class BookingEngine:
             "slot_start_at":   slot_start,
             "slot_end_at":     slot_end,
             "professional_id": prof_id,
+            "professional_name": prof_name,
             "idempotency_key": idempotency_key,
         })
         session.context = ctx  # atribuição única
