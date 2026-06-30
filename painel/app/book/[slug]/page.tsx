@@ -1,19 +1,21 @@
 "use client"
 
-import { Suspense, useEffect, useRef, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import {
   Clock, CreditCard, ExternalLink, Frown,
-  MapPin, MessageCircle, Package, Phone, Scissors, Star,
+  MapPin, MessageCircle, Package, Phone, RefreshCw, Scissors, Star, Tag,
 } from "lucide-react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
-import BookingFlow from "./BookingFlow"
+import { useParams, useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { publicFetch } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBRL, formatBRLFromDecimal, cn } from "@/lib/utils"
-import type { PublicProduct } from "@/lib/portal-types"
+import type { PublicProduct, PublicPackage, PublicPlan, PublicPromotion } from "@/lib/portal-types"
+import { CartProvider, useCart } from "@/context/CartContext"
+import { CartButton } from "@/components/booking/CartButton"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -66,9 +68,18 @@ export default function BookingPage() {
 }
 
 function BookingContent() {
+  const { slug } = useParams<{ slug: string }>()
+  return (
+    <CartProvider slug={slug}>
+      <BookingInner />
+    </CartProvider>
+  )
+}
+
+function BookingInner() {
   const { slug }       = useParams<{ slug: string }>()
-  const searchParams   = useSearchParams()
   const router         = useRouter()
+  const { addItem }    = useCart()
 
   interface ProfessionalOption {
     id: string | null
@@ -81,18 +92,16 @@ function BookingContent() {
   const [products,        setProducts]        = useState<PublicProduct[]>([])
   const [productsState,   setProductsState]   = useState<"loading" | "ok" | "error">("loading")
   const [vitrineProfs,    setVitrineProfs]    = useState<ProfessionalOption[]>([])
+  // Pacotes
+  const [packages,        setPackages]        = useState<PublicPackage[]>([])
+  const [packagesState,   setPackagesState]   = useState<"loading" | "ok" | "error">("loading")
+  // Assinaturas
+  const [plans,           setPlans]           = useState<PublicPlan[]>([])
+  const [plansState,      setPlansState]      = useState<"loading" | "ok" | "error">("loading")
+  // Promoções
+  const [promotions,      setPromotions]      = useState<PublicPromotion[]>([])
+  const [promotionsState, setPromotionsState] = useState<"loading" | "ok" | "error">("loading")
   const [error,           setError]           = useState<string | null>(null)
-  const [showBooking,       setShowBooking]       = useState(false)
-  const [initialServiceId,  setInitialServiceId]  = useState<string | null>(null)
-  const [bookingToken,      setBookingToken]       = useState<string | null>(
-    searchParams.get("t")
-  )
-
-  const bookingRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (searchParams.get("book") === "1") setShowBooking(true)
-  }, [searchParams])
 
   useEffect(() => {
     publicFetch<CompanyProfile>(`/booking/${slug}/profile`)
@@ -107,6 +116,33 @@ function BookingContent() {
     publicFetch<PublicProduct[]>(`/booking/${slug}/products`)
       .then((data) => { setProducts(data); setProductsState("ok") })
       .catch(() => setProductsState("error"))
+  }, [slug])
+
+  // Pacotes (público).
+  useEffect(() => {
+    if (!slug) return
+    setPackagesState("loading")
+    publicFetch<PublicPackage[]>(`/booking/${slug}/packages`)
+      .then((data) => { setPackages(data); setPackagesState("ok") })
+      .catch(() => setPackagesState("error"))
+  }, [slug])
+
+  // Assinaturas (público).
+  useEffect(() => {
+    if (!slug) return
+    setPlansState("loading")
+    publicFetch<PublicPlan[]>(`/booking/${slug}/subscription-plans`)
+      .then((data) => { setPlans(data); setPlansState("ok") })
+      .catch(() => setPlansState("error"))
+  }, [slug])
+
+  // Promoções (público).
+  useEffect(() => {
+    if (!slug) return
+    setPromotionsState("loading")
+    publicFetch<PublicPromotion[]>(`/booking/${slug}/promotions`)
+      .then((data) => { setPromotions(data); setPromotionsState("ok") })
+      .catch(() => setPromotionsState("error"))
   }, [slug])
 
   useEffect(() => {
@@ -128,27 +164,13 @@ function BookingContent() {
       .catch(() => {})
   }, [slug])
 
-  function handleStartBooking() {
-    setInitialServiceId(null)
-    setShowBooking(true)
-    setTimeout(() => {
-      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-    }, 80)
-  }
-
-  function handleBookService(serviceId: string) {
-    setInitialServiceId(serviceId)
-    setShowBooking(true)
-    setTimeout(() => {
-      bookingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-    }, 80)
-  }
-
-  function handleTokenChange(token: string) {
-    setBookingToken(token)
-    const url = new URL(window.location.href)
-    url.searchParams.set("t", token)
-    router.replace(url.pathname + url.search, { scroll: false })
+  // Direciona para a tela dedicada de agendamento (em vez de expandir inline).
+  function goToBooking(serviceId?: string) {
+    router.push(
+      serviceId
+        ? `/book/${slug}/agendar?service=${serviceId}`
+        : `/book/${slug}/agendar`
+    )
   }
 
   // ── Guards ────────────────────────────────────────────────────────────────
@@ -235,7 +257,7 @@ function BookingContent() {
 
               {profile.online_booking_enabled && (
                 <button
-                  onClick={handleStartBooking}
+                  onClick={() => goToBooking()}
                   className="book-btn-primary mt-5 px-8 py-3 text-base"
                 >
                   Agendar agora
@@ -298,7 +320,10 @@ function BookingContent() {
             <TabsList>
               <TabsTrigger value="services">Serviços</TabsTrigger>
               <TabsTrigger value="professionals">Barbeiros</TabsTrigger>
+              <TabsTrigger value="packages">Pacotes</TabsTrigger>
+              <TabsTrigger value="subscriptions">Assinaturas</TabsTrigger>
               <TabsTrigger value="products">Produtos</TabsTrigger>
+              <TabsTrigger value="promotions">Promoções</TabsTrigger>
               <TabsTrigger value="reviews">Avaliações</TabsTrigger>
             </TabsList>
 
@@ -332,8 +357,8 @@ function BookingContent() {
                       </span>
                       {profile.online_booking_enabled && (
                         <button
-                          onClick={() => handleBookService(s.id)}
-                          className="book-btn-secondary px-3 py-1 text-xs"
+                          onClick={() => goToBooking(s.id)}
+                          className="book-btn-primary px-4 py-1.5 text-xs"
                         >
                           Agendar
                         </button>
@@ -368,6 +393,155 @@ function BookingContent() {
                         <h3 className="font-semibold">{p.name}</h3>
                       </div>
                     </article>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="packages">
+              {packagesState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                </div>
+              ) : packagesState === "error" ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar os pacotes."
+                />
+              ) : packages.length === 0 ? (
+                <EmptyState
+                  icon={<Package size={28} strokeWidth={1.5} />}
+                  title="Em breve"
+                  description="Os pacotes do estabelecimento aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {packages.map((pkg) => (
+                    <div key={pkg.package_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{pkg.name}</p>
+
+                      {/* Chips de itens */}
+                      <div className="flex flex-wrap gap-1">
+                        {pkg.items.map((item, i) => (
+                          <span key={i}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                              item.item_type === "SERVICE"
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground border border-border"
+                            )}>
+                            {item.quantity}× {item.service_name ?? item.product_name ?? "Item"}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Cotas e validade */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{pkg.total_cotas} {pkg.total_cotas === 1 ? "cota" : "cotas"} no total</span>
+                        {pkg.validity_days && (
+                          <span>· Válido por {pkg.validity_days} dias</span>
+                        )}
+                      </div>
+
+                      {/* Preço + botão */}
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <span className="font-display text-lg text-primary">
+                          {formatBRLFromDecimal(pkg.price)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            addItem({
+                              kind:         "package",
+                              package_id:   pkg.package_id,
+                              package_name: pkg.name,
+                              price:        pkg.price,
+                              total_cotas:  pkg.total_cotas,
+                            })
+                            toast.success(`${pkg.name} adicionado ao carrinho`)
+                          }}
+                          className="book-btn-secondary px-3 py-1 text-xs">
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="subscriptions">
+              {plansState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2].map((i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                </div>
+              ) : plansState === "error" ? (
+                <EmptyState
+                  icon={<RefreshCw size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar os planos."
+                />
+              ) : plans.length === 0 ? (
+                <EmptyState
+                  icon={<RefreshCw size={28} strokeWidth={1.5} />}
+                  title="Em breve"
+                  description="Os planos de assinatura aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {plans.map((plan) => (
+                    <div key={plan.plan_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{plan.name}</p>
+
+                      {/* Chips de itens */}
+                      <div className="flex flex-wrap gap-1">
+                        {plan.items.map((item, i) => (
+                          <span key={i}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                              item.item_type === "SERVICE"
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground border border-border"
+                            )}>
+                            {item.quantity}× {item.service_name ?? item.product_name ?? "Item"}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Cotas e ciclo */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{plan.total_cotas_per_cycle} {plan.total_cotas_per_cycle === 1 ? "cota" : "cotas"}/ciclo</span>
+                        <span>· Renova a cada {plan.cycle_days} dias</span>
+                      </div>
+
+                      {/* Preço + botão */}
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <div>
+                          <span className="font-display text-lg text-primary">
+                            {formatBRLFromDecimal(plan.price)}
+                          </span>
+                          <span className="text-xs text-muted-foreground ml-1">
+                            /{plan.cycle_days === 30 ? "mês" : plan.cycle_days === 7 ? "sem." : `${plan.cycle_days}d`}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            addItem({
+                              kind:       "subscription",
+                              plan_id:    plan.plan_id,
+                              plan_name:  plan.name,
+                              price:      plan.price,
+                              cycle_days: plan.cycle_days,
+                            })
+                            toast.success(`${plan.name} adicionado ao carrinho`)
+                          }}
+                          className="book-btn-secondary px-3 py-1 text-xs">
+                          Assinar
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -427,9 +601,93 @@ function BookingContent() {
                           </Badge>
                         )}
                       </div>
-                      <span className="font-display text-lg text-primary">
-                        {formatBRLFromDecimal(p.price)}
-                      </span>
+                      <div className="flex items-center justify-between mt-auto pt-1">
+                        <span className="font-display text-lg text-primary">
+                          {formatBRLFromDecimal(p.price)}
+                        </span>
+                        {p.available && (
+                          <button
+                            onClick={() => {
+                              addItem({
+                                kind:         "product",
+                                product_id:   p.id,
+                                product_name: p.name,
+                                price:        p.price,
+                                quantity:     1,
+                              })
+                              toast.success(`${p.name} adicionado ao carrinho`)
+                            }}
+                            className="book-btn-secondary px-3 py-1 text-xs">
+                            Adicionar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="promotions">
+              {promotionsState === "loading" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+                </div>
+              ) : promotionsState === "error" ? (
+                <EmptyState
+                  icon={<Tag size={28} strokeWidth={1.5} />}
+                  title="Não foi possível carregar as promoções."
+                />
+              ) : promotions.length === 0 ? (
+                <EmptyState
+                  icon={<Tag size={28} strokeWidth={1.5} />}
+                  title="Sem promoções ativas"
+                  description="As promoções do estabelecimento aparecerão aqui."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {promotions.map((promo) => (
+                    <div key={promo.promotion_id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
+                      {/* Badge de tipo + validade — promoções públicas são automáticas */}
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          Promoção
+                        </Badge>
+                        {promo.valid_until && (
+                          <span className="text-xs text-muted-foreground">
+                            Válido até {new Date(promo.valid_until).toLocaleDateString("pt-BR", {
+                              day: "2-digit", month: "2-digit", year: "numeric"
+                            })}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Nome */}
+                      <p className="font-semibold text-sm">{promo.name}</p>
+
+                      {/* Descrição */}
+                      {promo.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{promo.description}</p>
+                      )}
+
+                      {/* Desconto */}
+                      {promo.discount_value && (
+                        <p className="font-display text-lg text-primary">
+                          {promo.discount_type === "PERCENTAGE"
+                            ? `${parseFloat(promo.discount_value).toFixed(0)}% off`
+                            : promo.discount_type === "FIXED_AMOUNT"
+                            ? `${formatBRLFromDecimal(promo.discount_value)} off`
+                            : promo.discount_type === "OVERRIDE_PRICE"
+                            ? `Por ${formatBRLFromDecimal(promo.discount_value)}`
+                            : "Grátis"}
+                        </p>
+                      )}
+
+                      {/* Promoções públicas aplicam-se automaticamente no checkout */}
+                      <Badge variant="outline" className="text-xs w-fit mt-auto">
+                        Aplicado automaticamente
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -437,9 +695,11 @@ function BookingContent() {
             </TabsContent>
 
             <TabsContent value="reviews">
-              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                Avaliações em breve.
-              </div>
+              <EmptyState
+                icon={<Star size={28} strokeWidth={1.5} />}
+                title="Avaliações em breve"
+                description="Em breve você poderá ler e deixar avaliações sobre o atendimento."
+              />
             </TabsContent>
           </Tabs>
         </main>
@@ -528,13 +788,13 @@ function BookingContent() {
       </div>
 
       {/* ══ BOTÃO FIXO MOBILE ════════════════════════════════════════════════ */}
-      {profile.online_booking_enabled && !showBooking && (
+      {profile.online_booking_enabled && (
         <div
           className="fixed bottom-0 left-0 right-0 z-30 p-4 lg:hidden"
           style={{ background: "linear-gradient(to top, var(--background) 60%, transparent)" }}
         >
           <button
-            onClick={handleStartBooking}
+            onClick={() => goToBooking()}
             className="book-btn-primary w-full py-4 text-base font-semibold"
           >
             Agendar agora
@@ -542,38 +802,11 @@ function BookingContent() {
         </div>
       )}
 
-      {/* ══ FLUXO DE AGENDAMENTO ═════════════════════════════════════════════ */}
-      <div
-        ref={bookingRef}
-        className="transition-all duration-500"
-        style={{
-          overflow: showBooking ? "visible" : "hidden",
-          maxHeight: showBooking ? "9999px" : 0,
-          opacity: showBooking ? 1 : 0,
-        }}
-      >
-        {showBooking && (
-          <section>
-            <div className="flex items-center gap-3 max-w-lg mx-auto px-6 py-6">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Agendamento
-              </span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-            <BookingFlow
-              slug={slug}
-              companyName={profile.company_name}
-              initialToken={bookingToken}
-              onTokenChange={handleTokenChange}
-              initialServiceId={initialServiceId}
-            />
-          </section>
-        )}
-      </div>
-
       {/* Espaço para o botão fixo mobile */}
-      {!showBooking && <div className="h-24 lg:hidden" />}
+      <div className="h-24 lg:hidden" />
+
+      {/* ══ CARRINHO FLUTUANTE ════════════════════════════════════════════════ */}
+      <CartButton slug={slug} />
     </div>
   )
 }

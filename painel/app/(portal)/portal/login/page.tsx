@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { KeyRound, Loader2, Mail, MailCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { portalFetch, setPortalToken } from "@/lib/portal-api"
@@ -17,7 +17,19 @@ type MagicState = "idle" | "sending" | "sent" | "error"
 type RegisterState = "idle" | "submitting" | "done"
 
 export default function PortalLoginPage() {
+  return (
+    <Suspense>
+      <PortalLoginInner />
+    </Suspense>
+  )
+}
+
+function PortalLoginInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Só aceita redirect interno (começa com "/") — evita open-redirect.
+  const redirectParam = searchParams.get("redirect")
+  const safeRedirect = redirectParam?.startsWith("/") ? redirectParam : "/portal/dashboard"
   const [view, setView] = useState<View>("login")
   const [mode, setMode] = useState<Mode>("magic")
 
@@ -106,7 +118,7 @@ export default function PortalLoginPage() {
         body: JSON.stringify({ email, password }),
       })
       setPortalToken(res.access_token)
-      router.push("/portal/dashboard")
+      router.push(safeRedirect)
     } catch (err: unknown) {
       const status = (err as { status?: number }).status
       setLoginError(

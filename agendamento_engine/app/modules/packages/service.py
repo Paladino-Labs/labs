@@ -33,8 +33,14 @@ def purchase(
     target_account_id: Optional[UUID],
     company_id: UUID,
     db: Session,
+    coupon_code: Optional[str] = None,
 ) -> PackagePurchase:
-    """Cria PackagePurchase PENDING_PAYMENT + Payment PENDING."""
+    """Cria PackagePurchase PENDING_PAYMENT + Payment PENDING.
+
+    coupon_code (B2): repassado a create_payment — o desconto entra no
+    net_charged_amount na criação e Payment.coupon_code dispara a efetivação
+    da promoção no payment.confirmed.
+    """
     package = _get_package_or_404(package_id, company_id, db)
 
     if not package.is_active:
@@ -61,6 +67,7 @@ def purchase(
         provider="manual",
         target_account_id=target_account_id,
         appointment_id=None,
+        coupon_code=coupon_code,
         db=db,
     )
 
@@ -400,6 +407,29 @@ def _attach_item_names(db: Session, packages: List[Package]) -> List[Package]:
             item.service_name = svc_names.get(item.service_id)
             item.product_name = prod_names.get(item.product_id)
     return packages
+
+
+def get_packages_containing_service(
+    db: Session, company_id: UUID, service_id: Optional[UUID] = None,
+) -> List[Package]:
+    """Pacotes ativos do tenant (checkout público B2).
+
+    service_id informado → apenas pacotes com um PackageItem SERVICE desse serviço.
+    Item names anexados (sem N+1) para serialização pública.
+    """
+    from app.infrastructure.db.models.package import PackageItem
+
+    q = (
+        db.query(Package)
+        .filter(Package.company_id == company_id, Package.is_active == True)  # noqa: E712
+    )
+    if service_id:
+        q = q.join(PackageItem, PackageItem.package_id == Package.package_id).filter(
+            PackageItem.item_type == "SERVICE",
+            PackageItem.service_id == service_id,
+        )
+    packages = q.order_by(Package.name).all()
+    return _attach_item_names(db, packages)
 
 
 def list_purchases(

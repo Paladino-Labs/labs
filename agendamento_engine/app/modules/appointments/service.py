@@ -264,7 +264,7 @@ def list_completed_by_client(
 def create_appointment(
     db: Session, company_id: UUID, data: AppointmentCreate, user_id: UUID | None = None,
     bypass_working_hours: bool = False,
-) -> Appointment:
+) -> tuple[Appointment, str]:
     # Normaliza start_at para UTC tz-aware (naive → fuso do tenant) antes de
     # qualquer cálculo/validação/persistência — evita deslocamento por fuso da
     # sessão do servidor (divergência local×prod).
@@ -342,7 +342,10 @@ def create_appointment(
     # Disparar confirmação via WhatsApp — fire-and-forget, nunca propaga erros
     send_booking_confirmation(db, appointment, manage_token=manage_token)
 
-    return appointment
+    # Retorna o token cru junto com o appointment — o caller (FSM público) usa
+    # para montar o manage_url na resposta de confirmação. O router do painel
+    # ignora (a notificação já foi enviada acima).
+    return appointment, manage_token
 
 
 def cancel_appointment(

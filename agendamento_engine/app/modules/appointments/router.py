@@ -68,10 +68,11 @@ def create_appointment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.create_appointment(
+    appointment, _manage_token = svc.create_appointment(
         db, user.company_id, body, user.id,
         bypass_working_hours=(user.role == "OWNER"),
     )
+    return appointment  # raw token ignorado aqui (já enviado via notificação)
 
 
 @router.get("/{appointment_id}", response_model=schemas.AppointmentResponse)
