@@ -336,17 +336,25 @@ class BookingEngine:
         else:
             raw = []
             profs = professional_svc.list_by_service(db, company_id, service_id)
-            half = max(1, (limit or settings.BOT_MAX_SLOTS_DISPLAYED) // 2)
             for p in profs:
                 try:
                     slots = availability_svc.get_available_slots(
                         db, company_id, p.id, service_id, target_date
                     )
-                    raw.extend(slots[:half])
-                    if len(raw) >= (limit or settings.BOT_MAX_SLOTS_DISPLAYED):
-                        break
                 except HTTPException:
                     continue
+                if limit:
+                    # Com limite (paginação/bot), bastam os primeiros de cada
+                    # profissional; o corte final por start_at vem abaixo.
+                    half = max(1, limit // 2)
+                    raw.extend(slots[:half])
+                else:
+                    # Sem limite (limit=0): coletar o dia inteiro de cada
+                    # profissional — NÃO truncar, senão só sobram os primeiros
+                    # slots (manhã) e a tarde some na web e no bot.
+                    raw.extend(slots)
+            # Intercalar profissionais em ordem cronológica (manhã → noite)
+            raw.sort(key=lambda s: s.start_at)
 
         if limit:
             raw = raw[:limit]
