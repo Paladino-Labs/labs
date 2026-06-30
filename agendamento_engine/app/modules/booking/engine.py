@@ -355,6 +355,17 @@ class BookingEngine:
                     raw.extend(slots)
             # Intercalar profissionais em ordem cronológica (manhã → noite)
             raw.sort(key=lambda s: s.start_at)
+            # "Qualquer profissional": cada horário aparece UMA única vez. O
+            # primeiro profissional disponível (após o sort, ordem estável)
+            # fica responsável pelo slot — é ele que será agendado na seleção.
+            deduped: list = []
+            seen: set = set()
+            for s in raw:
+                if s.start_at in seen:
+                    continue
+                seen.add(s.start_at)
+                deduped.append(s)
+            raw = deduped
 
         if limit:
             raw = raw[:limit]

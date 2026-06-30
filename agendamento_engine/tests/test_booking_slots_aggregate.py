@@ -25,15 +25,20 @@ def _slot(prof_id, prof_name, hour):
 
 
 def _patch_two_profs_full_day(monkeypatch):
-    """2 profissionais, cada um com manhã (9,10,11) + tarde (14,15,16,17)."""
+    """
+    2 profissionais com horários que se sobrepõem (14,15) e divergem:
+      Ana: 9, 10, 11, 14, 15        Bia: 14, 15, 16, 17
+    União cronológica única = 9,10,11,14,15,16,17 (7 horários).
+    """
     p1, p2 = uuid4(), uuid4()
 
     def fake_list_by_service(db, company_id, service_id):
         return [SimpleNamespace(id=p1, name="Ana"), SimpleNamespace(id=p2, name="Bia")]
 
     def fake_get_available_slots(db, company_id, professional_id, service_id, target_date):
-        name = "Ana" if professional_id == p1 else "Bia"
-        return [_slot(professional_id, name, h) for h in (9, 10, 11, 14, 15, 16, 17)]
+        if professional_id == p1:
+            return [_slot(p1, "Ana", h) for h in (9, 10, 11, 14, 15)]
+        return [_slot(p2, "Bia", h) for h in (14, 15, 16, 17)]
 
     monkeypatch.setattr(engine_mod.professional_svc, "list_by_service", fake_list_by_service)
     monkeypatch.setattr(engine_mod.availability_svc, "get_available_slots", fake_get_available_slots)
@@ -52,8 +57,23 @@ def test_aggregate_limit_zero_includes_afternoon(monkeypatch):
     hours = sorted({s.start_at.hour for s in result})
     # Tarde DEVE aparecer (antes da correção parava na manhã)
     assert 14 in hours and 17 in hours, f"tarde ausente: {hours}"
-    # Todos os 7 horários dos 2 profissionais = 14 slots, sem truncar
-    assert len(result) == 14
+    # União dos dois profissionais, cada horário uma vez
+    assert hours == [9, 10, 11, 14, 15, 16, 17]
+
+
+def test_aggregate_dedup_one_slot_per_time(monkeypatch):
+    _patch_two_profs_full_day(monkeypatch)
+
+    result = booking_engine.list_available_slots(
+        db=None, company_id=uuid4(), professional_id=None,
+        service_id=uuid4(), target_date=datetime(2026, 7, 1).date(),
+        limit=0, company_timezone="UTC",
+    )
+
+    starts = [s.start_at for s in result]
+    # Sem horários repetidos, mesmo com 2 profissionais livres às 14 e 15
+    assert len(starts) == len(set(starts)), f"horários duplicados: {starts}"
+    assert len(result) == 7
 
 
 def test_aggregate_limit_zero_is_chronological(monkeypatch):
