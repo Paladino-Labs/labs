@@ -7,7 +7,7 @@ import {
 } from "lucide-react"
 import { publicFetch } from "@/lib/api"
 import { getPortalToken, portalFetch } from "@/lib/portal-api"
-import { formatBRL, formatBRLFromDecimal } from "@/lib/utils"
+import { formatBRL, formatBRLFromDecimal, formatPhoneBR } from "@/lib/utils"
 import {
   CartProvider, useCart,
   type CartItem, type CartServiceItem, type CartPackageItem,
@@ -458,7 +458,7 @@ function CheckoutContent({ slug }: { slug: string }) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-2">
                         <Label htmlFor="phone">Telefone *</Label>
-                        <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)}
+                        <Input id="phone" value={phone} onChange={(e) => setPhone(formatPhoneBR(e.target.value))}
                           placeholder="(11) 90000-0000" />
                       </div>
                       <div className="space-y-2">

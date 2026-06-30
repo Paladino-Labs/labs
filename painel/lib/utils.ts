@@ -55,6 +55,19 @@ export function formatDateShort(value: string | null | undefined): string {
 }
 
 /**
+ * Máscara visual de telefone BR (UX apenas — a normalização é feita no backend
+ * via normalize_phone_e164, que remove não-dígitos). Limita a 11 dígitos.
+ * Ex.: "62985657312" → "(62) 98565-7312"
+ */
+export function formatPhoneBR(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 11)
+  if (digits.length <= 2)  return digits
+  if (digits.length <= 6)  return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+/**
  * Tempo relativo humano em pt-BR a partir de um ISO no passado.
  * Ex.: "há 12 min", "há 2 h", "há 3 d".
  */
