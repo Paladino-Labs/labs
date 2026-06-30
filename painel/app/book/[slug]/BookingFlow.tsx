@@ -13,6 +13,15 @@ import { Label } from "@/components/ui/label"
 import { CrossSellStep } from "@/components/booking/CrossSellStep"
 import { ThemeToggle } from "@/components/booking/ThemeToggle"
 
+// Máscara visual de telefone BR (UX apenas — a normalização é feita no backend).
+function formatPhoneBR(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 11)
+  if (digits.length <= 2)  return digits
+  if (digits.length <= 6)  return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface ServiceOpt {
@@ -575,7 +584,7 @@ export default function BookingFlow({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Telefone</Label>
-                <Input id="phone" value={custPhone} onChange={e => setCustPhone(e.target.value)}
+                <Input id="phone" value={custPhone} onChange={e => setCustPhone(formatPhoneBR(e.target.value))}
                   placeholder="(11) 90000-0000" />
               </div>
               <div className="space-y-2">

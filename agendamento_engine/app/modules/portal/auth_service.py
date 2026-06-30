@@ -178,6 +178,11 @@ def register(
     db.add(credential)
     db.commit()
 
+    # Religa customers órfãos (identity_id NULL) com este telefone em qualquer
+    # tenant — garante que agendamentos legados apareçam no Portal.
+    if identity is not None:
+        _backfill_orphan_customers(db, identity)
+
     # Email de verificação — best-effort, não bloqueia o registro
     try:
         _issue_and_send_magic_link(
@@ -193,6 +198,55 @@ def register(
         "has_existing_history": not result.is_new_identity,
         "message": "Conta criada. Verifique seu e-mail para confirmar o cadastro.",
     }
+
+
+def _backfill_orphan_customers(db: Session, identity: PaladinoIdentity) -> None:
+    """
+    Após registro no portal, religa customers que têm o mesmo telefone mas
+    identity_id = NULL (criados por caminhos legados). Opera cross-tenant por
+    design — o portal é global.
+
+    Matching: usa o MESMO algoritmo do scripts/backfill_identity.py
+    (normalize_phone_e164) para casar variações com/sem o 9º dígito.
+    NOTA: Customer.phone é armazenado SEM o '+' mas COM o DDI 55
+    (ex.: "5562985657312"), enquanto identity.phone_national_normalized é
+    "62985657312" (sem DDI). Por isso o filtro NÃO pode comparar diretamente
+    com phone_national_normalized — normalizamos cada candidato e comparamos
+    o E.164 canônico (identity.phone_e164). Pré-filtro por sufixo de 8 dígitos
+    evita varredura total da tabela.
+    """
+    from fastapi import HTTPException as _HTTPException
+
+    from app.infrastructure.db.models.customer import Customer
+    from app.modules.identity.resolver import normalize_phone_e164
+
+    canonical = identity.phone_e164  # "+5562985657312"
+    last8 = (identity.phone_national_normalized or "")[-8:]
+    if not last8:
+        return
+
+    candidates = (
+        db.query(Customer)
+        .filter(
+            Customer.phone.like(f"%{last8}"),
+            Customer.identity_id.is_(None),
+            Customer.active == True,
+        )
+        .all()
+    )
+
+    linked = 0
+    for customer in candidates:
+        try:
+            phone_e164, _ = normalize_phone_e164(customer.phone)
+        except _HTTPException:
+            continue  # telefone malformado — ignora (operador resolve)
+        if phone_e164 == canonical:
+            customer.identity_id = identity.id
+            linked += 1
+
+    if linked:
+        db.commit()
 
 
 # ── Login com senha ───────────────────────────────────────────────────────────
