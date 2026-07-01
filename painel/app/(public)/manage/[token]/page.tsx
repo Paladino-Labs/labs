@@ -245,7 +245,7 @@ export default function ManagePage() {
             </div>
           </dl>
 
-          <div className="mt-8 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-8 flex flex-col gap-2">
             <Button
               variant="outline"
               className="w-full"

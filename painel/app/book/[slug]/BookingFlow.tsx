@@ -6,7 +6,8 @@ import { addDays, format, isSameDay, startOfDay } from "date-fns"
 import { ptBR } from "date-fns/locale/pt-BR"
 import { ArrowLeft, Check, CheckCircle2, Clock, Scissors, User } from "lucide-react"
 import { publicFetch } from "@/lib/api"
-import { getPortalToken } from "@/lib/portal-api"
+import { getPortalToken, portalFetch } from "@/lib/portal-api"
+import type { PortalIdentity } from "@/lib/portal-types"
 import { cn, formatBRL, formatPhoneBR } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -188,6 +189,15 @@ export default function BookingFlow({
   const [localProfessionalId, setLocalProfessionalId] = useState<string | null>(null)
   // Flag de UI: mostrar Tela 4 (cross-sell) antes de AWAITING_CUSTOMER
   const [showCrossSell, setShowCrossSell] = useState(false)
+  // Sessão do portal — se logado, a etapa "Seus dados" confirma sem digitar.
+  const [portalIdentity, setPortalIdentity] = useState<PortalIdentity | null>(null)
+  useEffect(() => {
+    if (!getPortalToken()) return
+    portalFetch<PortalIdentity>("/portal/identity/me")
+      .then(setPortalIdentity)
+      .catch(() => {})  // falha silenciosa — tratar como visitante
+  }, [])
+
   // Logado: ao confirmar, redireciona ao portal (o agendamento já aparece lá).
   // Visitante: permanece na tela de confirmação com o link de gestão.
   const router = useRouter()
@@ -575,38 +585,80 @@ export default function BookingFlow({
               )}
             </div>
 
-            {/* Formulário */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="name">Nome completo</Label>
-                <Input id="name" value={custName} onChange={e => setCustName(e.target.value)}
-                  placeholder="Seu nome completo" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telefone</Label>
-                <Input id="phone" value={custPhone} onChange={e => setCustPhone(formatPhoneBR(e.target.value))}
-                  placeholder="(11) 90000-0000" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">E-mail (opcional)</Label>
-                <Input id="email" type="email" value={custEmail}
-                  onChange={e => setCustEmail(e.target.value)}
-                  placeholder="seu@email.com" />
-              </div>
-            </div>
+            {portalIdentity ? (
+              <>
+                {/* Logado — confirma sem digitar */}
+                <div className="rounded-lg border border-border bg-card p-6 space-y-2">
+                  <p className="text-xs text-muted-foreground uppercase tracking-widest">Logado como</p>
+                  <p className="font-display text-2xl">Olá, {portalIdentity.name ?? "cliente"}</p>
+                  <p className="text-muted-foreground">
+                    {portalIdentity.phone_national_normalized || portalIdentity.phone_e164}
+                  </p>
+                </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <button onClick={handleBack}
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                <ArrowLeft className="h-4 w-4" /> Voltar
-              </button>
-              <Button
-                onClick={() => dispatch("SET_CUSTOMER", { name: custName, phone: custPhone })}
-                disabled={!custName || !custPhone || loading}
-                className="px-8">
-                {loading ? "Aguarde…" : "Continuar"}
-              </Button>
-            </div>
+                <div className="flex items-center justify-between pt-2">
+                  <button onClick={handleBack}
+                    className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    <ArrowLeft className="h-4 w-4" /> Voltar
+                  </button>
+                  <Button
+                    onClick={() => dispatch("SET_CUSTOMER", {
+                      name: portalIdentity.name ?? "", phone: portalIdentity.phone_e164,
+                    })}
+                    disabled={loading}
+                    className="px-8">
+                    {loading ? "Aguarde…" : "Continuar"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* CTA de login — volta à mesma sessão (?t=token) */}
+                <div className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm">Já tem conta? Entre para agilizar sem digitar.</p>
+                  <a href={`/portal/login?redirect=/book/${slug}/agendar?t=${session.token}`}
+                     className="book-btn-secondary px-3 py-1.5 text-xs text-center">
+                    Entrar
+                  </a>
+                </div>
+                <div className="text-center text-xs text-muted-foreground py-1">
+                  ── ou continue como visitante ──
+                </div>
+
+                {/* Formulário */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="name">Nome completo</Label>
+                    <Input id="name" value={custName} onChange={e => setCustName(e.target.value)}
+                      placeholder="Seu nome completo" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Telefone</Label>
+                    <Input id="phone" value={custPhone} onChange={e => setCustPhone(formatPhoneBR(e.target.value))}
+                      placeholder="(11) 90000-0000" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">E-mail (opcional)</Label>
+                    <Input id="email" type="email" value={custEmail}
+                      onChange={e => setCustEmail(e.target.value)}
+                      placeholder="seu@email.com" />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button onClick={handleBack}
+                    className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    <ArrowLeft className="h-4 w-4" /> Voltar
+                  </button>
+                  <Button
+                    onClick={() => dispatch("SET_CUSTOMER", { name: custName, phone: custPhone })}
+                    disabled={!custName || !custPhone || loading}
+                    className="px-8">
+                    {loading ? "Aguarde…" : "Continuar"}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
