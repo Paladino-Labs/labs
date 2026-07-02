@@ -39,8 +39,10 @@ from app.modules.identity.consent_service import (
     SourceChannel,
 )
 from app.modules.identity.resolver import (
+    InvalidUserPhoneError,
     PhoneIdentityResolver,
     normalize_phone_e164,
+    validate_user_phone_input,
 )
 from app.modules.identity.schemas import IdentityResponse
 
@@ -225,6 +227,62 @@ class TestNormalizePhone:
     def test_celular_com_ddi_nao_regride(self):
         e164, _ = normalize_phone_e164("5562985657312")
         assert e164 == "+5562985657312"
+
+
+# ─── Validação estrita de formulário público ─────────────────────────────────
+
+class TestValidateUserPhoneInput:
+    """validate_user_phone_input — validação estrita para formulários
+    públicos (SET_CUSTOMER, /booking/confirm, /booking/start).
+    NÃO usada pelo bot nem pelo painel — normalize_phone_e164 intocado."""
+
+    def test_celular_11_digitos_ddd_valido(self):
+        assert validate_user_phone_input("62985657312") == "62985657312"
+
+    def test_fixo_10_digitos_ddd_valido(self):
+        assert validate_user_phone_input("6298565731") == "6298565731"
+
+    def test_leading_zero_removido(self):
+        assert validate_user_phone_input("062985657312") == "62985657312"
+
+    def test_duplo_zero_nao_remove_e_rejeita(self):
+        # "00..." não sofre strip do zero:
+        # 12 dígitos → rejeitado por comprimento
+        with pytest.raises(InvalidUserPhoneError):
+            validate_user_phone_input("009856573120")
+        # 11 dígitos → sobrevive ao comprimento mas DDD "00" é inválido
+        with pytest.raises(InvalidUserPhoneError):
+            validate_user_phone_input("00985657312")
+
+    def test_ddi_explicito_rejeitado(self):
+        with pytest.raises(InvalidUserPhoneError):
+            validate_user_phone_input("5562985657312")
+
+    def test_ddd_invalido_rejeitado(self):
+        # DDD "10" não existe na lista ANATEL
+        with pytest.raises(InvalidUserPhoneError) as exc:
+            validate_user_phone_input("10985657312")
+        assert "'10'" in exc.value.message
+
+    def test_leading_zero_ddd_06_vira_69_valido(self):
+        # NOTA: o enunciado listava "06985657312" → erro (DDD 06), mas a
+        # regra 2 do próprio código remove o zero inicial único ANTES do
+        # check de DDD: "06985657312" → "6985657312" (DDD 69, válido).
+        assert validate_user_phone_input("06985657312") == "6985657312"
+
+    def test_ddd_99_valido(self):
+        assert validate_user_phone_input("99985657312") == "99985657312"
+
+    def test_curto_demais_rejeitado(self):
+        with pytest.raises(InvalidUserPhoneError):
+            validate_user_phone_input("123456789")
+
+    def test_longo_demais_rejeitado(self):
+        with pytest.raises(InvalidUserPhoneError):
+            validate_user_phone_input("629856573120")
+
+    def test_formatado_com_mascara(self):
+        assert validate_user_phone_input("(62) 98565-7312") == "62985657312"
 
 
 # ─── Resolver ─────────────────────────────────────────────────────────────────

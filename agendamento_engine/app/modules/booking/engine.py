@@ -908,10 +908,20 @@ class BookingEngine:
         # PaladinoIdentity global e garante o Customer tenant-scoped. DDD é
         # obrigatório — telefone sem DDD levanta HTTPException 422 no resolver,
         # convertida para InvalidActionError (contrato do FSM, agnóstico de canal).
-        from app.modules.identity.resolver import resolver
+        from app.modules.identity.resolver import (
+            resolver, validate_user_phone_input, InvalidUserPhoneError,
+        )
         from app.modules.identity.consent_service import (
             grant_consent, ConsentType, SourceChannel,
         )
+
+        # Validação estrita de formulário público: rejeita DDI explícito e
+        # exige DDD válido (ANATEL). Guard prévio — resolve_for_tenant continua
+        # fazendo sua própria normalização interna sobre o raw.
+        try:
+            validate_user_phone_input(phone)
+        except InvalidUserPhoneError as e:
+            raise InvalidActionError(e.message)
 
         try:
             customer, is_new = resolver.resolve_for_tenant(

@@ -381,10 +381,18 @@ def confirm_booking(
 
     # Identifica ou cria o cliente pelo telefone via resolver de identidade
     # (mesmo padrão de booking/engine.py desde o Sprint B1).
-    from app.modules.identity.resolver import resolver
+    from app.modules.identity.resolver import (
+        resolver, validate_user_phone_input, InvalidUserPhoneError,
+    )
     from app.modules.identity.consent_service import (
         grant_consent, ConsentType, SourceChannel,
     )
+
+    # Validação estrita de formulário público (DDI rejeitado, DDD ANATEL)
+    try:
+        validate_user_phone_input(body.customer_phone)
+    except InvalidUserPhoneError as e:
+        raise HTTPException(status_code=422, detail=e.message)
 
     customer, is_new = resolver.resolve_for_tenant(
         db, raw_phone=body.customer_phone,
@@ -645,10 +653,18 @@ def start_session(
     # Atalho: cliente se identificou na abertura — salvar no contexto imediatamente
     if body.customer_phone:
         # Resolve via identidade Paladino (mesmo padrão de booking/engine.py).
-        from app.modules.identity.resolver import resolver
+        from app.modules.identity.resolver import (
+            resolver, validate_user_phone_input, InvalidUserPhoneError,
+        )
         from app.modules.identity.consent_service import (
             grant_consent, ConsentType, SourceChannel,
         )
+
+        # Validação estrita de formulário público (DDI rejeitado, DDD ANATEL)
+        try:
+            validate_user_phone_input(body.customer_phone)
+        except InvalidUserPhoneError as e:
+            raise HTTPException(status_code=422, detail=e.message)
 
         customer, is_new = resolver.resolve_for_tenant(
             db,

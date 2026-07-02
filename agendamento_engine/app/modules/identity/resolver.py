@@ -28,8 +28,61 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import Customer, PaladinoIdentity
+from app.modules.identity.valid_ddds import VALID_DDDS
 
 logger = logging.getLogger(__name__)
+
+
+class InvalidUserPhoneError(Exception):
+    """Telefone inválido digitado por usuário em formulário público."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+def validate_user_phone_input(raw_phone: str) -> str:
+    """
+    Valida e normaliza telefone digitado por usuário em formulário
+    público (link de agendamento, checkout). Mais estrito que
+    normalize_phone_e164 — rejeita DDI explicitamente e exige DDD
+    válido da lista ANATEL.
+
+    NÃO usar para o bot (que recebe E.164 do WhatsApp) nem para
+    cadastro pelo painel do tenant.
+
+    Regras:
+      1. Remove tudo que não é dígito
+      2. Remove um único zero inicial (0XX → XX); "00..." não sofre
+         strip e será rejeitado pelo comprimento (DDI internacional)
+      3. Comprimento final deve ser 10 (DDD+8) ou 11 (DDD+9) dígitos
+      4. Os 2 primeiros dígitos (DDD) devem estar em VALID_DDDS
+      5. Caso contrário: InvalidUserPhoneError com mensagem clara
+
+    Retorna: os dígitos normalizados, SEM DDI, SEM o zero inicial
+    (ex.: "62985657312" → 11 dígitos, pronto para prefixar com +55
+    em qualquer lugar que precise do E.164 completo).
+    """
+    digits = "".join(c for c in raw_phone if c.isdigit())
+
+    # Remove zero inicial único (hábito de discagem interurbana)
+    # "00..." não é tocado aqui — será rejeitado por comprimento abaixo
+    if digits.startswith("0") and not digits.startswith("00"):
+        digits = digits[1:]
+
+    if len(digits) not in (10, 11):
+        raise InvalidUserPhoneError(
+            "Telefone inválido. Digite o DDD + número, sem o "
+            "código do país (ex.: 62 98565-7312)."
+        )
+
+    ddd = digits[:2]
+    if ddd not in VALID_DDDS:
+        raise InvalidUserPhoneError(
+            f"DDD '{ddd}' não é válido. Verifique o número digitado."
+        )
+
+    return digits
 
 
 @dataclass
