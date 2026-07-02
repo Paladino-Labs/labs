@@ -1062,13 +1062,21 @@ def unified_checkout(
     Cupom (se informado) aplicado ao primeiro Payment cobrável, na ordem:
     pacote → assinatura → produto. Agendamentos não são cobrados aqui.
     """
-    from app.modules.identity.resolver import resolver
+    from app.modules.identity.resolver import (
+        resolver, validate_user_phone_input, InvalidUserPhoneError,
+    )
     from app.modules.identity.consent_service import (
         grant_consent, ConsentType, SourceChannel,
     )
     from app.modules.appointments.schemas import AppointmentCreate, ServiceRequest
 
     company, _ = _require_online_booking(slug, db)
+
+    # Validação estrita de formulário público (DDI rejeitado, DDD ANATEL)
+    try:
+        validate_user_phone_input(body.customer_phone)
+    except InvalidUserPhoneError as e:
+        raise HTTPException(status_code=422, detail=e.message)
 
     # 1. Resolver cliente (cria PaladinoIdentity se novo) + consent na primeira vez
     customer, is_new = resolver.resolve_for_tenant(

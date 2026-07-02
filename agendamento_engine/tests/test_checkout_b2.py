@@ -432,3 +432,27 @@ def test_checkout_service_conflict_propagates(monkeypatch):
         booking_router.unified_checkout(SLUG, body, db=_db_with({}))
     # Conflito de slot é 409 no domínio (o DoD menciona 422 genérico; o real é 409).
     assert exc.value.status_code == 409
+
+
+def test_checkout_phone_with_ddi_rejected_422(monkeypatch):
+    """Telefone com DDI (55...) → 422 ANTES de resolver cliente ou criar registros."""
+    company = _company()
+    _patch_online_booking(monkeypatch, company)
+
+    import app.modules.identity.resolver as resolver_module
+
+    def _must_not_be_called(*a, **k):
+        raise AssertionError("resolve_for_tenant não deve ser chamado com telefone inválido")
+
+    monkeypatch.setattr(resolver_module.resolver, "resolve_for_tenant", _must_not_be_called)
+
+    body = CheckoutRequest(
+        customer_name="João", customer_phone="5562985657312",
+        services=[CheckoutServiceItem(
+            professional_id=uuid.uuid4(), service_id=uuid.uuid4(),
+            start_at=_NOW + timedelta(days=1), end_at=_NOW + timedelta(days=1, minutes=30),
+        )],
+    )
+    with pytest.raises(HTTPException) as exc:
+        booking_router.unified_checkout(SLUG, body, db=_db_with({}))
+    assert exc.value.status_code == 422
