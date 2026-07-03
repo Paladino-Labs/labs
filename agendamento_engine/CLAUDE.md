@@ -1,3 +1,28 @@
+## Portal Camada 2 (a142fc9, integration/validacao-pre-push)
+  GET /portal/companies — empresas cross-tenant da identity (com slug p/ link agendar)
+  GET /portal/coupons — nominais (customer_id) + genéricos (NULL) do tenant
+  GET /portal/payments — histórico read-only paginado (Payment.customer_id)
+  GET /portal/appointments/{id} — detalhe rico + endereço (CompanyProfile) + can_cancel/reschedule
+  POST /portal/appointments/{id}/cancel — reusa appointment_svc.cancel_appointment
+    (user_id=None, skip_policy=True); deposit_retained computado ANTES do cancel
+  POST /portal/appointments/{id}/reschedule — reusa reschedule_appointment
+    (skip_policy=True, bypass_working_hours=False); 409→422; novo manage_token automático
+  get_current_portal_identity_optional (core/deps) — None se sem token,
+    401 se token inválido (NÃO degrada para anônimo)
+  Checkout JWT portal opcional: identity precede body; phone_e164 NUNCA
+    passa por validate_user_phone_input; consent SourceChannel.PORTAL
+
+## Fatos de modelo (não-óbvios, confirmados no Camada 2)
+  Coupon NÃO tem discount_type/value/valid_until próprios — vêm da
+    Promotion pai via promotion_id (batch lookup p/ evitar N+1).
+    Expiração do cupom = Coupon.expires_at (fallback promotion.valid_until).
+  Payment PK = payment_id (não id).
+  resolve_deposit_policy(service_id, company_id, db) — db por último.
+  is_within_refund_window(start_at, now, refundable_until_hours_before) — escalares.
+  _compute_deposit_retained checa Payment CONFIRMED além das primitivas
+    (sem sinal pago → False) p/ paridade exata com /manage.
+  AppointmentService.duration_snapshot é Numeric — int() na resposta.
+
 ## Validação de telefone em formulários públicos
   valid_ddds.py: whitelist ANATEL (67 DDDs válidos)
   validate_user_phone_input (resolver.py): função SEPARADA de
