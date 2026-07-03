@@ -39,6 +39,7 @@ from app.infrastructure.db.models.company_settings import CompanySettings
 from app.infrastructure.db.models.company_profile import CompanyProfile
 from app.infrastructure.db.models.booking_session import BookingSession
 from app.infrastructure.db.models.product import Product
+from app.infrastructure.db.models.product_sale import ProductSale
 from app.infrastructure.db.models.package import Package
 from app.infrastructure.db.models.subscription import SubscriptionPlan
 from app.modules.booking.engine import booking_engine
@@ -1217,7 +1218,7 @@ def unified_checkout(
             raise HTTPException(404, f"Produto não encontrado: {prod_item.product_id}")
         gross = product.price * prod_item.quantity
         item_coupon = coupon_for_products if i == 0 else None
-        payment_svc.create_payment(
+        payment = payment_svc.create_payment(
             company_id=company.id,
             customer_id=customer.id,
             gross_amount=gross,
@@ -1228,6 +1229,21 @@ def unified_checkout(
         )
         if item_coupon:
             coupon_applied = item_coupon
+        # Registro da venda p/ retirada — RESERVED (sem pagamento online ainda;
+        # o Payment manual acima nasce PENDING, pago no local)
+        sale = ProductSale(
+            company_id=company.id,
+            customer_id=customer.id,
+            product_id=product.id,
+            payment_id=payment.payment_id if payment else None,
+            product_name=product.name,
+            quantity=prod_item.quantity,
+            unit_price=product.price,
+            total_price=gross,
+            status="RESERVED",
+        )
+        db.add(sale)
+        db.commit()
         if owner_id:
             stock_svc.record_movement(
                 company_id=company.id,

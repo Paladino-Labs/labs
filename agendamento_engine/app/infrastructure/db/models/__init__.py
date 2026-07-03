@@ -59,6 +59,7 @@ from .nps import NpsConfig, NpsSurvey, NpsResponse
 from .waitlist import WaitlistConfig, WaitlistEntry
 from .crm import CrmConfig, CustomerClassification
 from .intent_classification import IntentClassification
+from .product_sale import ProductSale
 
 __all__ = [
     "Company",
@@ -151,4 +152,5 @@ __all__ = [
     "CrmConfig",
     "CustomerClassification",
     "IntentClassification",
+    "ProductSale",
 ]
