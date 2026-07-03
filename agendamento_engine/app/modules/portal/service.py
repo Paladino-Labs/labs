@@ -11,20 +11,25 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import (
     Appointment,
     Company,
+    CompanyProfile,
+    Coupon,
     Customer,
     CustomerCredit,
     CustomerCreditConsumption,
     Package,
     PackagePurchase,
     PaladinoIdentity,
+    Payment,
     PaymentSourceAuthorization,
     PortalCredential,
     Product,
+    Promotion,
     Service,
     TenantConfig,
 )
@@ -373,6 +378,235 @@ def resume_subscription(db: Session, identity_id: UUID, subscription_id: UUID) -
         )
     sub = subscription_svc.resume(sub.subscription_id, sub.company_id, db)
     return _subscription_item(sub, _company_names(db, [sub.company_id]).get(sub.company_id))
+
+
+# ── Companies / Coupons / Payments (Portal Camada 2) ─────────────────────────
+
+def get_companies(db: Session, identity_id: UUID) -> list[dict]:
+    """Empresas onde a identity tem Customer ativo (cross-tenant).
+
+    O slug é essencial — o frontend monta o link "Agendar" (/book/{slug}).
+    """
+    customers = _customers_for_identity(db, identity_id)
+    company_ids = list({c.company_id for c in customers})
+    if not company_ids:
+        return []
+
+    companies = (
+        db.query(Company)
+        .filter(Company.id.in_(company_ids))
+        .all()
+    )
+    # CompanyProfile 1:1 para logo/endereço
+    profiles = (
+        db.query(CompanyProfile)
+        .filter(CompanyProfile.company_id.in_(company_ids))
+        .all()
+    )
+    profile_by_company = {p.company_id: p for p in profiles}
+
+    result = []
+    for company in companies:
+        profile = profile_by_company.get(company.id)
+        result.append({
+            "company_id":   str(company.id),
+            "company_name": company.name,
+            "slug":         company.slug,
+            "logo_url":     profile.logo_url if profile else None,
+            "address":      profile.address if profile else None,
+            "city":         profile.city if profile else None,
+        })
+    return result
+
+
+def get_coupons(db: Session, identity_id: UUID) -> list[dict]:
+    """Cupons ativos: nominais da identity + genéricos das empresas dela.
+
+    Coupon não tem discount_type/discount_value próprios — vêm da Promotion
+    pai (promotion_id). Vigência do cupom é `expires_at` (fallback:
+    valid_until da promoção).
+    """
+    customers = _customers_for_identity(db, identity_id)
+    customer_ids = [c.id for c in customers]
+    company_ids = list({c.company_id for c in customers})
+    if not company_ids:
+        return []
+
+    now = datetime.now(timezone.utc)
+    # Cupons nominais (customer_id da identity) OU genéricos do tenant
+    # (customer_id NULL) — ambos ACTIVE e vigentes
+    coupons = (
+        db.query(Coupon)
+        .filter(
+            Coupon.company_id.in_(company_ids),
+            Coupon.status == "ACTIVE",
+            or_(
+                Coupon.customer_id.in_(customer_ids),
+                Coupon.customer_id.is_(None),
+            ),
+        )
+        .all()
+    )
+    company_names = _company_names(db, company_ids)
+    promotion_ids = {c.promotion_id for c in coupons if c.promotion_id}
+    promotions = (
+        db.query(Promotion).filter(Promotion.id.in_(promotion_ids)).all()
+        if promotion_ids else []
+    )
+    promo_by_id = {p.id: p for p in promotions}
+
+    result = []
+    for c in coupons:
+        promo = promo_by_id.get(c.promotion_id)
+        valid_until = c.expires_at or (promo.valid_until if promo else None)
+        if valid_until:
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=timezone.utc)
+            if valid_until < now:
+                continue
+        result.append({
+            "coupon_id":      str(c.id),
+            "code":           c.code,
+            "company_name":   company_names.get(c.company_id, ""),
+            "discount_type":  promo.discount_type if promo else None,
+            "discount_value": (
+                str(promo.discount_value)
+                if promo and promo.discount_value is not None else None
+            ),
+            "valid_until":    valid_until.isoformat() if valid_until else None,
+            "is_personal":    c.customer_id is not None,
+        })
+    return result
+
+
+def get_payments(db: Session, identity_id: UUID,
+                 page: int = 1, page_size: int = 20) -> dict:
+    """Histórico de pagamentos da identity (via customers), paginado."""
+    customers = _customers_for_identity(db, identity_id)
+    customer_ids = [c.id for c in customers]
+    if not customer_ids:
+        return {"items": [], "page": page, "page_size": page_size, "total": 0}
+
+    base = (
+        db.query(Payment)
+        .filter(Payment.customer_id.in_(customer_ids))
+        .order_by(Payment.created_at.desc())
+    )
+    total = base.count()
+    payments = base.offset((page - 1) * page_size).limit(page_size).all()
+
+    company_ids = list({c.company_id for c in customers})
+    company_names = _company_names(db, company_ids)
+    # customer → company para exibir o nome
+    company_by_customer = {c.id: c.company_id for c in customers}
+
+    items = []
+    for p in payments:
+        company_id = company_by_customer.get(p.customer_id)
+        items.append({
+            "payment_id":     str(p.payment_id),
+            "company_name":   company_names.get(company_id, ""),
+            "amount":         str(p.net_charged_amount),
+            "payment_method": p.payment_method,
+            "status":         p.status,
+            "paid_at":        p.paid_at.isoformat() if p.paid_at else None,
+            "created_at":     p.created_at.isoformat() if p.created_at else None,
+            "coupon_code":    p.coupon_code,
+        })
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+# ── Appointments (detalhe + cancelar/remarcar) ────────────────────────────────
+
+def _get_owned_appointment(
+    db: Session, identity_id: UUID, appointment_id: UUID
+) -> Appointment:
+    """Appointment da identity (via customer) ou 404 genérico."""
+    appt = (
+        db.query(Appointment)
+        .filter(Appointment.id == appointment_id)
+        .first()
+    )
+    if not appt:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+    customer = db.query(Customer).filter(Customer.id == appt.client_id).first()
+    if not customer or customer.identity_id != identity_id:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+    return appt
+
+
+def get_appointment_detail(db: Session, identity_id: UUID,
+                           appointment_id: UUID) -> dict:
+    """Detalhe rico de um agendamento — endereço, serviços e can_cancel/can_reschedule."""
+    appt = _get_owned_appointment(db, identity_id, appointment_id)
+
+    company = db.query(Company).filter(Company.id == appt.company_id).first()
+    profile = (
+        db.query(CompanyProfile)
+        .filter(CompanyProfile.company_id == appt.company_id)
+        .first()
+    )
+    services = [
+        {"service_name": s.service_name,
+         "duration_minutes": int(s.duration_snapshot),
+         "price": str(s.price_snapshot)}
+        for s in appt.services
+    ]
+    is_scheduled = appt.status == "SCHEDULED"
+
+    return {
+        "appointment_id":    str(appt.id),
+        "company_name":      company.name if company else "",
+        "company_address":   profile.address if profile else None,
+        "company_city":      profile.city if profile else None,
+        "company_maps_url":  profile.maps_url if profile else None,
+        "company_whatsapp":  profile.whatsapp if profile else None,
+        "company_timezone":  company.timezone if company else "America/Sao_Paulo",
+        "professional_name": appt.professional.name if appt.professional else None,
+        "services":          services,
+        "start_at":          appt.start_at.isoformat(),
+        "end_at":            appt.end_at.isoformat(),
+        "status":            appt.status,
+        "total_amount":      str(appt.total_amount),
+        "can_cancel":        is_scheduled,
+        "can_reschedule":    is_scheduled,
+    }
+
+
+def _compute_deposit_retained(db: Session, appointment: Appointment) -> bool:
+    """
+    Informa se o sinal SERÁ retido no cancelamento (fora da janela de
+    reembolso). Computado ANTES do cancel (depois o Payment vira REFUNDED
+    e a query não acharia). Mesmo flag que o /manage produz, via primitivas
+    do deposit_service: sem política ou sem sinal CONFIRMED → False.
+    """
+    from app.modules.payments.deposit_service import (
+        resolve_deposit_policy, is_within_refund_window,
+    )
+    service_id = appointment.services[0].service_id if appointment.services else None
+    policy = resolve_deposit_policy(service_id, appointment.company_id, db)
+    if policy is None:
+        return False
+
+    deposit_paid = (
+        db.query(Payment)
+        .filter(
+            Payment.company_id == appointment.company_id,
+            Payment.appointment_id == appointment.id,
+            Payment.status == "CONFIRMED",
+        )
+        .first()
+    )
+    if deposit_paid is None:
+        return False
+
+    start_at = appointment.start_at
+    if start_at.tzinfo is None:
+        start_at = start_at.replace(tzinfo=timezone.utc)
+    within = is_within_refund_window(
+        start_at, datetime.now(timezone.utc), policy.refundable_until_hours_before,
+    )
+    return not within
 
 
 # ── Credit consumptions (B3) ──────────────────────────────────────────────────

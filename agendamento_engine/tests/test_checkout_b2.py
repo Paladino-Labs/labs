@@ -236,7 +236,7 @@ def test_checkout_single_service(monkeypatch):
             start_at=_NOW + timedelta(days=1), end_at=_NOW + timedelta(days=1, minutes=30),
         )],
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({}))
     assert granted.get("called") is True
     assert out.customer_id == customer.id
     assert len(out.appointments) == 1
@@ -269,7 +269,7 @@ def test_checkout_single_package(monkeypatch):
         customer_name="João", customer_phone="11999998888",
         packages=[CheckoutPackageItem(package_id=pkg_id, payment_method="CASH")],
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({Package: pkg}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({Package: pkg}))
     assert len(out.purchases) == 1
     assert out.purchases[0].package_name == "Combo"
     assert out.purchases[0].total_cotas == 4
@@ -307,7 +307,7 @@ def test_checkout_service_plus_package(monkeypatch):
         )],
         packages=[CheckoutPackageItem(package_id=pkg_id)],
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({Package: pkg}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({Package: pkg}))
     assert len(out.appointments) == 1
     assert len(out.purchases) == 1
     # total = só o preço do pacote (agendamento não cobra)
@@ -340,7 +340,7 @@ def test_checkout_product_without_owner_warns(monkeypatch):
         customer_name="João", customer_phone="11999998888",
         products=[CheckoutProductItem(product_id=prod_id, quantity=2)],
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({Product: product, User: None}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({Product: product, User: None}))
     assert len(out.product_sales) == 1
     assert out.product_sales[0].amount_paid == "60.00"
     assert out.total_charged == "60.00"
@@ -371,7 +371,7 @@ def test_checkout_product_with_owner_records_stock(monkeypatch):
         customer_name="João", customer_phone="11999998888",
         products=[CheckoutProductItem(product_id=prod_id, quantity=1)],
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({Product: product, User: owner}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({Product: product, User: owner}))
     assert out.warnings == []
     assert move_calls["movement_type"] == "VENDA"
     assert move_calls["created_by"] == owner.id
@@ -395,7 +395,7 @@ def test_checkout_coupon_routed_to_package(monkeypatch):
         packages=[CheckoutPackageItem(package_id=pkg_id)],
         coupon_code="OFF20",
     )
-    out = booking_router.unified_checkout(SLUG, body, db=_db_with({Package: pkg}))
+    out = booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({Package: pkg}))
     assert captured["coupon_code"] == "OFF20"
     assert out.coupon_applied == "OFF20"
 
@@ -407,7 +407,7 @@ def test_checkout_slug_inactive_403(monkeypatch):
     monkeypatch.setattr(booking_router, "_require_online_booking", _raise)
     body = CheckoutRequest(customer_name="João", customer_phone="11999998888")
     with pytest.raises(HTTPException) as exc:
-        booking_router.unified_checkout(SLUG, body, db=MagicMock())
+        booking_router.unified_checkout(SLUG, body, portal_identity=None, db=MagicMock())
     assert exc.value.status_code == 403
 
 
@@ -429,7 +429,7 @@ def test_checkout_service_conflict_propagates(monkeypatch):
         )],
     )
     with pytest.raises(HTTPException) as exc:
-        booking_router.unified_checkout(SLUG, body, db=_db_with({}))
+        booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({}))
     # Conflito de slot é 409 no domínio (o DoD menciona 422 genérico; o real é 409).
     assert exc.value.status_code == 409
 
@@ -454,5 +454,5 @@ def test_checkout_phone_with_ddi_rejected_422(monkeypatch):
         )],
     )
     with pytest.raises(HTTPException) as exc:
-        booking_router.unified_checkout(SLUG, body, db=_db_with({}))
+        booking_router.unified_checkout(SLUG, body, portal_identity=None, db=_db_with({}))
     assert exc.value.status_code == 422

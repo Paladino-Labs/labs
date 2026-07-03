@@ -32,6 +32,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.deps import get_current_portal_identity_optional
 from app.infrastructure.db.session import get_db
 from app.infrastructure.db.models.company import Company
 from app.infrastructure.db.models.company_settings import CompanySettings
@@ -1055,12 +1056,17 @@ def validate_coupon(
 def unified_checkout(
     slug: str,
     body: CheckoutRequest,
+    portal_identity=Depends(get_current_portal_identity_optional),
     db: Session = Depends(get_db),
 ):
     """Checkout unificado: agendamentos + pacotes + assinaturas + produtos.
 
     Cupom (se informado) aplicado ao primeiro Payment cobrável, na ordem:
     pacote → assinatura → produto. Agendamentos não são cobrados aqui.
+
+    JWT portal opcional: com token válido, o cliente vem da identity
+    (precedência absoluta — body.customer_phone é ignorado); sem token,
+    fluxo anônimo exige nome + telefone. Token inválido → 401.
     """
     from app.modules.identity.resolver import (
         resolver, validate_user_phone_input, InvalidUserPhoneError,
@@ -1072,23 +1078,41 @@ def unified_checkout(
 
     company, _ = _require_online_booking(slug, db)
 
-    # Validação estrita de formulário público (DDI rejeitado, DDD ANATEL)
-    try:
-        validate_user_phone_input(body.customer_phone)
-    except InvalidUserPhoneError as e:
-        raise HTTPException(status_code=422, detail=e.message)
-
     # 1. Resolver cliente (cria PaladinoIdentity se novo) + consent na primeira vez
-    customer, is_new = resolver.resolve_for_tenant(
-        db, raw_phone=body.customer_phone,
-        company_id=company.id, name=body.customer_name,
-    )
-    if is_new:
-        grant_consent(
-            db, customer.identity_id, company.id,
-            ConsentType.COMMUNICATION, None, SourceChannel.LINK,
-            notes="Checkout via link público",
+    if portal_identity is not None:
+        # ── Fluxo AUTENTICADO ──
+        # NÃO validar telefone (identity já nasceu normalizada;
+        # phone_e164 tem DDI e seria rejeitado pela validação estrita)
+        customer, is_new = resolver.resolve_for_tenant(
+            db, raw_phone=portal_identity.phone_e164,
+            company_id=company.id,
+            name=portal_identity.name or body.customer_name or "Cliente",
         )
+        if is_new:
+            grant_consent(
+                db, customer.identity_id, company.id,
+                ConsentType.COMMUNICATION, None, SourceChannel.PORTAL,
+                notes="Compra via portal autenticado",
+            )
+    else:
+        # ── Fluxo ANÔNIMO (inalterado) ──
+        if not body.customer_name or not body.customer_phone:
+            raise HTTPException(status_code=422, detail="Informe nome e telefone.")
+        # Validação estrita de formulário público (DDI rejeitado, DDD ANATEL)
+        try:
+            validate_user_phone_input(body.customer_phone)
+        except InvalidUserPhoneError as e:
+            raise HTTPException(status_code=422, detail=e.message)
+        customer, is_new = resolver.resolve_for_tenant(
+            db, raw_phone=body.customer_phone,
+            company_id=company.id, name=body.customer_name,
+        )
+        if is_new:
+            grant_consent(
+                db, customer.identity_id, company.id,
+                ConsentType.COMMUNICATION, None, SourceChannel.LINK,
+                notes="Checkout via link público",
+            )
 
     warnings: list[str] = []
     appointments_out: list[CheckoutAppointmentResult] = []

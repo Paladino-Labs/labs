@@ -79,6 +79,33 @@ def get_current_portal_identity(
     return identity
 
 
+def get_current_portal_identity_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: Session = Depends(get_db),
+):
+    """
+    Como get_current_portal_identity, mas retorna None quando NÃO há
+    token (fluxo anônimo). Token presente porém inválido/expirado →
+    401 (NÃO degrada para anônimo silenciosamente).
+    """
+    if not credentials:
+        return None  # anônimo — sem token
+
+    from app.infrastructure.db.models import PaladinoIdentity
+    from app.modules.portal.auth_service import verify_portal_token
+
+    # verify_portal_token levanta 401 em token inválido/tipo errado
+    identity_id = verify_portal_token(credentials.credentials)
+    identity = (
+        db.query(PaladinoIdentity)
+        .filter(PaladinoIdentity.id == identity_id)
+        .first()
+    )
+    if not identity:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return identity
+
+
 def get_current_company_id(user: User = Depends(get_current_user)) -> Optional[UUID]:
     """Extrai o company_id do usuário autenticado.
 

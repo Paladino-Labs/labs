@@ -74,6 +74,10 @@ class PortalProfileUpdateRequest(BaseModel):
     phone: Optional[str] = None
 
 
+class PortalRescheduleRequest(BaseModel):
+    start_at: datetime
+
+
 class CreditConsumptionOut(BaseModel):
     occurred_at: datetime
     appointment_id: Optional[UUID] = None

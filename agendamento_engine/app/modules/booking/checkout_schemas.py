@@ -105,8 +105,10 @@ class CheckoutSubscriptionItem(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
-    customer_name:   str
-    customer_phone:  str
+    # Opcionais desde Portal Camada 2: com JWT portal, o cliente vem da
+    # identity; anônimo exige ambos (422 explícito no endpoint).
+    customer_name:   Optional[str] = None
+    customer_phone:  Optional[str] = None
     services:        list[CheckoutServiceItem]      = []
     products:        list[CheckoutProductItem]      = []
     packages:        list[CheckoutPackageItem]      = []

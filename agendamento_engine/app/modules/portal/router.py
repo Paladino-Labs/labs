@@ -8,7 +8,7 @@ portal (type="portal") via get_current_portal_identity — JWT de tenant
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_portal_identity
@@ -26,6 +26,7 @@ from app.modules.portal.schemas import (
     PortalLoginRequest,
     PortalProfileUpdateRequest,
     PortalRegisterRequest,
+    PortalRescheduleRequest,
     PortalTokenResponse,
 )
 
@@ -89,6 +90,111 @@ def history(
         db, identity.id, page=page, page_size=page_size,
         company_id=company_id, status=status,
     )
+
+
+@router.get("/companies")
+def companies(
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Empresas onde a identity tem Customer ativo — menu cross-tenant."""
+    return service.get_companies(db, identity.id)
+
+
+@router.get("/coupons")
+def coupons(
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Cupons ativos: nominais da identity + genéricos das empresas dela."""
+    return service.get_coupons(db, identity.id)
+
+
+@router.get("/payments")
+def payments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Histórico de pagamentos (read-only), paginado."""
+    return service.get_payments(db, identity.id, page=page, page_size=page_size)
+
+
+@router.get("/appointments/{appointment_id}")
+def appointment_detail(
+    appointment_id: UUID,
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Detalhe rico — endereço, serviços, can_cancel/can_reschedule."""
+    return service.get_appointment_detail(db, identity.id, appointment_id)
+
+
+@router.post("/appointments/{appointment_id}/cancel")
+def cancel_appointment_portal(
+    appointment_id: UUID,
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Cancela o próprio agendamento — paridade com /manage (skip_policy).
+
+    deposit_retained é computado ANTES do cancel (depois o Payment vira
+    REFUNDED e a query não acharia o sinal confirmado).
+    """
+    appt = service._get_owned_appointment(db, identity.id, appointment_id)
+    if appt.status != "SCHEDULED":
+        raise HTTPException(422, "Este agendamento não pode ser cancelado.")
+
+    deposit_retained = service._compute_deposit_retained(db, appt)
+
+    from app.modules.appointments import service as appointment_svc
+    updated = appointment_svc.cancel_appointment(
+        db, appt.company_id, appt.id,
+        user_id=None,
+        reason="Cancelado pelo cliente via Portal (actor=CLIENT)",
+        skip_policy=True,
+    )
+    return {
+        "appointment_id": str(updated.id),
+        "status": updated.status,
+        "deposit_retained": deposit_retained,
+    }
+
+
+@router.post("/appointments/{appointment_id}/reschedule")
+def reschedule_appointment_portal(
+    appointment_id: UUID,
+    body: PortalRescheduleRequest,
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Remarca o próprio agendamento — cliente nunca bypassa a escala.
+
+    409 de conflito → 422 (mesmo contrato público do /manage). Novo
+    manage_token + WhatsApp disparam dentro do reschedule_appointment.
+    """
+    appt = service._get_owned_appointment(db, identity.id, appointment_id)
+    if appt.status != "SCHEDULED":
+        raise HTTPException(422, "Este agendamento não pode ser remarcado.")
+
+    from app.modules.appointments import service as appointment_svc
+    from app.modules.appointments.schemas import RescheduleRequest
+    try:
+        updated = appointment_svc.reschedule_appointment(
+            db, appt.company_id, appt.id,
+            RescheduleRequest(start_at=body.start_at),
+            user_id=None, skip_policy=True, bypass_working_hours=False,
+        )
+    except HTTPException as e:
+        if e.status_code == 409:
+            raise HTTPException(422, "Este horário não está disponível. Escolha outro.")
+        raise
+    return {
+        "appointment_id": str(updated.id),
+        "status": updated.status,
+        "start_at": updated.start_at.isoformat(),
+    }
 
 
 @router.get("/credits")
