@@ -1,3 +1,19 @@
+## Sprint A Produtos (c1dd288, integration/validacao-pre-push)
+  Modelo ProductSale (product_sales, migration e0s29 — head agora e0s29):
+    company_id, customer_id, product_id, payment_id (nullable),
+    product_name/quantity/unit_price/total_price (snapshots),
+    status RESERVED|PURCHASED|PICKED_UP, picked_up_at. SEM appointment_id
+    (compra avulsa). TimestampMixin de db.base (não há módulo mixins).
+  Checkout grava ProductSale RESERVED por item de products[], payment_id
+    vinculado ao Payment manual CASH PENDING (produto tem Payment hoje —
+    pago no local; None só defensivo).
+  Migration e0s29 NÃO aplicada — rodar em janela controlada.
+
+## Pré-deploy pendente
+  ALTER alembic_version.version_num TYPE VARCHAR(255) em produção
+  ANTES de deploy com migrations de nome longo (senão Alembic falha
+  ao registrar a revision).
+
 ## Portal Camada 2 (a142fc9, integration/validacao-pre-push)
   GET /portal/companies — empresas cross-tenant da identity (com slug p/ link agendar)
   GET /portal/coupons — nominais (customer_id) + genéricos (NULL) do tenant
