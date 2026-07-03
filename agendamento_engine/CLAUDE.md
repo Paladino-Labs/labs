@@ -1,3 +1,16 @@
+## Validação de telefone em formulários públicos
+  valid_ddds.py: whitelist ANATEL (67 DDDs válidos)
+  validate_user_phone_input (resolver.py): função SEPARADA de
+    normalize_phone_e164 (que fica intocado para bot/painel/portal).
+    Regra: strip não-dígitos → remove zero inicial único → 10-11
+    dígitos → DDD em VALID_DDDS → senão InvalidUserPhoneError.
+    Limite 11 díg. rejeita DDI automaticamente.
+  Aplicado em 4 pontos de formulário público:
+    SET_CUSTOMER (FSM), /confirm, /start, /checkout.
+    NÃO aplicado: bot (E.164 do Meta), painel tenant, portal register.
+  Dívida: public_book legado (public/service.py) sem validação —
+    candidato a deprecação.
+
 ## Checkout unificado — B2 endpoints públicos (2026-06-25)
 Branch `feat/checkout-unificado-backend` (continua do B1). **Sem migration** (head `e0s28`).
 5 endpoints novos em `booking/router.py` (prefixo `/booking/{slug}`, gate `_require_online_booking`):
