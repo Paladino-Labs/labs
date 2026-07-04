@@ -1,26 +1,33 @@
 # painel — contexto operacional
 
-## Portal Redesign F2 (integration/validacao-pre-push)
-  Tipos novos em portal-types.ts: PortalAppointmentServiceItem,
-    PortalAppointmentDetail, PortalCancelResult, PortalRescheduleResult.
-  /portal/agendamento/[id]: detalhe rico (GET /portal/appointments/{id}) —
-    4 estados (loading/error/not-found/ok); 404 do backend → EmptyState
-    "Agendamento não encontrado".
-  Modais cancelar/remarcar no molde de assinaturas (Dialog, não AlertDialog).
-    Cancelar: sucesso → banner inline no card + status local atualizado;
-    deposit_retained=true → aviso de sinal não reembolsado. 422 → erro no modal.
-    Remarcar: inputs date+time separados (padrão do protótipo); sucesso →
-    banner + refetch; 422 → err.message do backend no modal (cobre conflito
-    de slot E não-SCHEDULED).
-  ⚠ TIMEZONE do remarcar: zonedWallClockToISO (helper local da página) monta
-    o instante no fuso da EMPRESA (company_timezone do payload) via Intl e
-    envia UTC ISO — NÃO usa new Date(`${d}T${t}`) (fuso do browser) porque o
-    cliente do portal pode estar em outro fuso. Nunca envia naive.
-  Cards de agendamento do dashboard e do histórico (tabela md+ via
-    onClick/router.push; cards mobile via Link) levam ao detalhe —
-    mudança mínima, telas NÃO reescritas (F4).
+## Portal Redesign F2 (c58606b, integration/validacao-pre-push)
+  Tipos: PortalAppointmentDetail/ServiceItem, PortalCancelResult,
+    PortalRescheduleResult em portal-types.ts.
+  /portal/agendamento/[id]: detalhe rico (endereço, mapa, total, profissional)
+    4 estados (loading/error/not-found/ok); 404 genérico do backend →
+    EmptyState "Agendamento não encontrado".
+  Modal Cancelar: aviso de sinal retido SÓ quando deposit_retained=true
+    (dado real da resposta, não preview — difere do protótipo, que mostra
+    o aviso antes de confirmar com dado mockado).
+  Modal Remarcar: inputs date+time separados; 422 (conflito de slot OU
+    não-SCHEDULED) → err.message do backend no modal; sucesso → banner +
+    refetch (novo manage_token + WhatsApp são automáticos no backend).
+  Cards dashboard/histórico linkam ao detalhe (tabela md+ via onClick/
+    router.push; cards mobile via Link) — só envelope, telas NÃO reescritas.
   Conflito de slot: EXCLUDE constraint é POR PROFISSIONAL — dois agendamentos
     no mesmo horário com profissionais distintos não conflitam (não é bug).
+
+## PADRÃO timezone no portal (zonedWallClockToISO)
+  Input de horário do portal (ex: remarcar) resolve o wall-clock no
+  company_timezone do payload via Intl.formatToParts → envia UTC ISO com Z.
+  NÃO usar new Date(...).toISOString() (interpreta no fuso do BROWSER —
+  errado no portal cross-device: cliente pode estar em fuso != barbearia).
+  O "10:00" escolhido é sempre 10:00 NA BARBEARIA. Helper hoje vive em
+  agendamento/[id]/page.tsx — extrair p/ lib se um segundo consumidor surgir.
+
+## A validar quando houver caso real
+  deposit_retained=true na UI de cancelar (dev não tem DepositPolicy +
+  Payment CONFIRMED fora da janela). Lógica idêntica ao /manage em prod.
 
 ## Portal Redesign F1 (d614d91, integration/validacao-pre-push)
   Tipos novos em portal-types.ts: PortalCouponItem, PortalProductSaleItem,
