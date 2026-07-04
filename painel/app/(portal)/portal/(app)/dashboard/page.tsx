@@ -93,9 +93,11 @@ export default function PortalDashboardPage() {
           ) : (
             <div className="space-y-2">
               {data!.upcoming_appointments.slice(0, 5).map((a) => (
-                <div
+                // F2 — card leva ao detalhe (cancelar/remarcar ficam lá)
+                <Link
                   key={a.id}
-                  className="flex items-start justify-between gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10"
+                  href={`/portal/agendamento/${a.id}`}
+                  className="flex items-start justify-between gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10 transition-colors hover:bg-card/80 hover:ring-primary/30"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-foreground">
@@ -114,7 +116,7 @@ export default function PortalDashboardPage() {
                     </span>
                     <AppointmentStatusBadge status={a.status} />
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           ))}

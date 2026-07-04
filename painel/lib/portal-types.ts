@@ -187,6 +187,44 @@ export interface PortalProductSalesResponse {
   total:     number
 }
 
+// Redesign F2 — detalhe de agendamento (GET /portal/appointments/{id}).
+// Shape conferido em modules/portal/service.get_appointment_detail.
+export interface PortalAppointmentServiceItem {
+  service_name:     string
+  duration_minutes: number
+  price:            string   // Decimal-string
+}
+
+export interface PortalAppointmentDetail {
+  appointment_id:    string
+  company_name:      string | null
+  company_address:   string | null
+  company_city:      string | null
+  company_maps_url:  string | null
+  company_whatsapp:  string | null
+  company_timezone:  string
+  professional_name: string | null
+  services:          PortalAppointmentServiceItem[]
+  start_at:          string   // ISO
+  end_at:            string   // ISO
+  status:            string
+  total_amount:      string   // Decimal-string
+  can_cancel:        boolean
+  can_reschedule:    boolean
+}
+
+export interface PortalCancelResult {
+  appointment_id:   string
+  status:           string
+  deposit_retained: boolean
+}
+
+export interface PortalRescheduleResult {
+  appointment_id: string
+  status:         string
+  start_at:       string   // ISO
+}
+
 export interface PortalDashboardResponse {
   upcoming_appointments: PortalAppointmentItem[]
   active_credits: PortalCreditItem[]

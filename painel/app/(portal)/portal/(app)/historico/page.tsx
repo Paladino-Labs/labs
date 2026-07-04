@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { portal } from "@/lib/portal-api"
 import { formatBRLFromDecimal, formatDateTime } from "@/lib/utils"
 import { type PortalHistoryResponse, establishmentLabel } from "@/lib/portal-types"
@@ -29,6 +31,7 @@ const HISTORY_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"]
 type Load = "loading" | "ok" | "error"
 
 export default function PortalHistoricoPage() {
+  const router = useRouter()
   const [state, setState] = useState<Load>("loading")
   const [data, setData] = useState<PortalHistoryResponse | null>(null)
   const [page, setPage] = useState(1)
@@ -150,7 +153,12 @@ export default function PortalHistoricoPage() {
                 </thead>
                 <tbody>
                   {rows.map((a) => (
-                    <tr key={a.id} className="border-b border-border last:border-0">
+                    // F2 — linha leva ao detalhe (status final, sem ações)
+                    <tr
+                      key={a.id}
+                      className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40"
+                      onClick={() => router.push(`/portal/agendamento/${a.id}`)}
+                    >
                       <td className="px-4 py-3 text-foreground">
                         {a.service_names.join(" + ") || "—"}
                       </td>
@@ -176,7 +184,12 @@ export default function PortalHistoricoPage() {
             {/* Cards (mobile) */}
             <div className="space-y-2 md:hidden">
               {rows.map((a) => (
-                <div key={a.id} className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+                // F2 — card leva ao detalhe
+                <Link
+                  key={a.id}
+                  href={`/portal/agendamento/${a.id}`}
+                  className="block rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors hover:bg-card/80 hover:ring-primary/30"
+                >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium text-foreground">
                       {a.service_names.join(" + ") || "—"}
@@ -191,7 +204,7 @@ export default function PortalHistoricoPage() {
                     </span>
                     <span className="text-foreground">{formatBRLFromDecimal(a.total_amount)}</span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
 
