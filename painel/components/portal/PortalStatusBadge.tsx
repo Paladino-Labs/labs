@@ -22,6 +22,24 @@ export function AppointmentStatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">{label}</Badge>
 }
 
+// Redesign F3 — status de Payment (PENDING → CONFIRMED → REFUNDED | FAILED | CANCELLED).
+// Rótulos voltados ao cliente: CONFIRMED = "Pago" (não "Confirmado" do painel tenant).
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING:   "Pendente",
+  CONFIRMED: "Pago",
+  REFUNDED:  "Estornado",
+  FAILED:    "Falhou",
+  CANCELLED: "Cancelado",
+}
+
+export function PaymentStatusBadge({ status }: { status: string }) {
+  const label = PAYMENT_STATUS_LABELS[status] ?? status
+  if (status === "CONFIRMED") return <Badge className={SUCCESS_CLASS}>{label}</Badge>
+  if (status === "PENDING") return <Badge className={PAUSED_CLASS}>{label}</Badge>
+  if (status === "FAILED") return <Badge variant="destructive">{label}</Badge>
+  return <Badge variant="secondary">{label}</Badge>
+}
+
 export function CreditStatusBadge({ status }: { status: string }) {
   const label = CUSTOMER_CREDIT_STATUS_LABELS[status] ?? status
   if (status === "ACTIVE") return <Badge className={SUCCESS_CLASS}>{label}</Badge>

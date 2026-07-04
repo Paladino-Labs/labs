@@ -187,6 +187,27 @@ export interface PortalProductSalesResponse {
   total:     number
 }
 
+// Redesign F3 — histórico de pagamentos (GET /portal/payments?page=&page_size=).
+// Shape conferido em modules/portal/service.get_payments. Não há campo de
+// descrição semântica — só company_name/método/datas/cupom.
+export interface PortalPaymentItem {
+  payment_id:     string
+  company_name:   string | null
+  amount:         string   // Decimal-string (net_charged_amount)
+  payment_method: string   // cru: CASH | CHAVE_PIX | MAQUININHA | PIX | ... (Payment.payment_method)
+  status:         string   // cru: PENDING | CONFIRMED | REFUNDED | FAILED | CANCELLED
+  paid_at:        string | null   // ISO | null
+  created_at:     string          // ISO
+  coupon_code:    string | null
+}
+
+export interface PortalPaymentsResponse {
+  items:     PortalPaymentItem[]
+  page:      number
+  page_size: number
+  total:     number
+}
+
 // Redesign F2 — detalhe de agendamento (GET /portal/appointments/{id}).
 // Shape conferido em modules/portal/service.get_appointment_detail.
 export interface PortalAppointmentServiceItem {
