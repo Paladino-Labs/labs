@@ -157,9 +157,17 @@ def _subscription_item(s: CustomerSubscription, company_name: Optional[str] = No
 
 # ── Dashboard / History / Credits / Subscriptions ────────────────────────────
 
-def get_dashboard(db: Session, identity_id: UUID) -> dict:
-    """Próximos agendamentos, cotas e assinaturas ativas — cross-tenant."""
+def get_dashboard(
+    db: Session, identity_id: UUID, company_id: Optional[UUID] = None
+) -> dict:
+    """Próximos agendamentos, cotas e assinaturas ativas — cross-tenant.
+
+    company_id opcional filtra as 3 sub-listas para uma única empresa
+    (dentro das empresas da identity — company_id alheio → tudo vazio).
+    """
     customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
     customer_ids = _customer_ids(customers)
     if not customer_ids:
         return {
@@ -271,9 +279,14 @@ def get_history(
     }
 
 
-def get_credits(db: Session, identity_id: UUID) -> list[dict]:
+def get_credits(
+    db: Session, identity_id: UUID, company_id: Optional[UUID] = None
+) -> list[dict]:
     """CustomerCredits ativos, FEFO (expires_at asc, sem expiração por último)."""
-    customer_ids = _customer_ids(_customers_for_identity(db, identity_id))
+    customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
+    customer_ids = _customer_ids(customers)
     if not customer_ids:
         return []
     credits = (
@@ -293,9 +306,14 @@ def get_credits(db: Session, identity_id: UUID) -> list[dict]:
     ]
 
 
-def get_subscriptions(db: Session, identity_id: UUID) -> list[dict]:
+def get_subscriptions(
+    db: Session, identity_id: UUID, company_id: Optional[UUID] = None
+) -> list[dict]:
     """CustomerSubscriptions ativas/pausadas/em atraso — cross-tenant."""
-    customer_ids = _customer_ids(_customers_for_identity(db, identity_id))
+    customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
+    customer_ids = _customer_ids(customers)
     if not customer_ids:
         return []
     subscriptions = (
@@ -420,14 +438,21 @@ def get_companies(db: Session, identity_id: UUID) -> list[dict]:
     return result
 
 
-def get_coupons(db: Session, identity_id: UUID) -> list[dict]:
+def get_coupons(
+    db: Session, identity_id: UUID, company_id: Optional[UUID] = None
+) -> list[dict]:
     """Cupons ativos: nominais da identity + genéricos das empresas dela.
 
     Coupon não tem discount_type/discount_value próprios — vêm da Promotion
     pai (promotion_id). Vigência do cupom é `expires_at` (fallback:
     valid_until da promoção).
+
+    company_id opcional restringe a uma empresa da identity — nominais E
+    genéricos daquela empresa (company_ids derivado dos customers filtrados).
     """
     customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
     customer_ids = [c.id for c in customers]
     company_ids = list({c.company_id for c in customers})
     if not company_ids:
@@ -481,9 +506,15 @@ def get_coupons(db: Session, identity_id: UUID) -> list[dict]:
 
 
 def get_payments(db: Session, identity_id: UUID,
-                 page: int = 1, page_size: int = 20) -> dict:
-    """Histórico de pagamentos da identity (via customers), paginado."""
+                 page: int = 1, page_size: int = 20,
+                 company_id: Optional[UUID] = None) -> dict:
+    """Histórico de pagamentos da identity (via customers), paginado.
+
+    company_id opcional filtra ANTES de paginar (total reflete o filtrado).
+    """
     customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
     customer_ids = [c.id for c in customers]
     if not customer_ids:
         return {"items": [], "page": page, "page_size": page_size, "total": 0}
@@ -521,13 +552,18 @@ def get_product_sales(
     db: Session, identity_id: UUID,
     status: Optional[str] = None,
     page: int = 1, page_size: int = 20,
+    company_id: Optional[UUID] = None,
 ) -> dict:
     """Vendas de produto da identity (cross-tenant), paginadas.
 
     status=None → histórico completo; status="RESERVED"|"PURCHASED"|"PICKED_UP"
-    → filtra aquela visão (Sprint B produtos).
+    → filtra aquela visão (Sprint B produtos). company_id opcional combina com
+    status; ProductSale tem company_id direto — filtrado também na query, além
+    dos customer_ids da identity.
     """
     customers = _customers_for_identity(db, identity_id)
+    if company_id is not None:
+        customers = [c for c in customers if c.company_id == company_id]
     customer_ids = [c.id for c in customers]
     if not customer_ids:
         return {"items": [], "page": page, "page_size": page_size, "total": 0}
@@ -536,6 +572,8 @@ def get_product_sales(
         db.query(ProductSale)
         .filter(ProductSale.customer_id.in_(customer_ids))
     )
+    if company_id is not None:
+        base = base.filter(ProductSale.company_id == company_id)
     if status:
         base = base.filter(ProductSale.status == status)
     base = base.order_by(ProductSale.created_at.desc())

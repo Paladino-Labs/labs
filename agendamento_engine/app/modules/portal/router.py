@@ -71,10 +71,11 @@ def magic_link_verify(
 
 @router.get("/dashboard")
 def dashboard(
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
-    return service.get_dashboard(db, identity.id)
+    return service.get_dashboard(db, identity.id, company_id=company_id)
 
 
 @router.get("/history")
@@ -103,22 +104,26 @@ def companies(
 
 @router.get("/coupons")
 def coupons(
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
     """Cupons ativos: nominais da identity + genéricos das empresas dela."""
-    return service.get_coupons(db, identity.id)
+    return service.get_coupons(db, identity.id, company_id=company_id)
 
 
 @router.get("/payments")
 def payments(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
     """Histórico de pagamentos (read-only), paginado."""
-    return service.get_payments(db, identity.id, page=page, page_size=page_size)
+    return service.get_payments(
+        db, identity.id, page=page, page_size=page_size, company_id=company_id,
+    )
 
 
 @router.get("/product-sales")
@@ -126,12 +131,14 @@ def product_sales(
     status: Optional[str] = Query(None, pattern="^(RESERVED|PURCHASED|PICKED_UP)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
     """Vendas de produto — 3 visões: sem status=histórico; RESERVED; PURCHASED."""
     return service.get_product_sales(
         db, identity.id, status=status, page=page, page_size=page_size,
+        company_id=company_id,
     )
 
 
@@ -213,10 +220,11 @@ def reschedule_appointment_portal(
 
 @router.get("/credits")
 def credits(
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
-    return service.get_credits(db, identity.id)
+    return service.get_credits(db, identity.id, company_id=company_id)
 
 
 @router.get("/credits/{credit_id}/consumptions", response_model=List[CreditConsumptionOut])
@@ -230,10 +238,11 @@ def credit_consumptions(
 
 @router.get("/subscriptions")
 def subscriptions(
+    company_id: Optional[UUID] = Query(None),
     identity: PaladinoIdentity = Depends(get_current_portal_identity),
     db: Session = Depends(get_db),
 ):
-    return service.get_subscriptions(db, identity.id)
+    return service.get_subscriptions(db, identity.id, company_id=company_id)
 
 
 @router.post("/subscriptions/{subscription_id}/pause")
