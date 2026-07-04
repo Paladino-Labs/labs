@@ -1,3 +1,13 @@
+## Sprint B Produtos (9b4f574, integration/validacao-pre-push)
+  GET /portal/product-sales?status=&page=&page_size=
+    status opcional: RESERVED | PURCHASED | PICKED_UP (pattern-validado)
+    sem status → histórico completo (todas as vendas da identity)
+    cross-tenant, paginado, isolado por identity (padrão get_payments)
+  Resposta inclui product_id (link de volta à vitrine; FK RESTRICT sempre resolve)
+    + snapshot (product_name, quantity, unit_price, total_price), status,
+    created_at, picked_up_at, company_name.
+  As 3 visões do portal saem desta rota única filtrada por status.
+
 ## Sprint A Produtos (c1dd288, integration/validacao-pre-push)
   Modelo ProductSale (product_sales, migration e0s29 — head agora e0s29):
     company_id, customer_id, product_id, payment_id (nullable),
