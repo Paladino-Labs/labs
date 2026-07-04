@@ -1,5 +1,27 @@
 # painel — contexto operacional
 
+## Portal Redesign F2 (integration/validacao-pre-push)
+  Tipos novos em portal-types.ts: PortalAppointmentServiceItem,
+    PortalAppointmentDetail, PortalCancelResult, PortalRescheduleResult.
+  /portal/agendamento/[id]: detalhe rico (GET /portal/appointments/{id}) —
+    4 estados (loading/error/not-found/ok); 404 do backend → EmptyState
+    "Agendamento não encontrado".
+  Modais cancelar/remarcar no molde de assinaturas (Dialog, não AlertDialog).
+    Cancelar: sucesso → banner inline no card + status local atualizado;
+    deposit_retained=true → aviso de sinal não reembolsado. 422 → erro no modal.
+    Remarcar: inputs date+time separados (padrão do protótipo); sucesso →
+    banner + refetch; 422 → err.message do backend no modal (cobre conflito
+    de slot E não-SCHEDULED).
+  ⚠ TIMEZONE do remarcar: zonedWallClockToISO (helper local da página) monta
+    o instante no fuso da EMPRESA (company_timezone do payload) via Intl e
+    envia UTC ISO — NÃO usa new Date(`${d}T${t}`) (fuso do browser) porque o
+    cliente do portal pode estar em outro fuso. Nunca envia naive.
+  Cards de agendamento do dashboard e do histórico (tabela md+ via
+    onClick/router.push; cards mobile via Link) levam ao detalhe —
+    mudança mínima, telas NÃO reescritas (F4).
+  Conflito de slot: EXCLUDE constraint é POR PROFISSIONAL — dois agendamentos
+    no mesmo horário com profissionais distintos não conflitam (não é bug).
+
 ## Portal Redesign F1 (d614d91, integration/validacao-pre-push)
   Tipos novos em portal-types.ts: PortalCouponItem, PortalProductSaleItem,
     PortalProductSalesResponse.
