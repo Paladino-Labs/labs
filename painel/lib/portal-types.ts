@@ -153,6 +153,40 @@ export interface CheckoutResponse {
   warnings:       string[]
 }
 
+// Redesign F1 — cupons do cliente (GET /portal/coupons; lista plana).
+// discount_type/discount_value vêm da Promotion pai — podem ser null se a
+// promoção não existir mais (serializer usa `promo.discount_type if promo`).
+export interface PortalCouponItem {
+  coupon_id:      string
+  code:           string
+  company_name:   string | null
+  discount_type:  string          // PERCENTAGE | FIXED_AMOUNT | ...
+  discount_value: string | null   // Decimal-string | null
+  valid_until:    string | null   // ISO | null
+  is_personal:    boolean
+}
+
+// Redesign F1 — vendas de produto (GET /portal/product-sales?status=).
+export interface PortalProductSaleItem {
+  sale_id:      string
+  company_name: string | null
+  product_id:   string
+  product_name: string
+  quantity:     number
+  unit_price:   string   // Decimal-string
+  total_price:  string   // Decimal-string
+  status:       string   // RESERVED | PURCHASED | PICKED_UP
+  created_at:   string   // ISO
+  picked_up_at: string | null
+}
+
+export interface PortalProductSalesResponse {
+  items:     PortalProductSaleItem[]
+  page:      number
+  page_size: number
+  total:     number
+}
+
 export interface PortalDashboardResponse {
   upcoming_appointments: PortalAppointmentItem[]
   active_credits: PortalCreditItem[]

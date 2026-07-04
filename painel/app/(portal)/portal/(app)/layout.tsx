@@ -9,6 +9,8 @@ import {
   Ticket,
   Repeat,
   CircleUser,
+  Tag,
+  Package,
   ShieldCheck,
   CreditCard,
   LogOut,
@@ -32,6 +34,10 @@ const PRIMARY: NavLink[] = [
   { title: "Histórico",   url: "/portal/historico",    icon: History },
   { title: "Cotas",       url: "/portal/cotas",        icon: Ticket },
   { title: "Assinaturas", url: "/portal/assinaturas",  icon: Repeat },
+  // TEMPORÁRIO (redesign F1): entradas mínimas para alcançar as telas novas.
+  // A F4 reescreve a nav inteira — remover estas 2 linhas lá.
+  { title: "Cupons",      url: "/portal/cupons",       icon: Tag },
+  { title: "Produtos",    url: "/portal/produtos",     icon: Package },
   { title: "Perfil",      url: "/portal/perfil",       icon: CircleUser },
 ]
 const SECONDARY: NavLink[] = [
