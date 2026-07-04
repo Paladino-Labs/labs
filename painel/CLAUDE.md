@@ -14,6 +14,11 @@
     establishmentLabel(company_name); secundária = método · formatDateShort(paid_at ?? created_at).
   Gestão de cartões salvos (payment-sources) NÃO entrou — fica p/ sprint de
     pagamento online (tokenização Asaas). Comentário antigo da tela removido.
+    PortalPaymentSourceItem mantido em portal-types.ts (forward-compatible,
+    sem consumidor hoje).
+  Melhoria opcional futura (auditoria F3): descrição rica do pagamento —
+    ligar Payment ao appointment/subscription/package_purchase que o originou
+    e derivar o nome no serializer do backend.
 
 ## Portal Redesign F2 (c58606b, integration/validacao-pre-push)
   Tipos: PortalAppointmentDetail/ServiceItem, PortalCancelResult,
