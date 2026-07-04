@@ -1,5 +1,25 @@
 # painel — contexto operacional
 
+## Portal Redesign F1 (d614d91, integration/validacao-pre-push)
+  Tipos novos em portal-types.ts: PortalCouponItem, PortalProductSaleItem,
+    PortalProductSalesResponse.
+  /portal/cupons: lista com código dourado (font-display), badge Pessoal,
+    desconto formatado por discount_type, botão Copiar (feedback 2s).
+    Backend NÃO retorna descrição do cupom (só 7 campos) — card omite a linha.
+  /portal/produtos: 3 abas manuais roláveis (não shadcn Tabs) via ?status=
+    Histórico + Reservados no mount (contagem "· N"); Comprados lazy.
+    Badges Reservado(âmbar)/Comprado/Retirado(verde), textos auxiliares por aba.
+    Lista em estado filtrável — pronta p/ filtro de empresa da F4.
+  Nav: +2 entradas TEMPORÁRIAS no array PRIMARY (F4 reescreve a nav).
+    Efeito colateral: bottom-nav mobile com 9 itens, labels truncam —
+    resolvido na F4 (hub elimina bottom-nav).
+  Mobile-first: protótipo Lovable NÃO trata mobile — adaptações próprias
+    (overflow-x-auto nas abas, min-h-9 p/ toque, coluna única).
+
+## Migration e0s29 aplicada LOCAL (não em produção)
+  Pré-deploy produção ainda pendente: e0s29 + ALTER alembic_version
+  version_num VARCHAR(255).
+
 **Sprint atual:** Escopo completo do papel PROFESSIONAL (frontend) concluído.
 Painel Owner (`(owner)/owner/*`) implementado — quarto shell, isolado dos demais.
 
