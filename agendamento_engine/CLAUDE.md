@@ -1,3 +1,17 @@
+## Filtro company_id nos endpoints do portal (766162a)
+  credits, subscriptions, coupons, payments, product-sales, dashboard
+    aceitam company_id: Optional[UUID] = Query(None) — padrão de /history.
+  Filtro opera sobre customer_ids da identity (nunca direto na tabela):
+    company_id alheio → customers vazio → resultado vazio. Seguro por construção.
+  Cupons genéricos (customer_id NULL) respeitam o filtro (company_ids
+    derivado dos customers já filtrados).
+  product-sales: + ProductSale.company_id direto (defesa em profundidade);
+    combina com filtro de status.
+  payments/product-sales: filtro reduz ANTES de paginar (total = filtrado).
+  dashboard: filtra as 3 sub-listas (upcoming/credits/subscriptions)
+    simultaneamente — base do menu de empresas do hub (resumos por empresa).
+  Ausência de company_id = comportamento atual (não regride).
+
 ## Sprint B Produtos (9b4f574, integration/validacao-pre-push)
   GET /portal/product-sales?status=&page=&page_size=
     status opcional: RESERVED | PURCHASED | PICKED_UP (pattern-validado)
