@@ -1,5 +1,20 @@
 # painel — contexto operacional
 
+## Portal Redesign F3 (f504436, integration/validacao-pre-push)
+  /portal/pagamentos: aviso estático → histórico read-only paginado
+    (GET /portal/payments, padrão do historico: page/page_size=20 +
+    Anterior/Próxima; 3 estados loading/error/empty).
+  Tipos: PortalPaymentItem + PortalPaymentsResponse em portal-types.ts.
+  PaymentStatusBadge em PortalStatusBadge.tsx — rótulo do CLIENTE:
+    CONFIRMED→"Pago" (verde), não "Confirmado" do painel tenant;
+    PENDING→"Pendente" (âmbar), FAILED→destructive, REFUNDED/CANCELLED→secondary.
+  Método: reusa PAYMENT_METHOD_LABELS (constants.ts). O portal NÃO serializa
+    payment_submethod → MAQUININHA aparece genérico "Maquininha" (aceito).
+  Backend sem descrição semântica de pagamento → linha principal do card =
+    establishmentLabel(company_name); secundária = método · formatDateShort(paid_at ?? created_at).
+  Gestão de cartões salvos (payment-sources) NÃO entrou — fica p/ sprint de
+    pagamento online (tokenização Asaas). Comentário antigo da tela removido.
+
 ## Portal Redesign F2 (c58606b, integration/validacao-pre-push)
   Tipos: PortalAppointmentDetail/ServiceItem, PortalCancelResult,
     PortalRescheduleResult em portal-types.ts.
