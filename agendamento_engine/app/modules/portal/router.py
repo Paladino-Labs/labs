@@ -121,6 +121,20 @@ def payments(
     return service.get_payments(db, identity.id, page=page, page_size=page_size)
 
 
+@router.get("/product-sales")
+def product_sales(
+    status: Optional[str] = Query(None, pattern="^(RESERVED|PURCHASED|PICKED_UP)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    identity: PaladinoIdentity = Depends(get_current_portal_identity),
+    db: Session = Depends(get_db),
+):
+    """Vendas de produto — 3 visões: sem status=histórico; RESERVED; PURCHASED."""
+    return service.get_product_sales(
+        db, identity.id, status=status, page=page, page_size=page_size,
+    )
+
+
 @router.get("/appointments/{appointment_id}")
 def appointment_detail(
     appointment_id: UUID,

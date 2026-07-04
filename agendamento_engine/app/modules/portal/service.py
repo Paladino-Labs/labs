@@ -29,6 +29,7 @@ from app.infrastructure.db.models import (
     PaymentSourceAuthorization,
     PortalCredential,
     Product,
+    ProductSale,
     Promotion,
     Service,
     TenantConfig,
@@ -512,6 +513,54 @@ def get_payments(db: Session, identity_id: UUID,
             "paid_at":        p.paid_at.isoformat() if p.paid_at else None,
             "created_at":     p.created_at.isoformat() if p.created_at else None,
             "coupon_code":    p.coupon_code,
+        })
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+def get_product_sales(
+    db: Session, identity_id: UUID,
+    status: Optional[str] = None,
+    page: int = 1, page_size: int = 20,
+) -> dict:
+    """Vendas de produto da identity (cross-tenant), paginadas.
+
+    status=None → histórico completo; status="RESERVED"|"PURCHASED"|"PICKED_UP"
+    → filtra aquela visão (Sprint B produtos).
+    """
+    customers = _customers_for_identity(db, identity_id)
+    customer_ids = [c.id for c in customers]
+    if not customer_ids:
+        return {"items": [], "page": page, "page_size": page_size, "total": 0}
+
+    base = (
+        db.query(ProductSale)
+        .filter(ProductSale.customer_id.in_(customer_ids))
+    )
+    if status:
+        base = base.filter(ProductSale.status == status)
+    base = base.order_by(ProductSale.created_at.desc())
+
+    total = base.count()
+    sales = base.offset((page - 1) * page_size).limit(page_size).all()
+
+    company_ids = list({c.company_id for c in customers})
+    company_names = _company_names(db, company_ids)
+    company_by_customer = {c.id: c.company_id for c in customers}
+
+    items = []
+    for s in sales:
+        company_id = company_by_customer.get(s.customer_id)
+        items.append({
+            "sale_id":       str(s.id),
+            "company_name":  company_names.get(company_id, ""),
+            "product_id":    str(s.product_id),
+            "product_name":  s.product_name,
+            "quantity":      s.quantity,
+            "unit_price":    str(s.unit_price),
+            "total_price":   str(s.total_price),
+            "status":        s.status,
+            "created_at":    s.created_at.isoformat() if s.created_at else None,
+            "picked_up_at":  s.picked_up_at.isoformat() if s.picked_up_at else None,
         })
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
