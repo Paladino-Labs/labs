@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 // Redesign F3 — histórico de pagamentos read-only.
 // A gestão de cartões salvos (payment-sources) fica para o sprint de pagamento
 // online (tokenização Asaas) — não criar UI de cartões aqui.
@@ -58,7 +60,7 @@ export default function PortalPagamentosPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Pagamentos</h1>
+      <PortalPageHeader title="Pagamentos" />
 
       {state === "loading" && (
         <div className="space-y-2">

@@ -322,7 +322,26 @@ class TestDashboardCompanyFilter:
             "upcoming_appointments": [],
             "active_credits": [],
             "active_subscriptions": [],
+            "counts": {"coupons": 0, "reserved_products": 0, "payments": 0},
         }
+
+    def test_counts_reflect_company_filter(self):
+        """F4b — counts (cupons/produtos reservados/pagamentos) seguem o filtro."""
+        db = FakeDB()
+        identity, ca, cb, _ = self._seed(db)
+        _make_sale(db, ca, status="RESERVED")
+        _make_sale(db, cb, status="RESERVED")
+        _make_sale(db, cb, status="PURCHASED")  # não conta como reservado
+        _make_payment(db, ca)
+        _make_payment(db, cb)
+
+        out = portal_service.get_dashboard(db, identity.id)
+        assert out["counts"]["reserved_products"] == 2
+        assert out["counts"]["payments"] == 2
+
+        out_a = portal_service.get_dashboard(db, identity.id, company_id=ca.company_id)
+        assert out_a["counts"]["reserved_products"] == 1
+        assert out_a["counts"]["payments"] == 1
 
 
 # ─── Credits ──────────────────────────────────────────────────────────────────

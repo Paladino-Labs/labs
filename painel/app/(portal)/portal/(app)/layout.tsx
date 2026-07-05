@@ -1,22 +1,12 @@
 "use client"
+// Redesign F4b — chrome novo do portal: header (wordmark + tema + avatar
+// dropdown) + CompanyFilterBar. Navegação vira hub → blocos → seções
+// (sidebar e bottom-nav antigas removidas; seções têm "‹ Voltar").
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import {
-  Home,
-  History,
-  Ticket,
-  Repeat,
-  CircleUser,
-  Tag,
-  Package,
-  ShieldCheck,
-  CreditCard,
-  LogOut,
-  Loader2,
-  type LucideIcon,
-} from "lucide-react"
+import { useRouter } from "next/navigation"
+import { CircleUser, Loader2, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   portal,
@@ -27,61 +17,95 @@ import {
 import type { PortalIdentity } from "@/lib/portal-types"
 import { CompanyFilterProvider } from "@/context/CompanyFilterContext"
 import { CompanyFilterBar } from "@/components/portal/CompanyFilterBar"
+import { ThemeToggle } from "@/components/booking/ThemeToggle"
 
-type NavLink = { title: string; url: string; icon: LucideIcon }
-
-// Ordem espelha a screenshot: grupo principal + grupo de gestão de conta.
-const PRIMARY: NavLink[] = [
-  { title: "Início",      url: "/portal/dashboard",    icon: Home },
-  { title: "Histórico",   url: "/portal/historico",    icon: History },
-  { title: "Cotas",       url: "/portal/cotas",        icon: Ticket },
-  { title: "Assinaturas", url: "/portal/assinaturas",  icon: Repeat },
-  // TEMPORÁRIO (redesign F1): entradas mínimas para alcançar as telas novas.
-  // A F4 reescreve a nav inteira — remover estas 2 linhas lá.
-  { title: "Cupons",      url: "/portal/cupons",       icon: Tag },
-  { title: "Produtos",    url: "/portal/produtos",     icon: Package },
-  { title: "Perfil",      url: "/portal/perfil",       icon: CircleUser },
-]
-const SECONDARY: NavLink[] = [
-  { title: "Consentimentos", url: "/portal/consentimentos", icon: ShieldCheck },
-  { title: "Pagamentos",     url: "/portal/pagamentos",     icon: CreditCard },
-]
-const ALL_LINKS = [...PRIMARY, ...SECONDARY]
-
-function isActive(pathname: string, url: string): boolean {
-  return pathname === url || pathname.startsWith(url + "/")
+function initials(name: string | null | undefined, email: string | null | undefined): string {
+  const source = name?.trim()
+  if (source) {
+    const parts = source.split(/\s+/)
+    const first = parts[0]?.[0] ?? ""
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : ""
+    return (first + last).toUpperCase() || "C"
+  }
+  return email?.[0]?.toUpperCase() ?? "C"
 }
 
-function NavRow({
-  link,
-  active,
-  onNavigate,
+function AvatarMenu({
+  identity,
+  onLogout,
 }: {
-  link: NavLink
-  active: boolean
-  onNavigate?: () => void
+  identity: PortalIdentity | null
+  onLogout: () => void
 }) {
-  const Icon = link.icon
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  // Fecha ao clicar fora (não há DropdownMenu shadcn no projeto).
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    return () => document.removeEventListener("mousedown", onPointerDown)
+  }, [open])
+
   return (
-    <Link
-      href={link.url}
-      onClick={onNavigate}
-      className={cn(
-        "flex items-center gap-3 rounded-md px-3 py-2 transition-colors",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Menu do cliente"
+        aria-expanded={open}
+        className={cn(
+          "flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-xs font-medium tracking-wide text-foreground transition-colors hover:border-primary/40",
+          open && "border-primary/60",
+        )}
+      >
+        {initials(identity?.name, identity?.email)}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-11 z-50 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+          <div className="border-b border-border px-4 py-3">
+            <p className="truncate text-sm font-medium text-foreground">
+              {identity?.name ?? "Cliente"}
+            </p>
+            {identity?.email && (
+              <p className="truncate text-xs text-muted-foreground">{identity.email}</p>
+            )}
+          </div>
+          <div className="p-1">
+            <Link
+              href="/portal/perfil"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <CircleUser size={15} strokeWidth={1.5} className="text-muted-foreground" />
+              Perfil
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onLogout()
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <LogOut size={15} strokeWidth={1.5} />
+              Sair
+            </button>
+          </div>
+        </div>
       )}
-    >
-      <Icon size={16} strokeWidth={1.5} className="flex-shrink-0 text-sidebar-primary" />
-      <span className={cn("text-sm leading-tight", active && "font-medium")}>{link.title}</span>
-    </Link>
+    </div>
   )
 }
 
 export default function PortalAppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const pathname = usePathname()
   const [ready, setReady] = useState(false)
   const [identity, setIdentity] = useState<PortalIdentity | null>(null)
 
@@ -118,92 +142,26 @@ export default function PortalAppLayout({ children }: { children: React.ReactNod
 
   return (
     <CompanyFilterProvider>
-    <div className="flex min-h-screen bg-background">
-      {/* Nav lateral (md+) */}
-      <aside className="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-        <div className="px-6 py-5">
-          <span className="font-display block text-xl tracking-[0.3em] text-sidebar-primary leading-none">
-            PALADINO
-          </span>
-          <span className="mt-1 block text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-            Portal do Cliente
-          </span>
-        </div>
-
-        <nav className="flex-1 space-y-5 overflow-y-auto px-4 py-2">
-          <div className="space-y-0.5">
-            {PRIMARY.map((link) => (
-              <NavRow key={link.url} link={link} active={isActive(pathname, link.url)} />
-            ))}
+      <div className="flex min-h-screen flex-col bg-background">
+        <header className="flex h-14 items-center justify-between border-b border-border px-4 md:px-8">
+          <Link href="/portal/dashboard" className="leading-none">
+            <span className="font-display text-lg tracking-[0.3em] text-primary md:text-xl">
+              PALADINO
+            </span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <AvatarMenu identity={identity} onLogout={logout} />
           </div>
-          <div className="space-y-0.5 border-t border-sidebar-border pt-4">
-            {SECONDARY.map((link) => (
-              <NavRow key={link.url} link={link} active={isActive(pathname, link.url)} />
-            ))}
-          </div>
-        </nav>
-
-        <div className="border-t border-sidebar-border px-6 py-4">
-          <p className="truncate text-sm font-medium text-sidebar-foreground">
-            {identity?.name ?? "Cliente"}
-          </p>
-          {identity?.email && (
-            <p className="truncate text-xs text-muted-foreground">{identity.email}</p>
-          )}
-          <button
-            onClick={logout}
-            className="mt-3 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <LogOut size={14} strokeWidth={1.5} /> Sair
-          </button>
-        </div>
-      </aside>
-
-      {/* Conteúdo */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Topbar mobile com wordmark + sair */}
-        <header className="flex items-center justify-between border-b border-border px-4 h-14 md:hidden">
-          <div className="leading-none">
-            <span className="font-display text-base tracking-[0.25em] text-primary">PALADINO</span>
-          </div>
-          <button
-            onClick={logout}
-            aria-label="Sair"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground"
-          >
-            <LogOut size={16} strokeWidth={1.5} /> Sair
-          </button>
         </header>
 
         {/* F4a — menu de empresas, visível em todas as telas do grupo (app) */}
         <CompanyFilterBar />
 
-        <main className="flex-1 px-4 py-6 pb-24 md:px-8 md:py-10 md:pb-10">
-          <div className="mx-auto w-full max-w-3xl">{children}</div>
+        <main className="flex-1 px-4 py-6 md:px-8 md:py-10">
+          <div className="mx-auto w-full max-w-5xl">{children}</div>
         </main>
       </div>
-
-      {/* Bottom nav (mobile) */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background md:hidden">
-        {ALL_LINKS.map((link) => {
-          const active = isActive(pathname, link.url)
-          const Icon = link.icon
-          return (
-            <Link
-              key={link.url}
-              href={link.url}
-              className={cn(
-                "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2",
-                active ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              <Icon size={18} strokeWidth={1.5} />
-              <span className="w-full truncate text-center text-[9px] leading-none">{link.title}</span>
-            </Link>
-          )
-        })}
-      </nav>
-    </div>
     </CompanyFilterProvider>
   )
 }

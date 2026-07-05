@@ -164,6 +164,10 @@ def get_dashboard(
 
     company_id opcional filtra as 3 sub-listas para uma única empresa
     (dentro das empresas da identity — company_id alheio → tudo vazio).
+
+    F4b — `counts` alimenta os resumos dos blocos do hub em 1 request:
+    coupons (mesma regra de vigência de get_coupons), reserved_products
+    (ProductSale RESERVED) e payments (total de lançamentos).
     """
     customers = _customers_for_identity(db, identity_id)
     if company_id is not None:
@@ -174,6 +178,7 @@ def get_dashboard(
             "upcoming_appointments": [],
             "active_credits": [],
             "active_subscriptions": [],
+            "counts": {"coupons": 0, "reserved_products": 0, "payments": 0},
         }
 
     now = datetime.now(timezone.utc)
@@ -209,6 +214,24 @@ def get_dashboard(
         + [c.company_id for c in credits]
         + [s.company_id for s in subscriptions],
     )
+    reserved_products = (
+        db.query(ProductSale)
+        .filter(
+            ProductSale.customer_id.in_(customer_ids),
+            ProductSale.status == "RESERVED",
+        )
+        .count()
+    )
+    payments_total = (
+        db.query(Payment)
+        .filter(Payment.customer_id.in_(customer_ids))
+        .count()
+    )
+    counts = {
+        "coupons": len(get_coupons(db, identity_id, company_id=company_id)),
+        "reserved_products": reserved_products,
+        "payments": payments_total,
+    }
     return {
         "upcoming_appointments": [
             _appointment_item(a, names.get(a.company_id)) for a in upcoming
@@ -222,6 +245,7 @@ def get_dashboard(
         "active_subscriptions": [
             _subscription_item(s, names.get(s.company_id)) for s in subscriptions
         ],
+        "counts": counts,
     }
 
 

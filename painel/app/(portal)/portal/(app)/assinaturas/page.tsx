@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useCallback, useEffect, useState } from "react"
 import { CircleX, Loader2, PauseCircle, PlayCircle } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -101,7 +103,7 @@ export default function PortalAssinaturasPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Assinaturas</h1>
+      <PortalPageHeader title="Assinaturas" />
 
       {state === "loading" && (
         <div className="space-y-3">

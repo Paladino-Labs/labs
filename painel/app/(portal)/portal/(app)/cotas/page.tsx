@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useCallback, useEffect, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -135,7 +137,7 @@ export default function PortalCotasPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Cotas</h1>
+      <PortalPageHeader title="Cotas" />
 
       {state === "loading" && (
         <div className="grid gap-3 sm:grid-cols-2">

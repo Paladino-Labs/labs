@@ -246,10 +246,19 @@ export interface PortalRescheduleResult {
   start_at:       string   // ISO
 }
 
+// Redesign F4b — counts alimenta os resumos dos blocos do hub (1 request).
+// Opcional/forward-compatible: backend antigo sem counts → rótulo sem número.
+export interface PortalDashboardCounts {
+  coupons:           number
+  reserved_products: number
+  payments:          number
+}
+
 export interface PortalDashboardResponse {
   upcoming_appointments: PortalAppointmentItem[]
   active_credits: PortalCreditItem[]
   active_subscriptions: PortalSubscriptionItem[]
+  counts?: PortalDashboardCounts
 }
 
 export interface PortalHistoryResponse {

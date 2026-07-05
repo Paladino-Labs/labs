@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -88,7 +90,7 @@ export default function PortalPerfilPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Perfil</h1>
+      <PortalPageHeader title="Perfil" />
 
       {state === "loading" && (
         <div className="max-w-lg space-y-4 rounded-xl bg-card p-6 ring-1 ring-foreground/10">

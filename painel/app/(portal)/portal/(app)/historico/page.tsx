@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -76,7 +78,7 @@ export default function PortalHistoricoPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Histórico</h1>
+      <PortalPageHeader title="Histórico" />
 
       <div className="flex flex-wrap gap-3">
         <Select

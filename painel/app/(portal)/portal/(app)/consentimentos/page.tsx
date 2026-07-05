@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -84,7 +86,7 @@ export default function PortalConsentimentosPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Consentimentos</h1>
+      <PortalPageHeader title="Consentimentos" />
 
       {toggleError && <p className="text-sm text-destructive">{toggleError}</p>}
 

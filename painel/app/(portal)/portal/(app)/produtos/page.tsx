@@ -1,5 +1,7 @@
 "use client"
 
+import { PortalPageHeader } from "@/components/portal/PortalPageHeader"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Package } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -163,7 +165,7 @@ export default function PortalProdutosPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl tracking-wide text-foreground">Produtos</h1>
+      <PortalPageHeader title="Produtos" />
 
       {/* Tabs manuais no idioma do portal — roláveis no mobile */}
       <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
