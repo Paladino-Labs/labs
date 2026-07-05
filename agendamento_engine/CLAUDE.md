@@ -1,3 +1,20 @@
+## Sprint C Produtos — aviso de pendências na conclusão (1ce4854)
+  get_pending_pickups(customer_id, company_id): product_sale RESERVED|
+    PURCHASED (não PICKED_UP), colunas indexadas. Módulo novo
+    app/modules/product_sales/ (service + schemas, sem router próprio).
+  GET /appointments/{id}/pending-products (padrão available-credit,
+    auth OWNER/PROFESSIONAL, posse por company): {has_pending, items[]}.
+  _send_pos_atendimento: após appointment.completed, se há pendência →
+    dispatch novo event_type "product_pickup.reminder" (CLIENT/WHATSAPP).
+    NÃO-transacional: fora de _QUIET_HOURS_SCHEDULED/_TRANSACTIONAL →
+    descartado em quiet hours (SKIPPED_QUIET_HOURS). Painel é garantia primária.
+  complete_appointment (service) NÃO tocado — cota/transition/sinal intactos.
+  Template semeado em _DEFAULT_TEMPLATES (create_company) só p/ tenants NOVOS.
+    Tenants existentes: INSERT manual (caveat Sprints G/I). Sem template →
+    SKIPPED_NO_TEMPLATE (degrada limpo).
+  Edge aceito: Customer duplicado pré-backfill pode esconder pendência
+    (check por client_id do agendamento).
+
 ## get_dashboard — counts (F4b)
   get_dashboard retorna counts {coupons, reserved_products, payments}
   além das listas de cotas/assinaturas. Respeita company_id (mesmo

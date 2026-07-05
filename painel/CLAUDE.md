@@ -1,5 +1,14 @@
 # painel — contexto operacional
 
+## Sprint C Produtos — aviso no painel (1ce4854)
+  PendingProductsNotice: componente único, aplicado nas 2 superfícies de
+    conclusão (PaymentOnCompleteDialog da Agenda + dialog do appointments/[id]).
+  Consulta GET /appointments/{id}/pending-products; se has_pending mostra
+    produtos a retirar (RESERVED=cobrar+entregar, PURCHASED=só entregar).
+    Informativo — NÃO bloqueia a conclusão.
+  Pré-push manual pendente: semear cliente c/ produto RESERVED + agendamento
+    e concluir p/ ver o aviso + WhatsApp (sem verificação visual na sessão).
+
 ## Portal Redesign F5 (7ed9874) — redesign COMPLETO (F1-F5)
   Perfil consolidado: Dados pessoais + Consentimentos + Sessão numa tela.
   Consentimentos transplantados da tela própria (lógica grant/revoke preservada).
