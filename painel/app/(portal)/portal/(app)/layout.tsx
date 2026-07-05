@@ -25,6 +25,8 @@ import {
   PORTAL_TOKEN_KEY,
 } from "@/lib/portal-api"
 import type { PortalIdentity } from "@/lib/portal-types"
+import { CompanyFilterProvider } from "@/context/CompanyFilterContext"
+import { CompanyFilterBar } from "@/components/portal/CompanyFilterBar"
 
 type NavLink = { title: string; url: string; icon: LucideIcon }
 
@@ -115,6 +117,7 @@ export default function PortalAppLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <CompanyFilterProvider>
     <div className="flex min-h-screen bg-background">
       {/* Nav lateral (md+) */}
       <aside className="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -172,6 +175,9 @@ export default function PortalAppLayout({ children }: { children: React.ReactNod
           </button>
         </header>
 
+        {/* F4a — menu de empresas, visível em todas as telas do grupo (app) */}
+        <CompanyFilterBar />
+
         <main className="flex-1 px-4 py-6 pb-24 md:px-8 md:py-10 md:pb-10">
           <div className="mx-auto w-full max-w-3xl">{children}</div>
         </main>
@@ -198,5 +204,6 @@ export default function PortalAppLayout({ children }: { children: React.ReactNod
         })}
       </nav>
     </div>
+    </CompanyFilterProvider>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { portal } from "@/lib/portal-api"
 import { formatDateShort, formatDateTime } from "@/lib/utils"
@@ -9,6 +9,7 @@ import {
   type CreditConsumptionItem,
   establishmentLabel,
 } from "@/lib/portal-types"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { CreditStatusBadge } from "@/components/portal/PortalStatusBadge"
 import { QuotaProgress } from "@/components/portal/QuotaProgress"
 import { cn } from "@/lib/utils"
@@ -24,7 +25,7 @@ function isExpired(c: PortalCreditItem): boolean {
   return new Date(c.expires_at).getTime() < Date.now()
 }
 
-function CreditCard({ credit }: { credit: PortalCreditItem }) {
+function CreditCard({ credit, showCompany }: { credit: PortalCreditItem; showCompany: boolean }) {
   const [open, setOpen] = useState(false)
   // B3 — histórico de consumo carregado de forma lazy ao expandir.
   const [consumptions, setConsumptions] = useState<CreditConsumptionItem[] | null>(null)
@@ -48,7 +49,9 @@ function CreditCard({ credit }: { credit: PortalCreditItem }) {
           <p className="truncate text-sm font-medium text-foreground">
             {credit.service_name ?? credit.entitlement_type}
           </p>
-          <p className="truncate text-xs text-primary">{establishmentLabel(credit)}</p>
+          {showCompany && (
+            <p className="truncate text-xs text-primary">{establishmentLabel(credit)}</p>
+          )}
         </div>
         <CreditStatusBadge status={credit.status} />
       </div>
@@ -108,23 +111,27 @@ function CreditCard({ credit }: { credit: PortalCreditItem }) {
 }
 
 export default function PortalCotasPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
   const [credits, setCredits] = useState<PortalCreditItem[]>([])
 
-  function load() {
+  const filtered = selectedCompanyId != null
+
+  const load = useCallback(() => {
     setState("loading")
+    const q = selectedCompanyId ? `?company_id=${selectedCompanyId}` : ""
     portal
-      .get<PortalCreditItem[]>("/portal/credits")
+      .get<PortalCreditItem[]>(`/portal/credits${q}`)
       .then((d) => {
         setCredits(d)
         setState("ok")
       })
       .catch(() => setState("error"))
-  }
+  }, [selectedCompanyId])
 
   useEffect(() => {
     load()
-  }, [])
+  }, [load])
 
   return (
     <div className="space-y-6">
@@ -140,11 +147,18 @@ export default function PortalCotasPage() {
       {state === "error" && <ErrorState onRetry={load} />}
       {state === "ok" &&
         (credits.length === 0 ? (
-          <EmptyState title="Você não tem cotas" description="Pacotes e cotas ativas aparecerão aqui." />
+          filtered ? (
+            <EmptyState title="Nenhuma cota nesta empresa" />
+          ) : (
+            <EmptyState
+              title="Você não tem cotas"
+              description="Pacotes e cotas ativas aparecerão aqui."
+            />
+          )
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {credits.map((c) => (
-              <CreditCard key={c.credit_id} credit={c} />
+              <CreditCard key={c.credit_id} credit={c} showCompany={!filtered} />
             ))}
           </div>
         ))}

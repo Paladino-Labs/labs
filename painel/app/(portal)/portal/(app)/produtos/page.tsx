@@ -9,6 +9,7 @@ import {
   type PortalProductSalesResponse,
   establishmentLabel,
 } from "@/lib/portal-types"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
@@ -39,6 +40,13 @@ const EMPTY_MSG: Record<ViewKey, string> = {
   PURCHASED:   "Nenhum produto comprado ainda.",
 }
 
+// F4a — empty state contextual quando uma empresa está selecionada.
+const EMPTY_MSG_FILTERED: Record<ViewKey, string> = {
+  "":          "Nenhum produto nesta empresa.",
+  RESERVED:    "Nenhum produto reservado nesta empresa.",
+  PURCHASED:   "Nenhum produto comprado nesta empresa.",
+}
+
 const HINT: Record<ViewKey, string | null> = {
   "":          null,
   RESERVED:    "Pague e retire na barbearia.",
@@ -64,7 +72,15 @@ function SaleStatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">{status}</Badge>
 }
 
-function SaleCard({ sale, hint }: { sale: PortalProductSaleItem; hint: string | null }) {
+function SaleCard({
+  sale,
+  hint,
+  showCompany,
+}: {
+  sale: PortalProductSaleItem
+  hint: string | null
+  showCompany: boolean
+}) {
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <div className="flex items-start justify-between gap-2">
@@ -73,9 +89,11 @@ function SaleCard({ sale, hint }: { sale: PortalProductSaleItem; hint: string | 
           <p className="mt-0.5 text-xs text-muted-foreground">
             {sale.quantity}un · {formatBRLFromDecimal(sale.unit_price)}
           </p>
-          <p className="mt-1 truncate text-[11px] uppercase tracking-widest text-primary/80">
-            {establishmentLabel(sale)}
-          </p>
+          {showCompany && (
+            <p className="mt-1 truncate text-[11px] uppercase tracking-widest text-primary/80">
+              {establishmentLabel(sale)}
+            </p>
+          )}
         </div>
         <div className="flex flex-shrink-0 flex-col items-end gap-1">
           <SaleStatusBadge status={sale.status} />
@@ -94,35 +112,44 @@ function SaleCard({ sale, hint }: { sale: PortalProductSaleItem; hint: string | 
 }
 
 export default function PortalProdutosPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [tab, setTab] = useState<ViewKey>("")
-  // Uma entrada por visão — o filtro por empresa (F4) aplicará sobre `items`.
   const [views, setViews] = useState<Record<ViewKey, ViewState>>({
     "": INITIAL_VIEW,
     RESERVED: INITIAL_VIEW,
     PURCHASED: INITIAL_VIEW,
   })
 
-  // Visões já buscadas (evita refetch ao alternar abas; F4 pode invalidar).
+  const filtered = selectedCompanyId != null
+
+  // Visões já buscadas (evita refetch ao alternar abas; trocar de empresa invalida).
   const requested = useRef<Set<ViewKey>>(new Set())
 
   const load = useCallback((key: ViewKey) => {
     requested.current.add(key)
     setViews((v) => ({ ...v, [key]: { ...v[key], state: "loading" } }))
-    const qs = key ? `?status=${key}` : ""
+    const params = new URLSearchParams()
+    if (key) params.set("status", key)
+    if (selectedCompanyId) params.set("company_id", selectedCompanyId)
+    const qs = params.toString()
     portal
-      .get<PortalProductSalesResponse>(`/portal/product-sales${qs}`)
+      .get<PortalProductSalesResponse>(`/portal/product-sales${qs ? `?${qs}` : ""}`)
       .then((d) =>
         setViews((v) => ({ ...v, [key]: { state: "ok", items: d.items, total: d.total } })),
       )
       .catch(() =>
         setViews((v) => ({ ...v, [key]: { ...v[key], state: "error" } })),
       )
-  }, [])
+  }, [selectedCompanyId])
 
   // Histórico (visão inicial) + Reservados (contagem "· N" da aba) no mount.
+  // `load` muda com a empresa selecionada → o efeito refaz as visões já vistas.
   useEffect(() => {
+    const hadPurchased = requested.current.has("PURCHASED")
+    requested.current = new Set()
     load("")
     load("RESERVED")
+    if (hadPurchased) load("PURCHASED")
   }, [load])
 
   function switchTab(key: ViewKey) {
@@ -173,12 +200,12 @@ export default function PortalProdutosPage() {
           <EmptyState
             icon={<Package size={28} strokeWidth={1.5} />}
             title="Nenhum produto"
-            description={EMPTY_MSG[tab]}
+            description={filtered ? EMPTY_MSG_FILTERED[tab] : EMPTY_MSG[tab]}
           />
         ) : (
           <div className="space-y-3">
             {view.items.map((s) => (
-              <SaleCard key={s.sale_id} sale={s} hint={hint} />
+              <SaleCard key={s.sale_id} sale={s} hint={hint} showCompany={!filtered} />
             ))}
           </div>
         ))}

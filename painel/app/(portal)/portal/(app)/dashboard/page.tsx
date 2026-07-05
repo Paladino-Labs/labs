@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, UserRound } from "lucide-react"
 import { portal } from "@/lib/portal-api"
@@ -10,6 +10,7 @@ import {
   type PortalIdentity,
   establishmentLabel,
 } from "@/lib/portal-types"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { AppointmentStatusBadge } from "@/components/portal/PortalStatusBadge"
 import { QuotaProgress } from "@/components/portal/QuotaProgress"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -31,23 +32,31 @@ function SectionSkeleton({ rows }: { rows: number }) {
 }
 
 export default function PortalDashboardPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
   const [data, setData] = useState<PortalDashboardResponse | null>(null)
   const [identity, setIdentity] = useState<PortalIdentity | null>(null)
 
-  function load() {
+  // F4a — badge de empresa redundante quando filtrado (todos são da mesma).
+  const filtered = selectedCompanyId != null
+
+  const load = useCallback(() => {
     setState("loading")
+    const q = selectedCompanyId ? `?company_id=${selectedCompanyId}` : ""
     portal
-      .get<PortalDashboardResponse>("/portal/dashboard")
+      .get<PortalDashboardResponse>(`/portal/dashboard${q}`)
       .then((d) => {
         setData(d)
         setState("ok")
       })
       .catch(() => setState("error"))
-  }
+  }, [selectedCompanyId])
 
   useEffect(() => {
     load()
+  }, [load])
+
+  useEffect(() => {
     portal.get<PortalIdentity>("/portal/identity/me").then(setIdentity).catch(() => {})
   }, [])
 
@@ -89,7 +98,13 @@ export default function PortalDashboardPage() {
         {state === "error" && <ErrorState onRetry={load} />}
         {state === "ok" &&
           (data!.upcoming_appointments.length === 0 ? (
-            <EmptyState message="Você ainda não tem agendamentos." />
+            <EmptyState
+              message={
+                filtered
+                  ? "Nenhum agendamento nesta empresa."
+                  : "Você ainda não tem agendamentos."
+              }
+            />
           ) : (
             <div className="space-y-2">
               {data!.upcoming_appointments.slice(0, 5).map((a) => (
@@ -104,9 +119,13 @@ export default function PortalDashboardPage() {
                       {a.service_names.join(" + ") || "Atendimento"}
                     </p>
                     <p className="truncate text-xs">
-                      <span className="text-primary">{establishmentLabel(a)}</span>
+                      {!filtered && (
+                        <span className="text-primary">{establishmentLabel(a)}</span>
+                      )}
                       {a.professional_name && (
-                        <span className="text-muted-foreground"> · com {a.professional_name}</span>
+                        <span className="text-muted-foreground">
+                          {!filtered && " · "}com {a.professional_name}
+                        </span>
                       )}
                     </p>
                   </div>
@@ -138,7 +157,9 @@ export default function PortalDashboardPage() {
         {state === "error" && <ErrorState onRetry={load} />}
         {state === "ok" &&
           (data!.active_credits.length === 0 ? (
-            <EmptyState message="Nenhuma cota ativa." />
+            <EmptyState
+              message={filtered ? "Nenhuma cota nesta empresa." : "Nenhuma cota ativa."}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {data!.active_credits.slice(0, 3).map((c) => (
@@ -152,7 +173,9 @@ export default function PortalDashboardPage() {
                       <p className="truncate text-sm font-medium text-foreground">
                         {c.service_name ?? c.entitlement_type}
                       </p>
-                      <p className="truncate text-xs text-primary">{establishmentLabel(c)}</p>
+                      {!filtered && (
+                        <p className="truncate text-xs text-primary">{establishmentLabel(c)}</p>
+                      )}
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs">

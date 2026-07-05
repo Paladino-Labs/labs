@@ -4,8 +4,9 @@
 // A gestão de cartões salvos (payment-sources) fica para o sprint de pagamento
 // online (tokenização Asaas) — não criar UI de cartões aqui.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { portal } from "@/lib/portal-api"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { formatBRLFromDecimal, formatDateShort } from "@/lib/utils"
 import { type PortalPaymentsResponse, establishmentLabel } from "@/lib/portal-types"
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants"
@@ -20,20 +21,33 @@ const PAGE_SIZE = 20
 type Load = "loading" | "ok" | "error"
 
 export default function PortalPagamentosPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
   const [data, setData] = useState<PortalPaymentsResponse | null>(null)
   const [page, setPage] = useState(1)
 
+  const filtered = selectedCompanyId != null
+
+  // Trocar de empresa reseta a paginação ANTES do fetch (ajuste em render —
+  // evita buscar uma página que não existe no conjunto filtrado).
+  const prevCompany = useRef(selectedCompanyId)
+  if (prevCompany.current !== selectedCompanyId) {
+    prevCompany.current = selectedCompanyId
+    if (page !== 1) setPage(1)
+  }
+
   const load = useCallback(() => {
     setState("loading")
+    const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
+    if (selectedCompanyId) params.set("company_id", selectedCompanyId)
     portal
-      .get<PortalPaymentsResponse>(`/portal/payments?page=${page}&page_size=${PAGE_SIZE}`)
+      .get<PortalPaymentsResponse>(`/portal/payments?${params.toString()}`)
       .then((d) => {
         setData(d)
         setState("ok")
       })
       .catch(() => setState("error"))
-  }, [page])
+  }, [page, selectedCompanyId])
 
   useEffect(() => {
     load()
@@ -58,7 +72,11 @@ export default function PortalPagamentosPage() {
         (rows.length === 0 ? (
           <EmptyState
             title="Nenhum pagamento"
-            description="Você ainda não tem pagamentos registrados."
+            description={
+              filtered
+                ? "Nenhum pagamento nesta empresa."
+                : "Você ainda não tem pagamentos registrados."
+            }
           />
         ) : (
           <>

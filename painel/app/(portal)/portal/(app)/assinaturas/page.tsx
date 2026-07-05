@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { CircleX, Loader2, PauseCircle, PlayCircle } from "lucide-react"
 import { portal } from "@/lib/portal-api"
 import { formatBRLFromDecimal, formatDateShort } from "@/lib/utils"
 import { type PortalSubscriptionItem, establishmentLabel } from "@/lib/portal-types"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { SubscriptionStatusBadge } from "@/components/portal/PortalStatusBadge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -42,8 +43,11 @@ const DIALOG_COPY: Record<Action, { title: string; description: string; confirm:
 }
 
 export default function PortalAssinaturasPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
   const [subs, setSubs] = useState<PortalSubscriptionItem[]>([])
+
+  const filtered = selectedCompanyId != null
 
   // Diálogo de confirmação
   const [dialog, setDialog] = useState<{ id: string; action: Action } | null>(null)
@@ -51,20 +55,21 @@ export default function PortalAssinaturasPage() {
   // Erro inline por assinatura
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  function load() {
+  const load = useCallback(() => {
     setState("loading")
+    const q = selectedCompanyId ? `?company_id=${selectedCompanyId}` : ""
     portal
-      .get<PortalSubscriptionItem[]>("/portal/subscriptions")
+      .get<PortalSubscriptionItem[]>(`/portal/subscriptions${q}`)
       .then((d) => {
         setSubs(d)
         setState("ok")
       })
       .catch(() => setState("error"))
-  }
+  }, [selectedCompanyId])
 
   useEffect(() => {
     load()
-  }, [])
+  }, [load])
 
   async function confirmAction() {
     if (!dialog) return
@@ -108,10 +113,14 @@ export default function PortalAssinaturasPage() {
       {state === "error" && <ErrorState onRetry={load} />}
       {state === "ok" &&
         (subs.length === 0 ? (
-          <EmptyState
-            title="Você não tem assinaturas"
-            description="Planos recorrentes contratados aparecerão aqui."
-          />
+          filtered ? (
+            <EmptyState title="Nenhuma assinatura nesta empresa" />
+          ) : (
+            <EmptyState
+              title="Você não tem assinaturas"
+              description="Planos recorrentes contratados aparecerão aqui."
+            />
+          )
         ) : (
           <div className="space-y-3">
             {subs.map((s) => {
@@ -127,7 +136,9 @@ export default function PortalAssinaturasPage() {
                       <p className="truncate text-sm font-medium text-foreground">
                         {s.plan_name ?? "Plano"}
                       </p>
-                      <p className="truncate text-xs text-primary">{establishmentLabel(s)}</p>
+                      {!filtered && (
+                        <p className="truncate text-xs text-primary">{establishmentLabel(s)}</p>
+                      )}
                       {s.next_billing_at && (
                         <p className="mt-1 text-xs text-muted-foreground">
                           Próxima renovação: {formatDateShort(s.next_billing_at)}

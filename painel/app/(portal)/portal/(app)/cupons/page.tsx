@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Copy, Check, Tag } from "lucide-react"
 import { portal } from "@/lib/portal-api"
 import { formatBRLFromDecimal, formatDateShort } from "@/lib/utils"
 import { type PortalCouponItem, establishmentLabel } from "@/lib/portal-types"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
@@ -29,7 +30,7 @@ function discountLabel(c: PortalCouponItem): string {
   }
 }
 
-function CouponCard({ coupon }: { coupon: PortalCouponItem }) {
+function CouponCard({ coupon, showCompany }: { coupon: PortalCouponItem; showCompany: boolean }) {
   const [copied, setCopied] = useState(false)
 
   function copy() {
@@ -71,32 +72,38 @@ function CouponCard({ coupon }: { coupon: PortalCouponItem }) {
         </button>
       </div>
 
-      <p className="mt-3 truncate border-t border-border/60 pt-2 text-[11px] uppercase tracking-widest text-primary/80">
-        {establishmentLabel(coupon)}
-      </p>
+      {showCompany && (
+        <p className="mt-3 truncate border-t border-border/60 pt-2 text-[11px] uppercase tracking-widest text-primary/80">
+          {establishmentLabel(coupon)}
+        </p>
+      )}
     </div>
   )
 }
 
 export default function PortalCuponsPage() {
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
-  // Lista plana em estado próprio — filtro por empresa (F4) aplicará sobre ela.
   const [coupons, setCoupons] = useState<PortalCouponItem[]>([])
 
-  function load() {
+  const filtered = selectedCompanyId != null
+
+  // F4a — filtro server-side via ?company_id= (não mais client-side).
+  const load = useCallback(() => {
     setState("loading")
+    const q = selectedCompanyId ? `?company_id=${selectedCompanyId}` : ""
     portal
-      .get<PortalCouponItem[]>("/portal/coupons")
+      .get<PortalCouponItem[]>(`/portal/coupons${q}`)
       .then((d) => {
         setCoupons(d)
         setState("ok")
       })
       .catch(() => setState("error"))
-  }
+  }, [selectedCompanyId])
 
   useEffect(() => {
     load()
-  }, [])
+  }, [load])
 
   return (
     <div className="space-y-6">
@@ -115,12 +122,16 @@ export default function PortalCuponsPage() {
           <EmptyState
             icon={<Tag size={28} strokeWidth={1.5} />}
             title="Nenhum cupom"
-            description="Você ainda não tem cupons disponíveis."
+            description={
+              filtered
+                ? "Nenhum cupom nesta empresa."
+                : "Você ainda não tem cupons disponíveis."
+            }
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {coupons.map((c) => (
-              <CouponCard key={c.coupon_id} coupon={c} />
+              <CouponCard key={c.coupon_id} coupon={c} showCompany={!filtered} />
             ))}
           </div>
         ))}

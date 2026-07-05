@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { portal } from "@/lib/portal-api"
 import { formatBRLFromDecimal, formatDateTime } from "@/lib/utils"
 import { type PortalHistoryResponse, establishmentLabel } from "@/lib/portal-types"
 import { APPOINTMENT_STATUS_LABELS } from "@/lib/constants"
+import { useCompanyFilter } from "@/context/CompanyFilterContext"
 import { AppointmentStatusBadge } from "@/components/portal/PortalStatusBadge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -32,16 +33,28 @@ type Load = "loading" | "ok" | "error"
 
 export default function PortalHistoricoPage() {
   const router = useRouter()
+  // F4a — o Select de empresa próprio foi substituído pelo CompanyFilterBar
+  // (Context global); não há mais dois seletores.
+  const { selectedCompanyId } = useCompanyFilter()
   const [state, setState] = useState<Load>("loading")
   const [data, setData] = useState<PortalHistoryResponse | null>(null)
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState<string>(ALL)
-  const [companyFilter, setCompanyFilter] = useState<string>(ALL)
+
+  const filtered = selectedCompanyId != null
+
+  // Trocar de empresa reseta a paginação ANTES do fetch (ajuste em render —
+  // evita buscar uma página que não existe no conjunto filtrado).
+  const prevCompany = useRef(selectedCompanyId)
+  if (prevCompany.current !== selectedCompanyId) {
+    prevCompany.current = selectedCompanyId
+    if (page !== 1) setPage(1)
+  }
 
   const load = useCallback(() => {
     setState("loading")
     const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
-    if (companyFilter !== ALL) params.set("company_id", companyFilter)
+    if (selectedCompanyId) params.set("company_id", selectedCompanyId)
     if (statusFilter !== ALL) params.set("status", statusFilter) // B4 — filtro server-side
     portal
       .get<PortalHistoryResponse>(`/portal/history?${params.toString()}`)
@@ -50,18 +63,11 @@ export default function PortalHistoricoPage() {
         setState("ok")
       })
       .catch(() => setState("error"))
-  }, [page, companyFilter, statusFilter])
+  }, [page, selectedCompanyId, statusFilter])
 
   useEffect(() => {
     load()
   }, [load])
-
-  // Estabelecimentos vistos na página corrente (gap #1: sem nomes → fallback).
-  const establishments = useMemo(() => {
-    const map = new Map<string, string>()
-    data?.items.forEach((i) => map.set(i.company_id, establishmentLabel(i)))
-    return Array.from(map.entries())
-  }, [data])
 
   // B4 — filtro de status agora é server-side (query param); sem filtro client-side.
   const rows = data?.items ?? []
@@ -96,30 +102,6 @@ export default function PortalHistoricoPage() {
           </SelectContent>
         </Select>
 
-        <Select
-          value={companyFilter}
-          onValueChange={(v) => {
-            if (!v) return
-            setCompanyFilter(v)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="w-56">
-            <SelectValue>
-              {companyFilter === ALL
-                ? "Todos estabelecimentos"
-                : (establishments.find(([id]) => id === companyFilter)?.[1] ?? "Estabelecimento")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Todos estabelecimentos</SelectItem>
-            {establishments.map(([id, label]) => (
-              <SelectItem key={id} value={id}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       {state === "loading" && (
@@ -134,7 +116,11 @@ export default function PortalHistoricoPage() {
         (rows.length === 0 ? (
           <EmptyState
             title="Nenhum registro"
-            description="Não há atendimentos no histórico para os filtros selecionados."
+            description={
+              filtered
+                ? "Nenhum atendimento nesta empresa para os filtros selecionados."
+                : "Não há atendimentos no histórico para os filtros selecionados."
+            }
           />
         ) : (
           <>
@@ -145,7 +131,7 @@ export default function PortalHistoricoPage() {
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-3 font-medium">Serviço</th>
                     <th className="px-4 py-3 font-medium">Profissional</th>
-                    <th className="px-4 py-3 font-medium">Estabelecimento</th>
+                    {!filtered && <th className="px-4 py-3 font-medium">Estabelecimento</th>}
                     <th className="px-4 py-3 font-medium">Data</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 text-right font-medium">Valor</th>
@@ -165,7 +151,9 @@ export default function PortalHistoricoPage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {a.professional_name ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-primary">{establishmentLabel(a)}</td>
+                      {!filtered && (
+                        <td className="px-4 py-3 text-primary">{establishmentLabel(a)}</td>
+                      )}
                       <td className="px-4 py-3 text-muted-foreground">
                         {formatDateTime(a.start_at, TZ)}
                       </td>
@@ -196,7 +184,9 @@ export default function PortalHistoricoPage() {
                     </p>
                     <AppointmentStatusBadge status={a.status} />
                   </div>
-                  <p className="mt-1 text-xs text-primary">{establishmentLabel(a)}</p>
+                  {!filtered && (
+                    <p className="mt-1 text-xs text-primary">{establishmentLabel(a)}</p>
+                  )}
                   <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>
                       {a.professional_name ? `${a.professional_name} · ` : ""}

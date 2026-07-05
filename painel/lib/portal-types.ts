@@ -270,6 +270,17 @@ export interface PortalPaymentSourceItem {
   revoked_at: string | null
 }
 
+// Redesign F4a — empresas da identity (GET /portal/companies).
+// Shape conferido em modules/portal/service.get_companies.
+export interface PortalCompanyItem {
+  company_id:   string
+  company_name: string
+  slug:         string
+  logo_url:     string | null
+  address:      string | null
+  city:         string | null
+}
+
 // Tipado no OpenAPI (ConsentRecordResponse). status ∈ GRANTED|REVOKED.
 export interface PortalConsentRecord {
   id: string
