@@ -1,3 +1,9 @@
+## get_dashboard — counts (F4b)
+  get_dashboard retorna counts {coupons, reserved_products, payments}
+  além das listas de cotas/assinaturas. Respeita company_id (mesmo
+  filtro dos demais). coupons reusa a lógica de vigência de get_coupons;
+  reserved_products e payments são count() simples.
+
 ## Filtro company_id nos endpoints do portal (766162a)
   credits, subscriptions, coupons, payments, product-sales, dashboard
     aceitam company_id: Optional[UUID] = Query(None) — padrão de /history.

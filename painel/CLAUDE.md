@@ -1,5 +1,24 @@
 # painel — contexto operacional
 
+## Portal Redesign F4b (51f8f31, integration/validacao-pre-push)
+  dashboard reescrito como HUB: saudação, próximos agendamentos
+    (1 card por empresa — o mais próximo de cada), grid de 6 blocos
+    com resumos, CTA "Agendar/Ver catálogo" só quando filtrado
+    (selectedCompany.slug → /book/{slug}/agendar e /book/{slug}).
+  layout: bottom-nav + sidebar + entradas temporárias da F1 REMOVIDAS.
+    Header: wordmark + ThemeToggle + avatar dropdown (popover custom
+    com click-outside — projeto não tem DropdownMenu shadcn).
+    Guard + setPortalAuthErrorHandler + CompanyFilterBar intactos.
+  PortalPageHeader (novo componente): chip "‹ Voltar" → home, aplicado
+    nas 8 seções (cupons, produtos, assinaturas, cotas, perfil,
+    consentimentos, histórico, pagamentos).
+  Dropdown Sair: limpa portal_token + redirect /portal/login.
+
+## Dev/preview (Windows)
+  Preview Next não subia no harness: runtimeExecutable "npm" sem .cmd
+  morria no spawn. Config ".claude/launch.json" usa caminho completo
+  do npx.cmd. Verificação visual no browser funciona a partir da F4b.
+
 ## Portal Redesign F4a (2f115a8, integration/validacao-pre-push)
   CompanyFilterContext (context/): busca /portal/companies, guarda
     selectedCompanyId (null="Todas"), sem localStorage. Tipo PortalCompanyItem.
