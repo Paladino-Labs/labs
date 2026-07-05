@@ -241,6 +241,18 @@ _DEFAULT_TEMPLATES: list[dict] = [
             "Acesse o painel para responder: {{panel_url}}"
         ),
     },
+    {
+        "event_type": "product_pickup.reminder",
+        "channel": "WHATSAPP",
+        "audience": "CLIENT",
+        "body_template": (
+            "Olá, {{cliente_nome}}! 🛍️\n\n"
+            "Vimos que você tem produtos aguardando retirada na "
+            "{{empresa_nome}}:\n\n"
+            "{{produtos}}\n\n"
+            "Passe na loja para retirar. Até logo! 😊"
+        ),
+    },
 ]
 
 

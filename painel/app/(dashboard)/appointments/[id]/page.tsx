@@ -11,6 +11,7 @@ import { formatBRLFromDecimal, formatDateTime } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { ErrorState } from "@/components/ErrorState"
 import { AppointmentBadge, PaymentBadge } from "@/components/FsmBadge"
+import { PendingProductsNotice } from "@/components/PendingProductsNotice"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -260,6 +261,8 @@ function ActionButtons({ appt, onDone }: { appt: Appointment; onDone: () => void
               Confirma a conclusão deste atendimento? Isso dispara a cobrança / saldo.
             </DialogDescription>
           </DialogHeader>
+          {/* Produtos a retirar (Sprint C) — informativo, não bloqueia */}
+          <PendingProductsNotice appointmentId={appt.id} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCompleteOpen(false)}>Cancelar</Button>
             <Button

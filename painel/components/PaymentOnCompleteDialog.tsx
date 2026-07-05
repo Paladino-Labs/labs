@@ -6,6 +6,7 @@ import { api } from "@/lib/api"
 import { PAYMENT_METHOD_GROUPS, PAYMENT_METHOD_OPTIONS } from "@/lib/constants"
 import { formatBRL } from "@/lib/utils"
 import { FeeWarningBanner } from "@/components/FeeWarningBanner"
+import { PendingProductsNotice } from "@/components/PendingProductsNotice"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -240,6 +241,9 @@ export function PaymentOnCompleteDialog({
                 {serviceNames && <p>{serviceNames}</p>}
               </div>
             )}
+
+            {/* Produtos a retirar (Sprint C) — informativo, não bloqueia */}
+            <PendingProductsNotice appointmentId={appointment.id} />
 
             {availableCredit?.has_credit && (
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">

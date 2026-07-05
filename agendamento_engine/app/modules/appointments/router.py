@@ -15,6 +15,10 @@ from app.modules.customer_credit.schemas import (
     AvailableCreditResponse,
     CompleteAppointmentRequest,
 )
+from app.modules.product_sales.schemas import (
+    PendingProductItem,
+    PendingProductsResponse,
+)
 from app.modules.whatsapp.helpers import first_name as _first_name
 
 logger = logging.getLogger(__name__)
@@ -121,6 +125,12 @@ def _send_pos_atendimento(
     """Envia mensagem pós-atendimento via CommunicationService (background task).
 
     Abre sessão própria — background task roda após o response, fora do get_db().
+
+    Sprint C (produtos): se o cliente tem produtos aguardando retirada nesta
+    empresa (ProductSale RESERVED/PURCHASED), envia uma SEGUNDA mensagem
+    dedicada (product_pickup.reminder). Blocos independentes — falha de um
+    não afeta o outro. Não-transacional: quiet hours podem descartar a
+    segunda mensagem; o aviso no dialog do painel é a garantia primária.
     """
     from app.infrastructure.db.session import SessionLocal
 
@@ -145,6 +155,42 @@ def _send_pos_atendimento(
     except Exception:
         logger.warning(
             "pos_atendimento notification failed company_id=%s phone=%s",
+            company_id, phone,
+        )
+
+    try:
+        from app.modules.communication.service import communication_service
+        from app.modules.product_sales.service import get_pending_pickups
+
+        pending = get_pending_pickups(db, customer_id, company_id)
+        if pending:
+            from app.infrastructure.db.models import Company
+
+            company = db.query(Company).filter(Company.id == company_id).first()
+            lines = []
+            for sale in pending:
+                acao = (
+                    "pagamento e retirada na loja"
+                    if sale.status == "RESERVED"
+                    else "pago — é só retirar"
+                )
+                lines.append(f"• {sale.product_name} (x{sale.quantity}) — {acao}")
+            communication_service.dispatch(
+                event_type="product_pickup.reminder",
+                company_id=company_id,
+                context={
+                    "cliente_nome": _first_name(customer_name),
+                    "empresa_nome": company.name if company else "",
+                    "produtos": "\n".join(lines),
+                    "recipient_phone": phone,
+                },
+                recipient_id=customer_id,
+                recipient_type="CLIENT",
+                db=db,
+            )
+    except Exception:
+        logger.warning(
+            "pending_products notification failed company_id=%s phone=%s",
             company_id, phone,
         )
     finally:
@@ -183,6 +229,34 @@ def available_credit(
         credit_id=credit.credit_id,
         service_name=service_name,
         remaining_cotas=credit.remaining_cotas,
+    )
+
+
+@router.get("/{appointment_id}/pending-products", response_model=PendingProductsResponse)
+def pending_products(
+    appointment_id: UUID,
+    company_id: UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """Produtos que o cliente deste agendamento comprou e ainda não retirou
+    nesta empresa (ProductSale RESERVED/PURCHASED). Aviso informativo do
+    dialog de conclusão — não bloqueia o complete."""
+    from app.modules.product_sales.service import get_pending_pickups
+
+    appointment = svc.get_appointment_or_404(db, company_id, appointment_id)
+    sales = get_pending_pickups(db, appointment.client_id, company_id)
+
+    return PendingProductsResponse(
+        has_pending=bool(sales),
+        items=[
+            PendingProductItem(
+                product_name=s.product_name,
+                quantity=s.quantity,
+                status=s.status,
+                total_price=s.total_price,
+            )
+            for s in sales
+        ],
     )
 
 
