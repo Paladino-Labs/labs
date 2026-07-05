@@ -1,5 +1,24 @@
 # painel — contexto operacional
 
+## Portal Redesign F4a (2f115a8, integration/validacao-pre-push)
+  CompanyFilterContext (context/): busca /portal/companies, guarda
+    selectedCompanyId (null="Todas"), sem localStorage. Tipo PortalCompanyItem.
+  CompanyFilterBar: chips roláveis entre header e main (todas as telas do grupo app).
+  7 telas consomem ?company_id= (dashboard, histórico, cotas, assinaturas,
+    cupons, produtos, pagamentos) — refazem fetch ao trocar chip.
+  Histórico: Select de empresa próprio REMOVIDO — só o Context filtra (sobra status).
+  Badge de empresa oculto quando filtrado; EXCETO pagamentos (company_name é
+    a linha principal do card, não há descrição semântica → manter como título).
+  Empty state contextual: "Nenhum X nesta empresa" (filtrado) vs "Você ainda
+    não tem X" (Todas). Paginação reseta page 1 ao trocar empresa.
+  Guard + setPortalAuthErrorHandler intactos; nav antiga preservada (F4b reescreve).
+
+## Armadilha CSS (globals.css)
+  `* { scrollbar-width: thin }` está FORA de @layer → vence qualquer
+  utility Tailwind por cascata (não por especificidade), independente da ordem.
+  Para esconder scrollbar via Tailwind, usar o modificador `!`
+  (ex: [scrollbar-width:none]!). Vale para qualquer override de scrollbar.
+
 ## Portal Redesign F3 (f504436, integration/validacao-pre-push)
   /portal/pagamentos: aviso estático → histórico read-only paginado
     (GET /portal/payments, padrão do historico: page/page_size=20 +
