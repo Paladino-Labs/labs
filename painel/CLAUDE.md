@@ -1,5 +1,22 @@
 # painel — contexto operacional
 
+## Portal Redesign F5 (7ed9874) — redesign COMPLETO (F1-F5)
+  Perfil consolidado: Dados pessoais + Consentimentos + Sessão numa tela.
+  Consentimentos transplantados da tela própria (lógica grant/revoke preservada).
+  NENHUM toggle omitido: os 4 ConsentType existem no backend (COMMUNICATION/
+    DATA_PROCESSING/PAYMENT_STORAGE/MARKETING) — "Salvar cartões"
+    (PAYMENT_STORAGE) é consent real e funcional; o que está diferido no
+    Asaas é a GESTÃO de cartões (payment-sources), não o consentimento.
+  /portal/consentimentos → redirect server-side para /portal/perfil
+    (rota preservada, não deletada — links salvos continuam válidos).
+
+## Portal redesign — estado final
+  v1 completo: hub (F4b), filtro de empresa (F4a), cupons+produtos (F1),
+    detalhe+cancelar/remarcar (F2), pagamentos (F3), perfil consolidado (F5).
+  Diferido p/ sprint pagamento online (Asaas): gestão de cartões salvos,
+    produtos "comprados p/ retirada". Diferido p/ Produtos Sprint C:
+    notificação na conclusão do agendamento.
+
 ## Portal Redesign F4b (51f8f31, integration/validacao-pre-push)
   dashboard reescrito como HUB: saudação, próximos agendamentos
     (1 card por empresa — o mais próximo de cada), grid de 6 blocos
