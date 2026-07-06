@@ -603,7 +603,11 @@ export default function BookingFlow({
                   </button>
                   <Button
                     onClick={() => dispatch("SET_CUSTOMER", {
-                      name: portalIdentity.name ?? "", phone: portalIdentity.phone_e164,
+                      name: portalIdentity.name ?? "",
+                      // SET_CUSTOMER valida formulário público (rejeita DDI) —
+                      // enviar o nacional (DDD+número), nunca o phone_e164.
+                      phone: portalIdentity.phone_national_normalized
+                        || portalIdentity.phone_e164.replace(/^\+55/, ""),
                     })}
                     disabled={loading}
                     className="px-8">

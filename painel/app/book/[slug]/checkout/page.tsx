@@ -198,9 +198,16 @@ function CheckoutContent({ slug }: { slug: string }) {
       coupon_code: cart.coupon_code ?? null,
     }
     try {
+      // Logado: envia o JWT portal — o backend usa a identity e NÃO valida
+      // customer_phone (phone_e164 tem DDI e falharia na validação estrita).
+      const portalToken = getPortalToken()
       const result = await publicFetch<CheckoutResponse>(
         `/booking/${slug}/checkout`,
-        { method: "POST", body: JSON.stringify(body) },
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+          ...(portalToken ? { headers: { Authorization: `Bearer ${portalToken}` } } : {}),
+        },
       )
       clear()
       setCheckoutResult(result)
