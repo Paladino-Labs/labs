@@ -22,6 +22,7 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.dev
 
 # MCP — tokens reais ficam só localmente; commitar apenas .mcp.json.example
 .mcp.json

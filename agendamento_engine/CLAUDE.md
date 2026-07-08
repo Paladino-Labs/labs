@@ -1,3 +1,38 @@
+## Ambiente de dev isolado + migration baseline (feat/dev-environment)
+  Baseline `e0s00_baseline_core_tables` = nova RAIZ da cadeia Alembic: cria as
+    12 tabelas núcleo pré-Alembic (appointments, companies, users, clients→
+    customers, professionals, services, professional_services, company_settings,
+    appointment_services, appointment_status_log, blocked_slots→schedule_blocks,
+    working_hours) no shape LEGADO — a cadeia as transforma até produção.
+    ⚠️ NUNCA rodar upgrade da baseline em produção (já tem as tabelas; está em
+    e0s29, descendente — o Alembic a considera aplicada; nenhum stamp preciso).
+  Banco DEV: projeto Supabase tvguwtdfayhrctlpollf (produção = uhhygdqioqcgcfqfbmif).
+    Nasce de `alembic upgrade head` puro (baseline→e0s29, 98 migrations) —
+    validado 2026-07-07: schema dev ≡ produção (diff completo: colunas, tipos,
+    constraints, índices, RLS, policies, triggers, enums, extensões).
+  Alternar ambiente: `.env` = produção (realidade atual), `.env.dev` = dev
+    (gitignored). Para rodar contra dev: copiar .env.dev sobre .env OU exportar
+    DATABASE_URL na sessão (env var vence o .env — load_dotenv não sobrescreve).
+  Alembic: URL vem SÓ de DATABASE_URL (env.py; alembic.ini sem URL hardcoded;
+    sem DATABASE_URL → RuntimeError). env.py pré-cria alembic_version com
+    VARCHAR(255) (IF NOT EXISTS — no-op em bancos existentes).
+  Migrations antigas com patches [retrofit baseline e0s00] (só afetam replay
+    em banco vazio; produção está além delas): 16014789aa88 (remove criação de
+    4 índices que produção não tem), 36e2e1f526da (guard: working_hours já
+    existe via baseline), 540331d2c848 (3 guards anti-duplicata),
+    a8c81686f38e (financial_status VARCHAR — enum nunca existiu em produção).
+  Seed: `scripts/seed_dev.py` (guard: aborta se DATABASE_URL contém o ref de
+    produção). Cria PLATFORM_OWNER, company barbearia-dev via create_company(),
+    OWNER, 2 services, 1 professional c/ escala, 2 customers, 1 product,
+    1 package. Senha dev: DevPaladino2026.
+  ⚠️ DRIFT DE PRODUÇÃO detectado 2026-07-07: integration_credentials em
+    produção NÃO tem as colunas provider/status (migration e ORM as definem;
+    tabela com 0 linhas em produção). Corrigir em janela de manutenção:
+    ALTER TABLE integration_credentials
+      ADD COLUMN provider credentialprovider NOT NULL,
+      ADD COLUMN status credentialstatus NOT NULL DEFAULT 'ACTIVE';
+    (conferir spec exata em e1f5g2h3i4j5 antes de rodar).
+
 ## Sprint C Produtos — aviso de pendências na conclusão (1ce4854)
   get_pending_pickups(customer_id, company_id): product_sale RESERVED|
     PURCHASED (não PICKED_UP), colunas indexadas. Módulo novo
@@ -56,10 +91,10 @@
     pago no local; None só defensivo).
   Migration e0s29 NÃO aplicada — rodar em janela controlada.
 
-## Pré-deploy pendente
-  ALTER alembic_version.version_num TYPE VARCHAR(255) em produção
-  ANTES de deploy com migrations de nome longo (senão Alembic falha
-  ao registrar a revision).
+## Pré-deploy — RESOLVIDO (verificado 2026-07-07)
+  alembic_version.version_num em produção JÁ É VARCHAR(255) (verificado via
+  information_schema). Além disso env.py agora pré-cria a tabela com
+  VARCHAR(255) em bancos novos — o problema não volta.
 
 ## Portal Camada 2 (a142fc9, integration/validacao-pre-push)
   GET /portal/companies — empresas cross-tenant da identity (com slug p/ link agendar)
