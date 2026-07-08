@@ -26,12 +26,17 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
-# Sobrescreve a URL com DATABASE_URL do .env.
+# A URL vem EXCLUSIVAMENTE de DATABASE_URL (env var ou .env carregado acima).
 # ConfigParser interpreta '%' como interpolação, então escapamos antes de
 # passar via set_main_option (ex: %23 → %%23).
 database_url = os.environ.get("DATABASE_URL", "")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+if not database_url:
+    raise RuntimeError(
+        "DATABASE_URL não configurada. Defina a env var (ou .env) apontando "
+        "para o banco alvo antes de rodar o Alembic — a URL não fica mais "
+        "hardcoded no alembic.ini."
+    )
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -88,6 +93,18 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # Pré-cria alembic_version com VARCHAR(255): o default do Alembic é
+        # VARCHAR(32), que estoura com revision IDs longos deste projeto
+        # (ex.: e0s28_professional_contact_customer_filter = 42 chars).
+        # Em bancos existentes (produção já está em 255) é no-op.
+        from sqlalchemy import text
+        connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS alembic_version ("
+            "version_num VARCHAR(255) NOT NULL, "
+            "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+        ))
+        connection.commit()
+
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
