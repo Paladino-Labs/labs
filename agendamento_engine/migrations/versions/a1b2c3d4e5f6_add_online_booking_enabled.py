@@ -12,7 +12,9 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic
 revision = "a1b2c3d4e5f6"
-down_revision = None  # substituir pelo revision_id da migration anterior
+# [retrofit baseline e0s00] antiga raiz paralela — agora descende da baseline
+# (company_settings passa a existir via e0s00; merge continua em 906df50dc028)
+down_revision = "e0s00_baseline_core_tables"
 branch_labels = None
 depends_on = None
 

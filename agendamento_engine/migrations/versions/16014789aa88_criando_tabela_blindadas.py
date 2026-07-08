@@ -13,7 +13,8 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '16014789aa88'
-down_revision: Union[str, Sequence[str], None] = None
+# [retrofit baseline e0s00] antiga raiz da cadeia — agora descende da baseline
+down_revision: Union[str, Sequence[str], None] = 'e0s00_baseline_core_tables'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -114,10 +115,9 @@ def upgrade() -> None:
     if _constraint_exists('unique_idempotency', 'appointments'):
         op.drop_constraint(op.f('unique_idempotency'), 'appointments', type_='unique')
 
-    if not _index_exists('ix_appointments_company_id'):
-        op.create_index(op.f('ix_appointments_company_id'), 'appointments', ['company_id'], unique=False)
-    if not _index_exists('ix_appointments_professional_id'):
-        op.create_index(op.f('ix_appointments_professional_id'), 'appointments', ['professional_id'], unique=False)
+    # [retrofit baseline e0s00] ix_appointments_company_id e
+    # ix_appointments_professional_id NÃO existem em produção — as criações
+    # foram removidas para que o replay em banco vazio reproduza produção.
     if not _constraint_exists('uq_idempotency', 'appointments'):
         op.create_unique_constraint('uq_idempotency', 'appointments', ['company_id', 'idempotency_key'])
 
@@ -141,10 +141,9 @@ def upgrade() -> None:
             op.f('working_hours_company_id_professional_id_weekday_key'),
             'working_hours', type_='unique'
         )
-    if not _index_exists('ix_working_hours_company_id'):
-        op.create_index(op.f('ix_working_hours_company_id'), 'working_hours', ['company_id'], unique=False)
-    if not _index_exists('ix_working_hours_professional_id'):
-        op.create_index(op.f('ix_working_hours_professional_id'), 'working_hours', ['professional_id'], unique=False)
+    # [retrofit baseline e0s00] ix_working_hours_company_id e
+    # ix_working_hours_professional_id NÃO existem em produção — criações
+    # removidas (paridade no replay em banco vazio).
     if not _constraint_exists('uq_working_hours_day', 'working_hours'):
         op.create_unique_constraint('uq_working_hours_day', 'working_hours',
                                     ['company_id', 'professional_id', 'weekday'])
