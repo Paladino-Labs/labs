@@ -1,3 +1,11 @@
+## Remoção código morto predictor.py (49005e3, chore/remove-dead-predictor)
+  booking/predictor.py deletado (74 linhas): 0 callers; construía
+  PredictiveOfferResult (importado de schemas.py) com campos inexistentes
+  slot_start_at/slot_end_at → TypeError latente se chamado.
+  Removido o import + entrada em __all__ de booking/__init__.py.
+  Código real BookingEngine.get_predictive_offer (engine.py:654) e o
+  dataclass PredictiveOfferResult (schemas.py:88, next_slot/expires_at) intocados.
+
 ## Bot F0 — hotfix exibição de fuso (5891eb8, fix/bot-timezone-display)
   Bug: fluxo PREDITIVO gravava/exibia UTC; fluxo NORMAL já convertia
     (engine.py:423) → bug intermitente (cliente via hora certa às vezes).
@@ -9,11 +17,6 @@
   Display-only, sem migration. Validado no dev (16/16 checks), 9 testes novos.
 
 ## Dívidas registradas (bot)
-  - booking/predictor.py = CÓDIGO MORTO (0 callers; constrói
-    PredictiveOfferResult com campos slot_start_at/slot_end_at que não
-    existem no dataclass real → TypeError se chamado). Remover em sessão
-    separada (+ exports em booking/__init__.py). O código real é
-    BookingEngine.get_predictive_offer (engine.py:654).
   - bot chama list_available_slots SEM passar o timezone do tenant (usa
     default America/Sao_Paulo). OK hoje (tenants SP); bug se tenant ≠ SP.
 
