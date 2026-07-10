@@ -1,3 +1,22 @@
+## Bot F0 — hotfix exibição de fuso (5891eb8, fix/bot-timezone-display)
+  Bug: fluxo PREDITIVO gravava/exibia UTC; fluxo NORMAL já convertia
+    (engine.py:423) → bug intermitente (cliente via hora certa às vezes).
+  Fix: abordagem (a) — persiste UTC (inalterado), converte só na EXIBIÇÃO.
+    helpers.to_company_tz = wrapper fino delegando a BookingEngine._to_company_tz.
+    8 pontos de exibição convertidos (gerenciando:31, cancelando:44, inicio:144,
+    confirmando:35-37/88, oferta_recorrente, label_date:125).
+    GRAVAÇÃO byte-idêntica (slot_start_at persistido continua UTC ISO).
+  Display-only, sem migration. Validado no dev (16/16 checks), 9 testes novos.
+
+## Dívidas registradas (bot)
+  - booking/predictor.py = CÓDIGO MORTO (0 callers; constrói
+    PredictiveOfferResult com campos slot_start_at/slot_end_at que não
+    existem no dataclass real → TypeError se chamado). Remover em sessão
+    separada (+ exports em booking/__init__.py). O código real é
+    BookingEngine.get_predictive_offer (engine.py:654).
+  - bot chama list_available_slots SEM passar o timezone do tenant (usa
+    default America/Sao_Paulo). OK hoje (tenants SP); bug se tenant ≠ SP.
+
 ## Ambiente de dev isolado + migration baseline (feat/dev-environment)
   Baseline `e0s00_baseline_core_tables` = nova RAIZ da cadeia Alembic: cria as
     12 tabelas núcleo pré-Alembic (appointments, companies, users, clients→
