@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.whatsapp.helpers import first_name
+from app.modules.whatsapp.helpers import first_name, to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.schemas import BookingIntent
@@ -32,7 +32,8 @@ _CONFIRMANDO_LIST = [
 
 
 def send_resumo(instance: str, whatsapp_id: str, ctx: dict) -> None:
-    slot_dt    = datetime.fromisoformat(ctx["slot_start_at"])
+    tz_name    = ctx.get("company_timezone") or "America/Sao_Paulo"
+    slot_dt    = to_company_tz(datetime.fromisoformat(ctx["slot_start_at"]), tz_name)
     date_label = slot_dt.strftime("%d/%m/%Y")
     time_label = slot_dt.strftime("%H:%M")
     prof_label = ctx.get("professional_name") or "—"
@@ -81,11 +82,12 @@ def handle(
         return
 
     # ── Confirmar: novo agendamento OU reagendamento ──────────────────────────
-    start_at    = datetime.fromisoformat(ctx["slot_start_at"])
+    start_at    = datetime.fromisoformat(ctx["slot_start_at"])   # canônico — vai para o confirm/reschedule
     prof_id_raw = ctx.get("professional_id")
     customer_id = ctx.get("customer_id")
     nome        = first_name(ctx.get("customer_name", ""))
-    slot_label  = start_at.strftime("%d/%m às %H:%M")
+    tz_name     = ctx.get("company_timezone") or "America/Sao_Paulo"
+    slot_label  = to_company_tz(start_at, tz_name).strftime("%d/%m às %H:%M")
 
     if not prof_id_raw or not customer_id:
         logger.error("CONFIRMANDO: dados incompletos ctx=%s whatsapp_id=%s", ctx, whatsapp_id)

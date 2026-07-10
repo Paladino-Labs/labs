@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp.helpers import to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
 from app.core.config import settings
@@ -28,7 +29,8 @@ def start(
 
     svc_name   = appt.services[0].service_name if appt.services else "Serviço"
     prof_name  = appt.professional.name if appt.professional else "?"
-    slot_label = appt.start_at.strftime("%d/%m às %H:%M")
+    tz_name    = ctx.get("company_timezone") or "America/Sao_Paulo"
+    slot_label = to_company_tz(appt.start_at, tz_name).strftime("%d/%m às %H:%M")
     remaining  = appt.start_at - datetime.now(timezone.utc)
     can_change = remaining > timedelta(hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_RESCHEDULE)
 

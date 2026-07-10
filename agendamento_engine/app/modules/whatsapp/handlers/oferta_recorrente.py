@@ -103,7 +103,7 @@ def handle(
         ctx["service_name"]            = predicted["service_name"]
         ctx["professional_id"]         = predicted["professional_id"]
         ctx["professional_name"]       = predicted["professional_name"]
-        ctx["slot_start_at"]           = predicted["start_at"]
+        ctx["slot_start_at"]           = predicted["start_at"]   # UTC canônico — send_resumo converte p/ exibir
         ctx["booking_idempotency_key"] = str(uuidlib.uuid4())
         ctx.pop("predicted_slot", None)
         session.context = ctx

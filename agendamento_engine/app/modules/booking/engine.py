@@ -662,6 +662,7 @@ class BookingEngine:
         Busca último agendamento concluído do cliente e retorna uma oferta
         preditiva com o próximo slot disponível para o mesmo serviço+profissional.
         Retorna None se não houver histórico ou disponibilidade.
+        next_slot é UTC canônico — quem exibe converte via _to_company_tz.
         """
         last_list = appointment_svc.list_completed_by_client(
             db, company_id, customer_id, limit=1

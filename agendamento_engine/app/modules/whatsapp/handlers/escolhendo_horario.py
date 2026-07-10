@@ -120,7 +120,7 @@ def start(
         row_id       = f"{s.start_at.isoformat()}|{s.professional_id}"
         local_start  = s.start_at.astimezone(tz)
         time_label   = local_start.strftime("%H:%M")
-        date_label   = label_date(local_start.date())
+        date_label   = label_date(local_start.date(), tz.key)
 
         # Formato: "Hoje (16/04) — 12:15" ou "Hoje (16/04) — 12:15 — Hemerson"
         # description sempre vazio — evita que o fallback texto duplique o nome

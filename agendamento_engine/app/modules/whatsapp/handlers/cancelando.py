@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.whatsapp.helpers import first_name
+from app.modules.whatsapp.helpers import first_name, to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
 from app.modules.appointments.polices import PolicyViolationError, check_cancellation_policy
@@ -41,7 +41,8 @@ def start(
         now=datetime.now(timezone.utc),
         min_hours=settings.APPOINTMENT_MIN_HOURS_BEFORE_CANCEL,
     )
-    slot_label = appt.start_at.strftime("%d/%m às %H:%M")
+    tz_name    = ctx.get("company_timezone") or "America/Sao_Paulo"
+    slot_label = to_company_tz(appt.start_at, tz_name).strftime("%d/%m às %H:%M")
 
     if not allowed:
         sender.send_text(instance, whatsapp_id, messages.cancelamento_fora_prazo(msg))

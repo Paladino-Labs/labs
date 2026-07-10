@@ -120,9 +120,20 @@ def is_universal_command(text: str) -> Optional[str]:
     return None
 
 
-def label_date(d) -> str:
-    """Formata data com label contextual em português."""
-    today = datetime.now(timezone.utc).date()
+def to_company_tz(dt: datetime, tz_str: str) -> datetime:
+    """Converte datetime para o fuso da empresa — delega ao helper canônico
+    do BookingEngine (naive é tratado como UTC; o instante é preservado)."""
+    from app.modules.booking.engine import BookingEngine  # import tardio evita ciclo
+    return BookingEngine._to_company_tz(dt, tz_str)
+
+
+def label_date(d, tz_str: str = "America/Sao_Paulo") -> str:
+    """Formata data com label contextual em português.
+
+    "Hoje"/"Amanhã" são derivados no fuso da empresa — perto da meia-noite
+    a data UTC já virou o dia enquanto o dia local ainda é o anterior.
+    """
+    today = to_company_tz(datetime.now(timezone.utc), tz_str).date()
     if d == today:
         return f"Hoje ({d.strftime('%d/%m')})"
     if d == today + timedelta(days=1):

@@ -9,7 +9,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.booking.engine import BookingEngine
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.whatsapp.helpers import first_name
+from app.modules.whatsapp.helpers import first_name, to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.customers import service as customer_svc
 from app.core.config import settings
@@ -141,9 +141,11 @@ def _identify_customer(
 
     if offer:
         nome       = first_name(customer.name)
-        slot_label = offer.next_slot.strftime("%d/%m às %H:%M")
+        tz_name    = ctx.get("company_timezone") or "America/Sao_Paulo"
+        slot_label = to_company_tz(offer.next_slot, tz_name).strftime("%d/%m às %H:%M")
 
         ctx["predicted_slot"] = {
+            # start_at permanece UTC canônico — só a exibição (slot_label) converte
             "start_at":          offer.next_slot.isoformat(),
             "service_id":        str(offer.service_id),
             "service_name":      offer.service_name,
