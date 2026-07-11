@@ -68,7 +68,8 @@ class StubClassifier:
         self._confidence = confidence
         self._source = source
 
-    def classify(self, company_id, text, session_id=None, module_activations=None):
+    def classify(self, company_id, text, session_id=None, module_activations=None,
+                 fsm_state=None):
         return IntentResult(
             intent=self._intent, confidence=self._confidence,
             source=self._source, raw_input=text,
@@ -144,7 +145,11 @@ def test_cancelar_word_is_not_universal_menu():
 
 # ─── 3. "quero falar com alguém" → HUMANO (invariante 4) ─────────────────────
 
-def test_falar_com_humano_routes_to_humano(captured):
+def test_falar_com_humano_routes_to_humano(captured, monkeypatch):
+    # F5a: resultado de source=LLM só roteia em LLM_MODE="live" (shadow é o
+    # default e contém a LLM). O invariante 4 via REGEX/comando universal
+    # continua valendo em qualquer modo.
+    monkeypatch.setattr(bot_service.settings, "LLM_MODE", "live")
     db = FakeDB()
     session = fake_session(state="MENU_PRINCIPAL")
     routed = _route(session, db, "quero falar com alguém",

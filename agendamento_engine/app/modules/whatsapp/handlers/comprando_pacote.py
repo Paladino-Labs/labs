@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import reset_session
 from app.modules.packages import service as packages_service
 
@@ -116,6 +117,10 @@ def handle_confirmando_pacote(
     payload = resolve_input(user_input, ctx.get("last_list", []))
 
     if payload == "cancelar_pacote":
+        intent_telemetry.record_flow_outcome(
+            db, session, company_id, {"COMPRAR_PACOTE"},
+            intent_telemetry.OUTCOME_FLOW_CANCELLED, {"stage": "CONFIRMANDO_PACOTE"},
+        )
         sender.send_text(instance, whatsapp_id, messages.COMPRA_CANCELADA)
         reset_session(session)
         session.state = STATE_MENU_PRINCIPAL
@@ -144,7 +149,7 @@ def _finalize(
         return
 
     try:
-        packages_service.purchase(
+        purchase = packages_service.purchase(
             customer_id=UUID(customer_id),
             package_id=UUID(package_id),
             seller_user_id=None,         # bot não tem User
@@ -160,6 +165,11 @@ def _finalize(
         session.state = STATE_MENU_PRINCIPAL
         return
 
+    intent_telemetry.record_flow_outcome(
+        db, session, company_id, {"COMPRAR_PACOTE"},
+        intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+        {"purchase_id": str(getattr(purchase, "purchase_id", None))},
+    )
     sender.send_text(instance, whatsapp_id, messages.pacote_contratado(package_name))
     reset_session(session)
     session.state = STATE_MENU_PRINCIPAL

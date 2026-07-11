@@ -9,6 +9,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name, to_company_tz
+from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
 from app.modules.appointments.polices import PolicyViolationError, check_cancellation_policy
@@ -97,6 +98,11 @@ def handle(
             booking_engine.cancel(
                 db, company_id, UUID(appt_id_str),
                 reason="Cancelado via WhatsApp",
+            )
+            intent_telemetry.record_flow_outcome(
+                db, session, company_id, {"CANCELAR"},
+                intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+                {"appointment_id": appt_id_str},
             )
             sender.send_text(instance, whatsapp_id, messages.cancelamento_confirmado(nome))
         except PolicyViolationError as e:

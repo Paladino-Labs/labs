@@ -37,9 +37,33 @@ _CLASSIFY_TOOL = {
                 "maximum": 1,
                 "description": "Confiança na classificação, de 0 a 1.",
             },
+            # F5a: sub-schema fechado — as entities saem em formato comparável
+            # para a análise do volante (consumo no fluxo fica para o F5b).
             "entities": {
                 "type": "object",
-                "description": "Entidades extraídas da mensagem (ex: serviço, data).",
+                "description": (
+                    "Entidades extraídas da mensagem, todas opcionais — "
+                    "preencher apenas o que estiver explícito no texto."
+                ),
+                "properties": {
+                    "servico": {
+                        "type": "string",
+                        "description": "Serviço mencionado (ex: corte, barba).",
+                    },
+                    "dia": {
+                        "type": "string",
+                        "description": "Dia da semana ou data mencionada (ex: sexta, 15/08, amanhã).",
+                    },
+                    "hora": {
+                        "type": "string",
+                        "description": "Horário mencionado (ex: 14h, de manhã).",
+                    },
+                    "profissional": {
+                        "type": "string",
+                        "description": "Nome do profissional mencionado.",
+                    },
+                },
+                "additionalProperties": False,
             },
         },
         "required": ["intent", "confidence"],

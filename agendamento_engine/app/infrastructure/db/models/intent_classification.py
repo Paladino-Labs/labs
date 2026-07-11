@@ -37,3 +37,40 @@ class IntentClassification(Base):
         sa.TIMESTAMP(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    # ── Contexto (F5a) — tornam a telemetria autossuficiente ──────────────────
+    # Estado FSM no momento da classificação (INICIO | MENU_PRINCIPAL)
+    fsm_state = Column(String(40), nullable=True)
+    # Decisão de roteamento efetivamente tomada (telemetry.ROUTING_*):
+    # ROUTED | MENU_FALLBACK | SHADOW_NOT_ROUTED | INACTIVE_MODULE_MSG.
+    # Escrita no MESMO request da classificação (não é mutação posterior).
+    routing_decision = Column(String(30), nullable=True)
+
+
+class IntentOutcome(Base):
+    """Desfecho de uma classificação — o sinal do volante de telemetria (F5a).
+
+    Tabela-irmã 1:1 (UNIQUE classification_id) para preservar o modelo
+    append-only de intent_classifications: o desfecho chega em request
+    POSTERIOR à classificação e vira INSERT aqui, nunca UPDATE lá.
+    Classificação SEM linha aqui = desfecho PENDING (LEFT JOIN na análise).
+    """
+    __tablename__ = "intent_outcomes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(
+        UUID(as_uuid=True), ForeignKey("companies.id"),
+        nullable=False, index=True,
+    )
+    classification_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("intent_classifications.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    # MENU_CLICK_AFTER_FALLBACK | FLOW_CONFIRMED | FLOW_CANCELLED | ABANDONED
+    outcome = Column(String(40), nullable=False)
+    # ex.: {"menu_option": "opt_agendar"} | {"appointment_id": "..."} | {"reason": "superseded"}
+    outcome_detail = Column(JSONB, nullable=False, default=dict)
+    outcome_at = Column(
+        sa.TIMESTAMP(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )

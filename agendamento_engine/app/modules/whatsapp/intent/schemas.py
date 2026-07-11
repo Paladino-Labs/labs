@@ -14,6 +14,9 @@ class IntentResult:
     entities: dict[str, Any] = field(default_factory=dict)
     source: str = "REGEX"   # REGEX | LLM | FALLBACK
     raw_input: str = ""
+    # Preenchido pelo ChainClassifier após persistir (F5a) — permite ao
+    # chamador correlacionar roteamento e desfecho à linha gravada.
+    classification_id: Any = None
 
 
 # Intent de degradação: LLM indisponível ou intent fora do catálogo do tenant

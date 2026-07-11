@@ -24,10 +24,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
+from app.core.config import settings
 from app.infrastructure.db.models import BotSession, WhatsAppConnection, Company, CompanySettings
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import extract_user_text, is_universal_command, resolve_input
+from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import get_session_locked, save_session, reset_session
 
 from app.modules.whatsapp.handlers import inicio as h_inicio
@@ -463,6 +465,25 @@ def _handle_booking_state(
     new_state = result.next_state
 
     if new_state in ("CONFIRMED", "CANCELLED"):
+        # Write-back 3b (F5a): AGENDAR roteado pelo classificador materializa
+        # AQUI (pipeline BookingEngine), não em handlers/confirmando.py (legado,
+        # usado pelo caminho de reagendamento).
+        if new_state == "CONFIRMED":
+            conf = getattr(result, "confirmation_data", None)
+            appt_id = (
+                conf.get("appointment_id") if isinstance(conf, dict)
+                else getattr(conf, "appointment_id", None)
+            )
+            intent_telemetry.record_flow_outcome(
+                db, session, company_id, {"AGENDAR"},
+                intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+                {"appointment_id": str(appt_id) if appt_id else None},
+            )
+        else:
+            intent_telemetry.record_flow_outcome(
+                db, session, company_id, {"AGENDAR"},
+                intent_telemetry.OUTCOME_FLOW_CANCELLED, {"stage": "BOOKING_FSM"},
+            )
         # Fluxo concluído → resetar mantendo cliente identificado para próxima conversa
         reset_session(session, keep_customer=True)
     elif new_state in BOOKING_STATES:
@@ -513,18 +534,55 @@ def _classify_and_route(
         company_id, text,
         session_id=getattr(session, "id", None),
         module_activations=module_activations,
+        fsm_state=getattr(session, "state", None),
     )
 
     # Fallback ou baixa confiança: intenção de compra de módulo INATIVO recebe
     # mensagem de indisponibilidade; caso contrário, devolve ao menu.
     if result.intent == FALLBACK_INTENT or result.confidence < CONFIDENCE_THRESHOLD:
         if _inactive_module_intent(text, module_activations):
+            intent_telemetry.record_routing(
+                db, session, company_id, result, intent_telemetry.ROUTING_INACTIVE_MODULE,
+            )
             sender.send_text(instance, whatsapp_id, messages.RECURSO_INDISPONIVEL)
             return True
+        intent_telemetry.record_routing(
+            db, session, company_id, result, intent_telemetry.ROUTING_MENU,
+            track=intent_telemetry.TRACK_FALLBACK,
+        )
         return False
 
-    intent = result.intent
+    # ── Shadow gate (F5a) ──────────────────────────────────────────────────────
+    # Resultado da LLM classifica e PERSISTE (telemetria), mas em modo shadow
+    # (default) NÃO roteia: devolve False e o chamador exibe o menu, exatamente
+    # como no fallback — comportamento visível ao usuário idêntico ao atual.
+    # O clique seguinte no menu vira ground truth (write-back 3a). REGEX segue
+    # roteando normalmente; só a camada LLM fica contida até LLM_MODE="live".
+    if result.source == "LLM" and settings.LLM_MODE != "live":
+        intent_telemetry.record_routing(
+            db, session, company_id, result, intent_telemetry.ROUTING_SHADOW,
+            track=intent_telemetry.TRACK_FALLBACK,
+        )
+        return False
 
+    routed = _dispatch_intent(
+        db, session, company_id, instance, whatsapp_id, text, company_name,
+        result.intent,
+    )
+    intent_telemetry.record_routing(
+        db, session, company_id, result,
+        intent_telemetry.ROUTING_ROUTED if routed else intent_telemetry.ROUTING_MENU,
+        track=intent_telemetry.TRACK_ROUTED if routed else intent_telemetry.TRACK_FALLBACK,
+    )
+    return routed
+
+
+def _dispatch_intent(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, text: str, company_name: str,
+    intent: str,
+) -> bool:
+    """Aciona o estado/handler da intenção classificada. True se roteou."""
     if intent == "AGENDAR":
         session.state = STATE_ESCOLHENDO_SERVICO
         _start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
@@ -808,6 +866,17 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                     return
             except Exception:
                 logger.exception("classify_and_route error whatsapp_id=%s", whatsapp_id)
+
+    # ── Write-back 3a (F5a): clique de menu após fallback/shadow ──────────────
+    # Se a mensagem anterior caiu em fallback (ou LLM contida em shadow) e o
+    # cliente agora clicou numa opção do menu, o clique é o rótulo real da
+    # intenção — registra o desfecho vinculado àquela classificação.
+    if state in (STATE_INICIO, STATE_MENU_PRINCIPAL):
+        _ctx = session.context or {}
+        if _ctx.get(intent_telemetry.MARKER_KEY):
+            _clicked = resolve_input(user_input, _ctx.get("last_list", []))
+            if _clicked is not None:
+                intent_telemetry.consume_menu_click(db, session, company_id, _clicked)
 
     # ── Dispatcher principal ──────────────────────────────────────────────────
     try:

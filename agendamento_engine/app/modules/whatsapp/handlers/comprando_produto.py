@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import reset_session
 from app.modules.stock import service as stock_service
 from app.modules.products import service as products_service
@@ -147,6 +148,10 @@ def handle_confirmando_produto(
     payload = resolve_input(user_input, ctx.get("last_list", []))
 
     if payload == "cancelar_produto":
+        intent_telemetry.record_flow_outcome(
+            db, session, company_id, {"COMPRAR_PRODUTO"},
+            intent_telemetry.OUTCOME_FLOW_CANCELLED, {"stage": "CONFIRMANDO_PRODUTO"},
+        )
         sender.send_text(instance, whatsapp_id, messages.COMPRA_CANCELADA)
         reset_session(session)
         session.state = STATE_MENU_PRINCIPAL
@@ -231,6 +236,11 @@ def _finalize(
             company_id,
         )
 
+    intent_telemetry.record_flow_outcome(
+        db, session, company_id, {"COMPRAR_PRODUTO"},
+        intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+        {"payment_id": str(getattr(payment, "payment_id", None))},
+    )
     sender.send_text(
         instance, whatsapp_id,
         messages.produto_comprado(product_name, quantity, total),

@@ -127,6 +127,12 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "claude-haiku-4-5"
     LLM_API_KEY: str = ""
     LLM_TIMEOUT_SECONDS: float = 5.0
+    # Shadow mode (F5a): "shadow" (default) → resultado da LLM classifica e é
+    # persistido (telemetria), mas NUNCA roteia o usuário — o menu é exibido
+    # como no fallback. "live" → resultado LLM com confidence >= threshold
+    # roteia (só ligar quando a telemetria validar a LLM). REGEX roteia sempre,
+    # independente deste flag.
+    LLM_MODE: str = "shadow"
 
     class Config:
         env_file = ".env"

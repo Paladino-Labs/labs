@@ -10,6 +10,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import first_name, to_company_tz
+from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import reset_session
 from app.modules.booking.engine import booking_engine
 from app.modules.booking.schemas import BookingIntent
@@ -73,6 +74,10 @@ def handle(
 
     if payload == "opt_cancelar":
         nome = first_name(ctx.get("customer_name", ""))
+        intent_telemetry.record_flow_outcome(
+            db, session, company_id, {"AGENDAR", "REMARCAR"},
+            intent_telemetry.OUTCOME_FLOW_CANCELLED, {"stage": "CONFIRMANDO"},
+        )
         reset_session(session)
         sender.send_text(instance, whatsapp_id, messages.cancelamento_pelo_usuario(nome))
         return
@@ -167,6 +172,11 @@ def handle(
                 sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
                 return
 
+        intent_telemetry.record_flow_outcome(
+            db, session, company_id, {"REMARCAR"},
+            intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+            {"appointment_id": appt_id_str, "service_changed": service_changed},
+        )
         sender.send_text(instance, whatsapp_id,
                          messages.reagendamento_confirmado(nome, slot_label))
         reset_session(session)
@@ -183,7 +193,7 @@ def handle(
         idempotency_key=idem_key,
     )
     try:
-        booking_engine.confirm(db, company_id, intent)
+        booking_result = booking_engine.confirm(db, company_id, intent)
     except SlotUnavailableError:
         sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_CONFIRMANDO)
         ctx = dict(ctx)
@@ -197,6 +207,11 @@ def handle(
         sender.send_text(instance, whatsapp_id, messages.ERRO_CONFIRMAR_AGENDAMENTO)
         return
 
+    intent_telemetry.record_flow_outcome(
+        db, session, company_id, {"AGENDAR"},
+        intent_telemetry.OUTCOME_FLOW_CONFIRMED,
+        {"appointment_id": str(getattr(booking_result, "appointment_id", None))},
+    )
     sender.send_text(
         instance, whatsapp_id,
         messages.agendamento_confirmado(

@@ -6,9 +6,14 @@ Invariantes do Sprint 2.0:
   3. Toda classificação é persistida em intent_classifications (append-only,
      sem dedup — cada chamada gera uma linha).
   5. Catálogo dinâmico por tenant via ModuleActivation (catalog.get_active_intents).
+
+F5a: a linha persistida carrega fsm_state (estado no momento da classificação)
+e devolve classification_id no IntentResult — routing_decision e desfecho são
+gravados depois pelo chamador (telemetry.py).
 """
 import logging
 import time
+import uuid
 from decimal import Decimal
 
 from app.infrastructure.db.models.intent_classification import IntentClassification
@@ -43,6 +48,7 @@ class ChainClassifier:
         text: str,
         session_id=None,
         module_activations=None,
+        fsm_state=None,
     ) -> IntentResult:
         if module_activations is None:
             module_activations = (
@@ -70,10 +76,14 @@ class ChainClassifier:
                 entities=result.entities, raw_input=text,
             )
 
-        self._persist(company_id, session_id, result, llm_latency_ms)
+        result.classification_id = self._persist(
+            company_id, session_id, result, llm_latency_ms, fsm_state,
+        )
         return result
 
-    def _persist(self, company_id, session_id, result: IntentResult, llm_latency_ms) -> None:
+    def _persist(
+        self, company_id, session_id, result: IntentResult, llm_latency_ms, fsm_state=None,
+    ):
         llm_provider = None
         llm_model = None
         if llm_latency_ms is not None:
@@ -81,6 +91,7 @@ class ChainClassifier:
             llm_model = getattr(self.llm, "model", None)
 
         record = IntentClassification(
+            id=uuid.uuid4(),
             company_id=company_id,
             session_id=session_id,
             raw_input=result.raw_input,
@@ -91,6 +102,8 @@ class ChainClassifier:
             llm_provider=llm_provider,
             llm_model=llm_model,
             llm_latency_ms=llm_latency_ms,
+            fsm_state=fsm_state,
         )
         self.db.add(record)
         self.db.commit()
+        return record.id

@@ -1,3 +1,51 @@
+## Bot F5a — shadow mode + volante de telemetria (feat/bot-shadow-telemetry)
+  Shadow gate: LLM_MODE em config.py ("shadow" default | "live"). Em shadow,
+    resultado source=LLM com confidence >= 0.7 é persistido mas NÃO roteia
+    (_classify_and_route devolve False → menu, idêntico ao fallback atual).
+    REGEX roteia sempre, em qualquer modo. Ligar a LLM = setar LLM_API_KEY
+    (coleta pura em shadow); roteamento por LLM só com LLM_MODE=live
+    (decisão futura, guiada pela telemetria).
+  Migration e0s30_intent_telemetry (HEAD ← e0s29, aplicada só no DEV):
+    intent_classifications ganha fsm_state + routing_decision (ROUTED |
+    MENU_FALLBACK | SHADOW_NOT_ROUTED | INACTIVE_MODULE_MSG — escritos no
+    MESMO request da classificação); tabela-irmã intent_outcomes
+    (classification_id UNIQUE FK CASCADE, outcome, outcome_detail JSONB,
+    outcome_at; RLS canônico). Desfecho chega em request posterior → INSERT
+    na irmã preserva o append-only de intent_classifications. Sem linha em
+    intent_outcomes = PENDING (LEFT JOIN na análise).
+  Correlação (intent/telemetry.py): marker "intent_track" no BotSession.context
+    ({cid, intent, routed, at}) — NUNCA por session_id+tempo (session_id é
+    REUTILIZADA entre conversas). reset_session mata o marker (não vaza entre
+    conversas); janela de 30 min descarta marker velho SEM gravar; nova
+    classificação fecha marker pendente como ABANDONED (superseded).
+  Write-backs (best-effort, nunca derrubam o bot): 3a clique de menu
+    pós-fallback/shadow → MENU_CLICK_AFTER_FALLBACK {menu_option,
+    suggested_intent} (hook no dispatcher, antes do estado); 3b FLOW_CONFIRMED/
+    FLOW_CANCELLED em: _handle_booking_state (AGENDAR — ver nota abaixo),
+    confirmando.py (REMARCAR + abort de AGENDAR/REMARCAR), cancelando.py
+    (CANCELAR), comprando_produto/pacote (COMPRAR_*). Consumo só quando a
+    intenção do marker casa com o ponto de materialização.
+  ⚠ AGENDAR roteado pelo classificador entra no pipeline BookingEngine FSM
+    (AWAITING_SERVICE...), NÃO no legado ESCOLHENDO_SERVICO — INTENT_TO_STATE
+    é nominal (_start_escolhendo_servico delega ao engine); a confirmação
+    materializa em _handle_booking_state, não em handlers/confirmando.py
+    (legado, usado pelo caminho de reagendamento).
+  _CLASSIFY_TOOL: entities com sub-schema fechado servico/dia/hora/profissional
+    (todos opcionais, additionalProperties=false) — consumo no fluxo é F5b.
+  ⚠ QUALIDADE DE DADOS (p/ análise do volante):
+    - Filtrar telemetria por source, NÃO por llm_provider: linhas FALLBACK têm
+      llm_provider/llm_model/latency preenchidos sempre que a camada LLM foi
+      TENTADA (mesmo sem key — retorno FALLBACK).
+    - session_id NÃO delimita conversa: qualquer correlação nova exige janela
+      temporal (o volante usa marker em context, imune a isso).
+  Validação dev 30/30 checks (migration up/down limpa; shadow contém LLM incl.
+    FALAR_COM_HUMANO; ponta-a-ponta regex→FSM real→agendamento criado→
+    FLOW_CONFIRMED vinculado). SEM LLM_API_KEY no ambiente — camada LLM
+    exercitada via NullLLMClassifier (source=LLM real no fluxo); key real vai
+    no Railway no deploy, mantendo LLM_MODE=shadow.
+  Testes: tests/test_bot_f5a_shadow_telemetry.py (17). test_sprint26 atualizado
+    (deliberado): FALAR_COM_HUMANO via LLM agora exige LLM_MODE=live p/ rotear.
+
 ## Remoção código morto predictor.py (49005e3, chore/remove-dead-predictor)
   booking/predictor.py deletado (74 linhas): 0 callers; construía
   PredictiveOfferResult (importado de schemas.py) com campos inexistentes
