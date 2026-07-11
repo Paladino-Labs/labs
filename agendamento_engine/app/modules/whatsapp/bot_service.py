@@ -8,7 +8,8 @@ Fluxo:
          → ESCOLHENDO_DATA → ESCOLHENDO_TURNO → ESCOLHENDO_HORARIO
          → CONFIRMANDO → INICIO (reset)
   INICIO → VER_AGENDAMENTOS → GERENCIANDO_AGENDAMENTO
-         → CANCELANDO | REAGENDANDO
+         → CANCELANDO | reagendamento (mesmo serviço → ESCOLHENDO_HORARIO;
+           mudar serviço → pipeline BookingEngine AWAITING_SERVICE)
 
 Regras críticas:
   - SELECT FOR UPDATE NOWAIT (previne race condition de mensagens simultâneas)
@@ -45,7 +46,6 @@ from app.modules.whatsapp.handlers import confirmando as h_confirmando
 from app.modules.whatsapp.handlers import ver_agendamentos as h_ver
 from app.modules.whatsapp.handlers import gerenciando_agendamento as h_gerenciando
 from app.modules.whatsapp.handlers import cancelando as h_cancelando
-from app.modules.whatsapp.handlers import reagendando as h_reagendando
 from app.modules.whatsapp.handlers import comprando_produto as h_comprar_produto
 from app.modules.whatsapp.handlers import comprando_pacote as h_comprar_pacote
 
@@ -66,7 +66,6 @@ STATE_CONFIRMANDO             = "CONFIRMANDO"
 STATE_VER_AGENDAMENTOS        = "VER_AGENDAMENTOS"
 STATE_GERENCIANDO_AGENDAMENTO = "GERENCIANDO_AGENDAMENTO"
 STATE_CANCELANDO              = "CANCELANDO"
-STATE_REAGENDANDO             = "REAGENDANDO"
 STATE_HUMANO                  = "HUMANO"
 # Marcador terminal de atendimento humano encerrado (Sprint 2.7).
 # Permite listar conversas resolvidas; o dispatcher converte para
@@ -86,7 +85,7 @@ STATE_CONFIRMANDO_PACOTE              = "CONFIRMANDO_PACOTE"
 INTENT_TO_STATE = {
     "AGENDAR":          STATE_ESCOLHENDO_SERVICO,
     "CONSULTAR":        STATE_VER_AGENDAMENTOS,
-    "REMARCAR":         STATE_REAGENDANDO,
+    "REMARCAR":         STATE_VER_AGENDAMENTOS,
     "CANCELAR":         STATE_CANCELANDO,
     "COMPRAR_PRODUTO":  STATE_ESCOLHENDO_PRODUTO,
     "COMPRAR_PACOTE":   STATE_ESCOLHENDO_PACOTE,
@@ -463,21 +462,63 @@ def _handle_booking_state(
 
     # ── Sincronizar estado da BotSession com o novo estado da BookingSession ──
     new_state = result.next_state
+    post_note = None   # mensagem complementar enviada após a confirmação
 
     if new_state in ("CONFIRMED", "CANCELLED"):
         # Write-back 3b (F5a): AGENDAR roteado pelo classificador materializa
         # AQUI (pipeline BookingEngine), não em handlers/confirmando.py (legado,
-        # usado pelo caminho de reagendamento).
+        # usado pelo reagendamento sem mudança de serviço).
         if new_state == "CONFIRMED":
             conf = getattr(result, "confirmation_data", None)
             appt_id = (
                 conf.get("appointment_id") if isinstance(conf, dict)
                 else getattr(conf, "appointment_id", None)
             )
+
+            # ── BUG C (F1): reagendar mudando serviço substitui o antigo ──────
+            # "Mudar serviço" (gerenciando_agendamento) entra neste pipeline com
+            # o vínculo ao agendamento original preservado no BotSession.context.
+            # Ordem: o novo já foi criado pelo engine (CONFIRMED) → cancelar o
+            # antigo AGORA. Se a criação tivesse falhado, nunca chegaríamos aqui
+            # e o antigo permaneceria ativo (cliente nunca fica sem nada).
+            bot_ctx     = session.context or {}
+            replaces_id = (
+                bot_ctx.get("managing_appointment_id")
+                if bot_ctx.get("is_rescheduling") else None
+            )
+            if replaces_id and replaces_id != str(appt_id):
+                from app.modules.appointments import service as appointment_svc
+                try:
+                    # skip_policy=True: a janela de reagendamento já foi validada
+                    # na entrada (gerenciando opt_reagendar); re-aplicar a política
+                    # de cancelamento aqui poderia bloquear a substituição DEPOIS
+                    # do novo existir — recriando o órfão que este fix elimina.
+                    appointment_svc.cancel_appointment(
+                        db, company_id, _UUID(replaces_id),
+                        user_id=None,
+                        reason="Substituído por reagendamento com serviço diferente",
+                        skip_policy=True,
+                    )
+                    post_note = messages.REAGENDAMENTO_ANTERIOR_CANCELADO
+                except Exception:
+                    # Novo agendamento já existe — o órfão é o mal menor vs.
+                    # deixar o cliente sem nada. Loga e avisa o cliente.
+                    logger.exception(
+                        "cancel (substituição pós-reagendamento) falhou "
+                        "old_appt_id=%s new_appt_id=%s whatsapp_id=%s",
+                        replaces_id, appt_id, whatsapp_id,
+                    )
+                    post_note = messages.REAGENDAMENTO_ANTERIOR_NAO_CANCELADO
+
+            outcome_intents = {"REMARCAR"} if replaces_id else {"AGENDAR"}
+            outcome_detail  = {"appointment_id": str(appt_id) if appt_id else None}
+            if replaces_id:
+                outcome_detail.update(
+                    {"service_changed": True, "replaced_appointment_id": replaces_id}
+                )
             intent_telemetry.record_flow_outcome(
-                db, session, company_id, {"AGENDAR"},
-                intent_telemetry.OUTCOME_FLOW_CONFIRMED,
-                {"appointment_id": str(appt_id) if appt_id else None},
+                db, session, company_id, outcome_intents,
+                intent_telemetry.OUTCOME_FLOW_CONFIRMED, outcome_detail,
             )
         else:
             intent_telemetry.record_flow_outcome(
@@ -502,6 +543,8 @@ def _handle_booking_state(
         result, instance, whatsapp_id,
         booking_session.context or {}, company_timezone,
     )
+    if post_note:
+        sender.send_text(instance, whatsapp_id, post_note)
 
 
 # ─── Classificador de intenção → FSM (Sprint 2.6) ─────────────────────────────
@@ -983,14 +1026,6 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 db, session, company_id, whatsapp_id, instance_name, user_input,
                 resolve_input=resolve_input,
                 start_gerenciando_agendamento=_start_gerenciando_agendamento,
-            )
-
-        elif state == STATE_REAGENDANDO:
-            h_reagendando.handle(
-                db, session, company_id, whatsapp_id, instance_name, user_input,
-                resolve_input=resolve_input,
-                send_escolher_data=_send_escolher_data,
-                start_escolhendo_horario=_start_escolhendo_horario,
             )
 
         elif state in BOOKING_STATES:

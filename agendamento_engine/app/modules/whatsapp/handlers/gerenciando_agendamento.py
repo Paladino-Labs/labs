@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 STATE_GERENCIANDO_AGENDAMENTO = "GERENCIANDO_AGENDAMENTO"
 STATE_CANCELANDO              = "CANCELANDO"
-STATE_REAGENDANDO             = "REAGENDANDO"
 
 
 def start(
@@ -116,13 +115,12 @@ def handle(
             )
             return
 
-        # Salva dados do agendamento original para poder bifurcar em confirmando.py
+        # Marca o reagendamento em curso. managing_appointment_id (já no ctx)
+        # + is_rescheduling viajam até a confirmação: confirmando.py reagenda
+        # (mesmo serviço) ou bot_service._handle_booking_state cancela o antigo
+        # após criar o novo (mudança de serviço — F1).
         ctx = dict(ctx)
-        original_svc_id = (str(appt.services[0].service_id)
-                           if appt.services else ctx.get("service_id", ""))
-        ctx["original_service_id"]    = original_svc_id
-        ctx["original_professional_id"] = str(appt.professional_id)
-        ctx["is_rescheduling"]        = True
+        ctx["is_rescheduling"] = True
         session.context = ctx
 
         _show_reagendamento_submenu(instance, whatsapp_id, ctx, session)
@@ -147,7 +145,6 @@ def handle(
         ctx.pop("slot_start_at", None)
         ctx.pop("slot_offset", None)
         session.context = ctx
-        session.state   = STATE_REAGENDANDO
         start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
         return
 
@@ -159,12 +156,14 @@ def handle(
             return
 
         ctx = dict(ctx)
-        # Limpa contexto de serviço/profissional/slot para recomeçar do início
+        # Limpa contexto de serviço/profissional/slot para recomeçar do início.
+        # managing_appointment_id + is_rescheduling PERMANECEM no ctx: o pipeline
+        # BookingEngine os lê na confirmação para cancelar o agendamento antigo
+        # depois de criar o novo (F1 — nunca deixa o cliente sem nada).
         for key in ("service_id", "service_name", "professional_id", "professional_name",
                     "selected_date", "slot_start_at", "slot_offset"):
             ctx.pop(key, None)
         session.context = ctx
-        session.state   = STATE_REAGENDANDO
         start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
 

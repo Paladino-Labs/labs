@@ -100,7 +100,10 @@ def handle(
         reset_session(session)
         return
 
-    # ── Caminho de reagendamento ───────────────────────────────────────────────
+    # ── Caminho de reagendamento (mesmo serviço e profissional) ───────────────
+    # Reagendamento com MUDANÇA de serviço NÃO passa por aqui: "Mudar serviço"
+    # (gerenciando_agendamento) entra no pipeline BookingEngine, que cria o novo
+    # agendamento e cancela o antigo em bot_service._handle_booking_state (F1).
     if ctx.get("is_rescheduling"):
         appt_id_str = ctx.get("managing_appointment_id")
         if not appt_id_str:
@@ -109,73 +112,29 @@ def handle(
             reset_session(session)
             return
 
-        # Verifica se houve mudança de serviço: se sim, cancela + cria novo agendamento.
-        # Se não, reagenda (só muda horário).
-        service_changed = (
-            ctx.get("service_id") != ctx.get("original_service_id")
-            or ctx.get("professional_id") != ctx.get("original_professional_id")
-        )
-
-        if service_changed:
-            # ── Mudar serviço: cancela o antigo e confirma o novo ─────────────
-            try:
-                booking_engine.cancel(
-                    db, company_id, UUID(appt_id_str),
-                    reason="Substituído por reagendamento com serviço diferente",
-                )
-            except Exception:
-                logger.exception("cancel (pre-reschedule) failed appt_id=%s", appt_id_str)
-                sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
-                return
-
-            idem_key = ctx.get("booking_idempotency_key") or str(uuidlib.uuid4())
-            intent = BookingIntent(
-                company_id=company_id,
-                customer_id=UUID(customer_id),
-                professional_id=UUID(prof_id_raw),
-                service_id=UUID(ctx["service_id"]),
-                start_at=start_at,
-                idempotency_key=idem_key,
-            )
-            try:
-                booking_engine.confirm(db, company_id, intent)
-            except SlotUnavailableError:
-                sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_REAGENDANDO)
-                ctx = dict(ctx)
-                ctx.pop("slot_start_at", None)
-                ctx.pop("selected_date", None)
-                session.context = ctx
-                start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
-                return
-            except Exception:
-                logger.exception("confirm (post-cancel) failed whatsapp_id=%s", whatsapp_id)
-                sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
-                return
-        else:
-            # ── Mesmo serviço: apenas muda o horário ─────────────────────────
-            try:
-                booking_engine.reschedule(db, company_id, UUID(appt_id_str), start_at)
-            except SlotUnavailableError:
-                sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_REAGENDANDO)
-                ctx = dict(ctx)
-                ctx.pop("slot_start_at", None)
-                ctx.pop("selected_date", None)
-                session.context = ctx
-                start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
-                return
-            except PolicyViolationError as e:
-                sender.send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
-                reset_session(session)
-                return
-            except Exception:
-                logger.exception("booking_engine.reschedule failed appt_id=%s", appt_id_str)
-                sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
-                return
+        try:
+            booking_engine.reschedule(db, company_id, UUID(appt_id_str), start_at)
+        except SlotUnavailableError:
+            sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_REAGENDANDO)
+            ctx = dict(ctx)
+            ctx.pop("slot_start_at", None)
+            ctx.pop("selected_date", None)
+            session.context = ctx
+            start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+            return
+        except PolicyViolationError as e:
+            sender.send_text(instance, whatsapp_id, f"⚠️ {e.detail}")
+            reset_session(session)
+            return
+        except Exception:
+            logger.exception("booking_engine.reschedule failed appt_id=%s", appt_id_str)
+            sender.send_text(instance, whatsapp_id, messages.ERRO_REAGENDAR_AGENDAMENTO)
+            return
 
         intent_telemetry.record_flow_outcome(
             db, session, company_id, {"REMARCAR"},
             intent_telemetry.OUTCOME_FLOW_CONFIRMED,
-            {"appointment_id": appt_id_str, "service_changed": service_changed},
+            {"appointment_id": appt_id_str, "service_changed": False},
         )
         sender.send_text(instance, whatsapp_id,
                          messages.reagendamento_confirmado(nome, slot_label))

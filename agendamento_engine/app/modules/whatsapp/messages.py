@@ -344,6 +344,15 @@ ERRO_REAGENDAR_AGENDAMENTO = (
     "❌ Não foi possível remarcar. Tente novamente."
 )
 
+REAGENDAMENTO_ANTERIOR_CANCELADO = (
+    "🔄 Seu agendamento anterior foi cancelado — vale o novo horário!"
+)
+
+REAGENDAMENTO_ANTERIOR_NAO_CANCELADO = (
+    "⚠️ O novo horário está confirmado, mas não consegui cancelar o "
+    "agendamento anterior. Se ele ainda aparecer na sua lista, é só cancelá-lo por lá."
+)
+
 
 # ─── Erros genéricos ─────────────────────────────────────────────────────────
 
