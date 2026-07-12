@@ -1,3 +1,27 @@
+## Bot F3 — navegação BACK (2cbf71e)
+  "voltar"/"volta"/nav_voltar/"← voltar" (helpers.BACK_WORDS, fonte única) →
+    BACK de UM estado. Reset total só com 0/menu/início/sair.
+    "ver agendamentos" e "atendente/humano" intactos.
+  BACK no 1º estado (AWAITING_SERVICE) → menu principal, interceptado no
+    bot_service ANTES do engine (canal web NÃO afetado).
+  "voltar" tratado ANTES do classificador → não vira linha FALLBACK na telemetria.
+  Handlers legados (_handle_legacy_back, central): CANCELANDO→GERENCIANDO;
+    GERENCIANDO→VER_AGENDAMENTOS **limpando is_rescheduling** (⚠️ sem isso o
+    marker do F1 vazaria e cancelaria o agendamento antigo num booking futuro);
+    CONFIRMANDO→re-lista horários; ESCOLHENDO_HORARIO/TURNO→escolha de data;
+    demais→menu (idêntico ao comportamento antigo, nenhum hábito quebra).
+
+  ⚠️ BÔNUS — corrigiu desalinhamento de índice PRÉ-EXISTENTE: _parse_time agora
+  espelha a página exibida (nav + slots da página + Voltar, mesma ordem do
+  formatter). ANTES: o número indexava a lista COMPLETA → na pág. 2, digitar "2"
+  selecionava o 2º slot do DIA, não o da linha 2 (outra fonte de "confirmou
+  horário diferente"). Slot fora da página só resolve por row_id/título.
+
+## Dívida pré-existente (não do F3)
+  Appointment.idempotency_key é UNIQUE NÃO-PARCIAL → barra re-booking do mesmo
+  cliente+serviço+slot mesmo após CANCELLED (cliente que cancela não consegue
+  remarcar o mesmo horário). Correção seria índice PARCIAL (só não-cancelados).
+
 ## Bot F2 — truncamentos residuais de horário (74e99a8)
   1. Re-listagem pós-conflito (engine.py:1362): limit=6 → limit=0.
      Antes: o conflito gravava lista truncada de 6 (manhã) em last_listed_slots
