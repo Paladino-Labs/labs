@@ -1,3 +1,31 @@
+## Bot F1 — BUG C: reagendar mudando serviço cancela o antigo (b742e96)
+  CAUSA REAL (divergiu do mapa): o vínculo NUNCA se perdia — reagendar_mudar
+  preserva managing_appointment_id/is_rescheduling no BotSession.context.
+  O bug: o fluxo entra no pipeline BookingEngine (AWAITING_SERVICE); a
+  confirmação acontece em _handle_booking_state → CONFIRMED, que NÃO lia
+  os marcadores — e reset_session os apagava em seguida.
+  (Mesmo achado do F5a: INTENT_TO_STATE é nominal; o pipeline real difere.)
+
+  FIX: marcadores consumidos em bot_service.py:483 (branch CONFIRMED), ANTES
+  do reset. Sem migration. Ordem: engine só devolve CONFIRMED com o novo já
+  criado+commitado → só então cancela o antigo (cancel_appointment,
+  skip_policy=True, reason="Substituído por reagendamento com serviço diferente").
+  Falha na criação (slot roubado) → nunca chega ao cancel → antigo permanece.
+
+  ⚠️ TRADE-OFF INERENTE À ORDEM SEGURA: o cliente NÃO consegue remarcar para
+  um horário que colida com o PRÓPRIO agendamento antigo (slot ainda ocupado
+  no confirm → 409 → escolhe outro). É intencional: o inverso (cancelar antes)
+  permitiria, mas deixaria o cliente SEM NADA se a criação falhasse.
+  skip_policy=True no cancel: re-aplicar política depois do novo existir
+  poderia bloquear a substituição e RECRIAR o órfão. Janela já validada na
+  entrada (gate opt_reagendar).
+
+  Código morto removido: confirmando.py:112-153 (branch inalcançável),
+  reagendando.py inteiro (0 dispatches), original_service_id/professional_id.
+  INTENT_TO_STATE["REMARCAR"] → VER_AGENDAMENTOS (o roteamento real).
+  Telemetria: substituição consome marker REMARCAR + service_changed=True
+  + replaced_appointment_id.
+
 ## Bot F5a — shadow mode + volante de telemetria (29209d9, feat/bot-shadow-telemetry)
   Shadow gate (bot_service _classify_and_route): LLM_MODE=shadow (default) →
     resultado source=LLM PERSISTE mas devolve False (não roteia; menu exibido).
