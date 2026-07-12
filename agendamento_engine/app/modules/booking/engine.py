@@ -514,9 +514,20 @@ class BookingEngine:
                         days=days, limit=half,
                     )
                 )
-                if len(raw) >= effective_limit:
-                    break
-            raw = raw[:effective_limit]
+            # Ordenar ANTES do corte: o truncamento preserva os mais próximos
+            # cronologicamente, em vez de descartar slots cedo de um
+            # profissional em favor de slots tarde de outro.
+            raw.sort(key=lambda s: s.start_at)
+            # Cada horário aparece uma única vez (mesma regra do caminho
+            # agregado de list_available_slots).
+            deduped: list = []
+            seen: set = set()
+            for s in raw:
+                if s.start_at in seen:
+                    continue
+                seen.add(s.start_at)
+                deduped.append(s)
+            raw = deduped[:effective_limit]
 
         return [
             SlotOption(
@@ -1354,10 +1365,13 @@ class BookingEngine:
             prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
             try:
                 target_date = date.fromisoformat(ctx["selected_date"])
-                # [FIX 3] Passar company_timezone na re-listagem de slots
+                # limit=0 (dia inteiro), como no caminho principal: um limite
+                # aqui gravaria uma lista truncada em last_listed_slots, que a
+                # paginação reutiliza pelo resto da sessão. A exibição continua
+                # protegida pela paginação do formatter.
                 options = self.list_available_slots(
                     db, session.company_id, prof_id, svc.id, target_date,
-                    limit=settings.BOT_MAX_SLOTS_DISPLAYED,
+                    limit=0,
                     company_timezone=session.company_timezone,
                 )
                 # [FIX 2] Atualizar last_listed_slots na mesma atribuição

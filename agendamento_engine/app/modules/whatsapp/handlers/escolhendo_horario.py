@@ -25,7 +25,9 @@ STATE_ESCOLHENDO_HORARIO = "ESCOLHENDO_HORARIO"
 STATE_ESCOLHENDO_DATA    = "ESCOLHENDO_DATA"
 STATE_CONFIRMANDO        = "CONFIRMANDO"
 
-# Busca até N×limit slots para ter folga de paginação
+# Pool do caminho SEM data (próximos dias): N×limit dá folga de paginação.
+# Com data selecionada o dia inteiro é buscado (limit=0) — a lista precisa
+# bater com a contagem por turno, que também é calculada sobre o dia inteiro.
 _POOL_MULTIPLIER = 5
 
 
@@ -68,8 +70,12 @@ def start(
     # ── Busca pool de slots ───────────────────────────────────────────────────
     if date_str:
         target_date = datetime.fromisoformat(date_str).date()
+        # limit=0 (dia inteiro): get_shift_availability conta sobre o dia
+        # inteiro — um pool truncado aqui faria o menu prometer horários
+        # ("Noite (4)") que a lista filtrada não entrega. A paginação abaixo
+        # protege a exibição; o contexto só guarda a página exibida.
         raw_slots = booking_engine.list_available_slots(
-            db, company_id, prof_id_val, svc_id, target_date, limit=pool,
+            db, company_id, prof_id_val, svc_id, target_date, limit=0,
         )
     else:
         raw_slots = booking_engine.list_next_available_slots(
