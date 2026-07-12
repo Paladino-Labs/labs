@@ -1,3 +1,25 @@
+## Bot F2 — truncamentos residuais de horário (74e99a8)
+  1. Re-listagem pós-conflito (engine.py:1362): limit=6 → limit=0.
+     Antes: o conflito gravava lista truncada de 6 (manhã) em last_listed_slots
+     para o RESTO da sessão — reintroduzia o bug que 7ebde4a corrigiu.
+  2. Pool legado (escolhendo_horario.py:76): caminho COM data busca o dia
+     inteiro (limit=0), mesma fonte da contagem de turno. Caminho SEM data
+     mantém pool de 30 (ali não há contagem a alinhar; limit=0 vira 6 em
+     list_next_available_slots e REDUZIRIA a oferta).
+  3. list_next_available_slots (engine.py:507): ordena por start_at ANTES de
+     truncar + removido o break precoce (descartava profissionais inteiros —
+     sem isso a ordenação operaria sobre conjunto enviesado) + dedup por
+     horário (espelha list_available_slots pós-7ebde4a).
+  Evidência (dev, 42 slots, 2 profs, 9h-21h): contagens {manhã 6, tarde 12,
+  noite 6} batem com a lista nos 3 turnos. Antes: o pool de 30 entregava
+  0 dos 6 horários de noite prometidos. → DESTRAVA O F4.
+
+## UX registrado (candidato a fase futura)
+  No conflito de confirm, o profissional fica PINADO no select_time — cliente
+  que escolheu "qualquer profissional" é re-listado só com a agenda daquele.
+  Correto por construção, mas talvez não ideal. Decidir se o conflito deve
+  re-listar com "qualquer" de novo.
+
 ## Bot F1 — BUG C: reagendar mudando serviço cancela o antigo (b742e96)
   CAUSA REAL (divergiu do mapa): o vínculo NUNCA se perdia — reagendar_mudar
   preserva managing_appointment_id/is_rescheduling no BotSession.context.
