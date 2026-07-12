@@ -207,6 +207,9 @@ class WhatsAppResponseFormatter:
         """
         Envia lista de turnos disponíveis para o usuário selecionar.
         Turnos sem horários são exibidos com sufixo '— indisponível'.
+        [F4] O turno voltou ao fluxo principal do bot (sub-estado do canal;
+        FSM permanece em AWAITING_TIME) — ganha a linha "← Voltar" como os
+        demais passos. Títulos espelhados pelo input_parser (_shift_title).
         """
         if not options:
             sender.send_text(instance, to, "Nenhum turno disponível para esta data.")
@@ -220,6 +223,7 @@ class WhatsAppResponseFormatter:
                 title = f"{o.label} — indisponível"
             rows.append({"rowId": o.row_key, "title": title, "description": ""})
 
+        rows.append(dict(_BACK_NAV_ROW))
         sender.send_list(
             instance, to,
             "Qual período prefere?",

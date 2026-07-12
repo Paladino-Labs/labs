@@ -186,6 +186,14 @@ SEM_HORARIOS = (
 )
 
 
+def turno_indisponivel(turno_label: str) -> str:
+    """Turno sem horários na data escolhida (F4 — sub-estado de turno do bot)."""
+    return (
+        f"😕 Não há horários disponíveis de *{turno_label.lower()}* nessa data.\n\n"
+        "Escolha outro turno ou toque em *← Voltar* para trocar a data."
+    )
+
+
 def escolha_horario(service_name: str, prof_name: str = "") -> str:
     return "Bora deixar tudo na régua 😎\n\nEscolhe um horário pra você 👇"
 

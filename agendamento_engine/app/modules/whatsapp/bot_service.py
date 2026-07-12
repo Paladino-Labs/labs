@@ -11,6 +11,12 @@ Fluxo:
          → CANCELANDO | reagendamento (mesmo serviço → ESCOLHENDO_HORARIO;
            mudar serviço → pipeline BookingEngine AWAITING_SERVICE)
 
+Pipeline BookingEngine FSM (agendar do zero / mudar serviço):
+  AWAITING_SERVICE → AWAITING_PROFESSIONAL → AWAITING_DATE →
+  [TURNO — sub-estado do canal, F4] → AWAITING_TIME → AWAITING_CONFIRMATION
+  O turno NÃO é estado do FSM (compartilhado com o web): vive em
+  bot_substate no context da BookingSession (ver seção F4 abaixo).
+
 Regras críticas:
   - SELECT FOR UPDATE NOWAIT (previne race condition de mensagens simultâneas)
   - last_message_id para idempotência de webhook (Evolution API re-entrega)
@@ -392,6 +398,180 @@ def _handle_legacy_back(
     )
 
 
+# ─── Sub-estado de TURNO no pipeline FSM (F4) ─────────────────────────────────
+# Decisão D1: o turno (manhã/tarde/noite) é uma etapa de APRESENTAÇÃO do canal
+# bot, não uma transição do motor. O FSM compartilhado com o web permanece
+# DATE → TIME; a camada do bot intercepta entre os dois: ao entrar em
+# AWAITING_TIME com o dia recém-listado, marca bot_substate="AWAITING_SHIFT"
+# no context da BookingSession e exibe os turnos com contagem. A escolha do
+# turno NUNCA passa por engine.update() (não há transição SELECT_SHIFT no
+# _VALID_TRANSITIONS) — ela é aplicada pelo handler órfão _handle_select_shift,
+# que entra e sai de AWAITING_TIME filtrando last_listed_slots pelo turno.
+
+BOT_SUBSTATE_KEY = "bot_substate"
+SUBSTATE_SHIFT   = "AWAITING_SHIFT"
+
+
+def _shift_options_from_slots(slots: list, company_timezone: str) -> list:
+    """Contagens por turno derivadas da lista que o FSM acabou de entregar.
+
+    Derivar da MESMA lista (result.options do SELECT_DATE, dia inteiro com
+    limit=0) garante contagem == horários entregues por construção — o
+    invariante do F2 — sem nova consulta ao banco. Reusa as primitivas
+    _SHIFT_DEFS e _filter_slots_by_shift do engine (stateless).
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    from app.modules.booking.engine import BookingEngine
+    from app.modules.booking.schemas import ShiftOption
+
+    try:
+        tz = ZoneInfo(company_timezone)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Sao_Paulo")
+
+    options = []
+    for shift, label, row_key, _min_h, _max_h in BookingEngine._SHIFT_DEFS:
+        filtered = BookingEngine._filter_slots_by_shift(slots, shift, tz)
+        options.append(ShiftOption(
+            shift=shift, label=label, slot_count=len(filtered),
+            has_availability=bool(filtered), row_key=row_key,
+        ))
+    return options
+
+
+def _fresh_shift_options(db: Session, booking_session, company_id: UUID) -> list:
+    """Contagens frescas por turno via get_shift_availability (STATELESS —
+    não recebe nem toca a sessão). Usada quando não há result.options em mãos:
+    BACK dos horários para o menu de turnos e re-exibição pós-turno-esgotado.
+    Falha na consulta → cai no cache de last_listed_shifts (contagens da
+    última exibição; a validação fresca acontece na escolha do turno)."""
+    from datetime import date as _date
+    from app.modules.booking.engine import booking_engine
+    from app.modules.booking.schemas import ShiftOption
+
+    ctx = booking_session.context or {}
+    try:
+        prof_id = UUID(ctx["professional_id"]) if ctx.get("professional_id") else None
+        return booking_engine.get_shift_availability(
+            db, company_id, prof_id, UUID(ctx["service_id"]),
+            _date.fromisoformat(ctx["selected_date"]),
+            company_timezone=booking_session.company_timezone,
+        )
+    except Exception:
+        logger.warning("get_shift_availability falhou — usando cache de turnos",
+                       exc_info=True)
+        return [
+            ShiftOption(
+                shift=s["shift"], label=s.get("label", s["shift"]),
+                slot_count=int(s.get("slot_count", 0)),
+                has_availability=bool(s.get("has_availability", False)),
+                row_key=s["row_key"],
+            )
+            for s in ctx.get("last_listed_shifts", [])
+        ]
+
+
+def _enter_shift_substate(
+    booking_session, shift_options: list,
+    instance: str, whatsapp_id: str, company_timezone: str,
+) -> None:
+    """Marca o sub-estado de turno e exibe o menu de turnos com contagens.
+
+    O FSM NÃO transiciona: BookingSession.state permanece AWAITING_TIME.
+    last_listed_shifts alimenta o parser (números/enquete) e o cache de
+    disponibilidade que _handle_select_shift valida.
+    """
+    from app.modules.booking.schemas import SessionUpdateResult
+    from app.modules.whatsapp.response_formatter import whatsapp_response_formatter
+
+    ctx = dict(booking_session.context or {})
+    ctx.pop("selected_shift", None)   # escolha nova de turno pendente
+    ctx.pop("slot_offset", None)
+    ctx[BOT_SUBSTATE_KEY] = SUBSTATE_SHIFT
+    ctx["last_listed_shifts"] = [
+        {"shift": o.shift, "label": o.label, "slot_count": o.slot_count,
+         "has_availability": o.has_availability, "row_key": o.row_key}
+        for o in shift_options
+    ]
+    booking_session.context = ctx
+
+    whatsapp_response_formatter.format_and_send(
+        SessionUpdateResult(next_state="AWAITING_SHIFT", options=shift_options),
+        instance, whatsapp_id, ctx, company_timezone,
+    )
+
+
+def _apply_shift_choice(
+    db: Session,
+    session: BotSession,
+    booking_session,
+    company_id: UUID,
+    instance: str,
+    whatsapp_id: str,
+    payload: dict,
+    company_timezone: str,
+) -> None:
+    """Aplica a escolha de turno 100% na camada do bot — sem engine.update().
+
+    Chama o handler órfão _handle_select_shift diretamente: ele re-consulta a
+    disponibilidade fresca, filtra pelo turno e grava last_listed_slots
+    filtrado + selected_shift, mantendo o FSM em AWAITING_TIME. Turno esgotado
+    (InvalidActionError) → feedback amigável + re-exibição dos turnos com
+    contagens atualizadas (mesma UX do pipeline legado, escolhendo_turno.py).
+    """
+    from app.modules.booking.engine import booking_engine
+    from app.modules.booking.actions import BookingAction, InvalidActionError
+    from app.modules.whatsapp.response_formatter import whatsapp_response_formatter
+
+    # Guard de expiração — espelho do guard de update(), que não é chamado aqui
+    now = datetime.now(timezone.utc)
+    if booking_session.expires_at and now > booking_session.expires_at:
+        reset_session(session, keep_customer=True)
+        ctx2 = session.context or {}
+        sender.send_text(instance, whatsapp_id, "⏰ Sua sessão expirou. Começando de novo 😊")
+        h_inicio.show_menu_principal(
+            session, ctx2, instance, whatsapp_id,
+            ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+
+    shift = str(payload.get("row_key", "")).lower()
+    ctx   = booking_session.context or {}
+    labels = {
+        s["row_key"]: s.get("label", s["row_key"])
+        for s in ctx.get("last_listed_shifts", [])
+    }
+
+    try:
+        result = booking_engine._handle_select_shift(db, booking_session, payload)
+    except InvalidActionError:
+        # Turno sem horários (cache ou disponibilidade fresca) — não avança
+        sender.send_text(
+            instance, whatsapp_id,
+            messages.turno_indisponivel(labels.get(shift, shift)),
+        )
+        _enter_shift_substate(
+            booking_session,
+            _fresh_shift_options(db, booking_session, company_id),
+            instance, whatsapp_id, company_timezone,
+        )
+        return
+
+    # Metadados que update() manteria (não foi chamado)
+    booking_session.last_action    = BookingAction.SELECT_SHIFT.value
+    booking_session.last_action_at = now
+    booking_session.expires_at     = booking_engine._new_expiry(booking_session.channel)
+
+    # Sai do sub-estado — a lista filtrada pelo turno assume (paginada de 6)
+    ctx2 = dict(booking_session.context or {})
+    ctx2.pop(BOT_SUBSTATE_KEY, None)
+    booking_session.context = ctx2
+
+    whatsapp_response_formatter.format_and_send(
+        result, instance, whatsapp_id, ctx2, company_timezone,
+    )
+
+
 def _handle_booking_state(
     db: Session,
     session: BotSession,
@@ -410,6 +590,11 @@ def _handle_booking_state(
       3. Chama booking_engine.update() com a ação
       4. Sincroniza o estado da BotSession com o novo estado da BookingSession
       5. Envia as mensagens via WhatsAppResponseFormatter
+
+    [F4] Sub-estado de TURNO: entre DATE e TIME a camada exibe o menu de
+    turnos (bot_substate no context da BookingSession; o FSM permanece em
+    AWAITING_TIME o tempo todo). BACK: menu de turnos → data (via engine);
+    lista de horários filtrada → menu de turnos (na camada).
     """
     from app.infrastructure.db.models.booking_session import BookingSession as _BookingSession
     from uuid import UUID as _UUID
@@ -464,8 +649,18 @@ def _handle_booking_state(
         return
 
     # ── Parsear input ─────────────────────────────────────────────────────────
+    # [F4] No sub-estado de turno o parse_state é AWAITING_SHIFT (sub-estado do
+    # canal): o FSM continua em AWAITING_TIME, mas o input do cliente resolve
+    # contra o menu de turnos exibido, não contra a lista de horários.
+    booking_ctx = booking_session.context or {}
+    in_shift_substate = (
+        state == "AWAITING_TIME"
+        and booking_ctx.get(BOT_SUBSTATE_KEY) == SUBSTATE_SHIFT
+    )
+    parse_state = SUBSTATE_SHIFT if in_shift_substate else state
+
     parse_result = whatsapp_input_parser.parse(
-        user_input, state, booking_session.context or {}, company_timezone
+        user_input, parse_state, booking_ctx, company_timezone
     )
 
     if parse_result is None:
@@ -485,6 +680,35 @@ def _handle_booking_state(
         h_inicio.show_menu_principal(
             session, ctx2, instance, whatsapp_id,
             ctx2.get("company_name", "Barbearia"), ctx2.get("customer_name"),
+        )
+        return
+
+    # ── Sub-estado de TURNO (F4) — resolvido na camada, sem engine.update() ──
+    if in_shift_substate:
+        if action == BookingAction.SELECT_SHIFT:
+            _apply_shift_choice(
+                db, session, booking_session, company_id,
+                instance, whatsapp_id, payload, company_timezone,
+            )
+            return
+        if action == BookingAction.BACK:
+            # BACK no menu de turnos → sai do sub-estado; o engine faz o
+            # AWAITING_TIME → AWAITING_DATE normal (fluxo continua abaixo)
+            ctx2 = dict(booking_ctx)
+            ctx2.pop(BOT_SUBSTATE_KEY, None)
+            ctx2.pop("last_listed_shifts", None)
+            booking_session.context = ctx2
+
+    # ── BACK na lista de horários filtrada → menu de TURNOS, não a data ──────
+    elif (
+        action == BookingAction.BACK
+        and state == "AWAITING_TIME"
+        and booking_ctx.get("selected_shift")
+    ):
+        _enter_shift_substate(
+            booking_session,
+            _fresh_shift_options(db, booking_session, company_id),
+            instance, whatsapp_id, company_timezone,
         )
         return
 
@@ -537,6 +761,27 @@ def _handle_booking_state(
             )
             sender.send_text(instance, whatsapp_id, messages.ERRO_GENERICO)
             return
+
+    # ── Entrar no sub-estado de TURNO (F4) ────────────────────────────────────
+    # O dia recém-listado (dia inteiro, limit=0) vira menu de turnos em vez da
+    # lista de horários: após SELECT_DATE e após a re-listagem pós-conflito de
+    # confirm (SLOT_UNAVAILABLE). Dia sem slots segue o fluxo normal
+    # (SEM_HORARIOS). O FSM permanece em AWAITING_TIME — o sub-estado é só
+    # apresentação do canal.
+    if (
+        result.next_state == "AWAITING_TIME"
+        and result.options
+        and (action == BookingAction.SELECT_DATE or result.error == "SLOT_UNAVAILABLE")
+    ):
+        session.state = "AWAITING_TIME"
+        if result.error == "SLOT_UNAVAILABLE":
+            sender.send_text(instance, whatsapp_id, messages.HORARIO_OCUPADO_CONFIRMANDO)
+        _enter_shift_substate(
+            booking_session,
+            _shift_options_from_slots(result.options, company_timezone),
+            instance, whatsapp_id, company_timezone,
+        )
+        return
 
     # ── Sincronizar estado da BotSession com o novo estado da BookingSession ──
     new_state = result.next_state

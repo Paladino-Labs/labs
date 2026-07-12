@@ -31,7 +31,10 @@ BOOKING_STATES: frozenset[str] = frozenset({
     "AWAITING_SERVICE",
     "AWAITING_PROFESSIONAL",
     "AWAITING_DATE",
-    "AWAITING_SHIFT",  
+    # AWAITING_SHIFT não é estado do FSM compartilhado (removido em 2ad105f):
+    # é o SUB-ESTADO de turno do canal bot (F4) — o bot_service deriva o
+    # parse_state dele enquanto a BookingSession permanece em AWAITING_TIME.
+    "AWAITING_SHIFT",
     "AWAITING_TIME",
     "AWAITING_CONFIRMATION",
 })
@@ -66,6 +69,19 @@ def _tz(tz_name: str) -> ZoneInfo:
         return ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
         return ZoneInfo("America/Sao_Paulo")
+
+
+def _shift_title(shift: dict) -> str:
+    """
+    Reconstrói o título visual de um turno para matching via enquete (poll).
+    Espelho exato do título montado pelo formatter (_send_shifts) — mesmo
+    padrão de _slot_title para slots.
+    """
+    label = shift.get("label", "")
+    count = int(shift.get("slot_count", 0))
+    if shift.get("has_availability", bool(count)):
+        return f"{label} ({count} horário{'s' if count != 1 else ''})"
+    return f"{label} — indisponível"
 
 
 def _slot_title(slot: dict, tz: ZoneInfo) -> str:
@@ -151,12 +167,7 @@ class WhatsAppInputParser:
             return self._parse_date(user_input, ctx)
         
         if state == "AWAITING_SHIFT":
-            return self._parse_by_list(
-                user_input,
-                items=ctx.get("last_listed_shifts", []),
-                title_field="label",   # ShiftOption dicts usam "label", não "name"
-                action=BookingAction.SELECT_SHIFT,
-            )
+            return self._parse_shift(user_input, ctx)
 
         if state == "AWAITING_TIME":
             return self._parse_time(user_input, ctx, company_tz)
@@ -197,6 +208,33 @@ class WhatsAppInputParser:
             return (BookingAction.BACK, {})
         if row_key:
             return (action, {"row_key": row_key})
+        return None
+
+    def _parse_shift(
+        self, user_input: str, ctx: dict
+    ) -> tuple[BookingAction, dict] | None:
+        """
+        Resolve input contra o menu de turnos (F4).
+
+        O turno é um SUB-ESTADO do canal bot: o FSM permanece em AWAITING_TIME
+        e quem consome o SELECT_SHIFT é a camada do bot (bot_service), nunca o
+        engine.update(). O título espelha o texto exibido pelo formatter
+        (_send_shifts) — inclusive "— indisponível" — para resolver voto de
+        enquete, e "← Voltar" é a última linha (número exibido = linha visível).
+        """
+        shifts = ctx.get("last_listed_shifts", [])
+        if not shifts:
+            return None
+        last_list = [
+            {"row_id": s["row_key"], "payload": s["row_key"], "title": _shift_title(s)}
+            for s in shifts
+        ]
+        last_list.append(dict(_BACK_ROW))
+        resolved = resolve_input(user_input, last_list)
+        if resolved == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
+        if resolved:
+            return (BookingAction.SELECT_SHIFT, {"row_key": resolved})
         return None
 
     def _parse_date(
