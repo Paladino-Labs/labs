@@ -29,7 +29,12 @@ from app.core.config import settings
 from app.infrastructure.db.models import BotSession, WhatsAppConnection, Company, CompanySettings
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
-from app.modules.whatsapp.helpers import extract_user_text, is_universal_command, resolve_input
+from app.modules.whatsapp.helpers import (
+    extract_user_text,
+    is_back_command,
+    is_universal_command,
+    resolve_input,
+)
 from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import get_session_locked, save_session, reset_session
 
@@ -318,6 +323,75 @@ def _start_cancelando(db: Session, session: BotSession, company_id: UUID,
                        start_gerenciando_agendamento=_start_gerenciando_agendamento)
 
 
+def _handle_legacy_back(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, company_name: str,
+) -> None:
+    """"Voltar" nos handlers legados (F3) — volta contextual, sem cadeia de BACK.
+
+    Os handlers legados não têm mapa de estado anterior (o BACK completo no
+    legado é F6). Onde existe um "anterior" natural — transição que o próprio
+    handler já oferece por botão — o voltar digitado faz o mesmo que o botão;
+    nos demais estados, volta ao menu principal (o comportamento que "voltar"
+    tinha quando era comando universal de reset).
+    """
+    from app.modules.appointments import service as appointment_svc
+    from uuid import UUID as _UUID
+
+    state = session.state
+    ctx   = session.context or {}
+
+    # CANCELANDO → GERENCIANDO (mesmo destino do botão "← Não, voltar")
+    if state == STATE_CANCELANDO and ctx.get("managing_appointment_id"):
+        try:
+            appt = appointment_svc.get_appointment_or_404(
+                db, company_id, _UUID(ctx["managing_appointment_id"])
+            )
+            _start_gerenciando_agendamento(db, session, company_id, whatsapp_id, instance, appt)
+            return
+        except Exception:
+            pass  # agendamento sumiu → cai no menu
+
+    # GERENCIANDO → VER_AGENDAMENTOS (lista de onde o cliente veio).
+    # Voltar aborta um reagendamento em curso: o marker is_rescheduling é
+    # removido para não vazar num agendamento futuro (F1 cancelaria o antigo).
+    if state == STATE_GERENCIANDO_AGENDAMENTO and ctx.get("customer_id"):
+        if ctx.get("is_rescheduling"):
+            ctx = dict(ctx)
+            ctx.pop("is_rescheduling", None)
+            session.context = ctx
+        _handle_ver_agendamentos(db, session, company_id, whatsapp_id, instance)
+        return
+
+    # CONFIRMANDO (reagendamento mesmo serviço) → re-listar horários
+    # (mesma limpeza e destino do botão "🕐 Alterar horário")
+    if state == STATE_CONFIRMANDO and ctx.get("service_id"):
+        ctx = dict(ctx)
+        ctx.pop("slot_start_at", None)
+        ctx.pop("selected_date", None)
+        session.context = ctx
+        _start_escolhendo_horario(db, session, company_id, instance, whatsapp_id)
+        return
+
+    # ESCOLHENDO_HORARIO / ESCOLHENDO_TURNO → escolha de data
+    # (mesma limpeza e destino da opção "📅 Escolher outra data")
+    if state in (STATE_ESCOLHENDO_HORARIO, STATE_ESCOLHENDO_TURNO) and ctx.get("service_id"):
+        ctx = dict(ctx)
+        ctx.pop("slot_offset", None)
+        ctx.pop("selected_turno", None)
+        session.context = ctx
+        _send_escolher_data(db, session, company_id, instance, whatsapp_id)
+        return
+
+    # Sem "anterior" natural → menu principal
+    reset_session(session)
+    ctx2 = session.context or {}
+    h_inicio.show_menu_principal(
+        session, ctx2, instance, whatsapp_id,
+        company_name, ctx2.get("customer_name"),
+    )
+
+
 def _handle_booking_state(
     db: Session,
     session: BotSession,
@@ -401,7 +475,11 @@ def _handle_booking_state(
     action, payload = parse_result
 
     # ── RESET → volta ao menu principal sem chamar o engine ──────────────────
-    if action == BookingAction.RESET:
+    # BACK no primeiro estado do fluxo (AWAITING_SERVICE) idem: não há passo
+    # anterior no FSM — o "anterior" natural é o menu principal (F3).
+    if action == BookingAction.RESET or (
+        action == BookingAction.BACK and state == "AWAITING_SERVICE"
+    ):
         reset_session(session, keep_customer=True)
         ctx2 = session.context or {}
         h_inicio.show_menu_principal(
@@ -885,6 +963,18 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             _escalate_to_human(
                 db, session, company_id, instance_name, whatsapp_id,
                 text=user_input, trigger="MENU", whatsapp_message_id=message_id,
+            )
+            save_session(db, session)
+            return
+
+        # ── "voltar" = um passo atrás (F3) ────────────────────────────────────
+        # Nos estados do FSM (BOOKING_STATES) quem trata é o input_parser
+        # (BookingAction.BACK). Nos handlers legados, volta contextual
+        # (_handle_legacy_back) — interceptado ANTES do classificador para
+        # "voltar" não virar linha de telemetria FALLBACK.
+        if state not in BOOKING_STATES and is_back_command(user_input):
+            _handle_legacy_back(
+                db, session, company_id, instance_name, whatsapp_id, company_name,
             )
             save_session(db, session)
             return

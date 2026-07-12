@@ -108,16 +108,33 @@ def is_universal_command(text: str) -> Optional[str]:
 
     Nota (Sprint 2.6): "cancelar" NÃO é mais um atalho de menu — passou a ser
     intenção CANCELAR (cancelar agendamento) tratada pelo ChainClassifier nos
-    estados de texto livre. Abortar continua via "0"/"menu"/"voltar"/"sair".
+    estados de texto livre.
+
+    Nota (F3): "voltar" NÃO é mais reset — significa UM passo atrás
+    (BookingAction.BACK nos estados do FSM; volta contextual nos handlers
+    legados — ver is_back_command). Reset total fica com "0"/"menu"/
+    "início"/"sair".
     """
     t = (text or "").strip().lower()
-    if t in ("0", "menu", "início", "inicio", "voltar", "sair"):
+    if t in ("0", "menu", "início", "inicio", "sair"):
         return "menu"
     if t in ("ver agendamentos", "meus agendamentos", "agendamentos"):
         return "ver_agendamentos"
     if t in ("atendente", "humano", "ajuda", "suporte"):
         return "humano"
     return None
+
+
+# Palavras/payloads que significam "um passo atrás" (F3).
+# "nav_voltar" = rowId da opção "← Voltar" nas listas; "← voltar" = voto de
+# enquete (título exato da opção, lowercased). Compartilhado entre o
+# input_parser (estados do FSM) e o bot_service (handlers legados).
+BACK_WORDS = frozenset({"voltar", "volta", "nav_voltar", "← voltar"})
+
+
+def is_back_command(text: str) -> bool:
+    """True se o input significa 'voltar um passo' (F3)."""
+    return (text or "").strip().lower() in BACK_WORDS
 
 
 def to_company_tz(dt: datetime, tz_str: str) -> datetime:

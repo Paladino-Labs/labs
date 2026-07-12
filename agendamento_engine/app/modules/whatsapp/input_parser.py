@@ -17,8 +17,14 @@ Uso:
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.core.config import settings
 from app.modules.booking.actions import BookingAction
-from app.modules.whatsapp.helpers import resolve_input
+from app.modules.whatsapp.helpers import is_back_command, resolve_input
+
+# Entrada sintética da opção "← Voltar" — anexada ao final das listas de
+# matching para que o NÚMERO exibido pelo formatter (última linha) resolva
+# para BACK. O título espelha o texto visual (match de voto de enquete).
+_BACK_ROW = {"row_id": "nav_voltar", "payload": "nav_voltar", "title": "← Voltar"}
 
 # ── Constante exportada — usada em bot_service.py ────────────────────────────
 BOOKING_STATES: frozenset[str] = frozenset({
@@ -118,6 +124,13 @@ class WhatsAppInputParser:
             ctx:        booking_session.context (JSONB com last_listed_*)
             company_tz: timezone da empresa para cálculo de títulos de slots
         """
+        # ── "voltar" digitado/clicado = um passo atrás (F3) ──────────────────
+        # Vale em qualquer estado do FSM. Em AWAITING_CONFIRMATION coincide com
+        # _CHANGE_WORDS (mesmo resultado); no primeiro estado (AWAITING_SERVICE)
+        # o bot_service intercepta o BACK e volta ao menu principal.
+        if is_back_command(user_input):
+            return (BookingAction.BACK, {})
+
         if state == "AWAITING_SERVICE":
             return self._parse_by_list(
                 user_input,
@@ -164,6 +177,8 @@ class WhatsAppInputParser:
     ) -> tuple[BookingAction, dict] | None:
         """
         Tenta resolver o input contra uma lista de itens via resolve_input().
+        A opção "← Voltar" (F3) é a última linha exibida pelo formatter — a
+        entrada sintética no mesmo índice faz o número digitado resolver BACK.
         Retorna (action, {row_key}) ou None.
         """
         if not items:
@@ -176,7 +191,10 @@ class WhatsAppInputParser:
             }
             for item in items
         ]
+        last_list.append(dict(_BACK_ROW))
         row_key = resolve_input(user_input, last_list)
+        if row_key == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
         if row_key:
             return (action, {"row_key": row_key})
         return None
@@ -196,7 +214,10 @@ class WhatsAppInputParser:
             {"row_id": d["row_key"], "payload": d["row_key"], "title": d.get("label", "")}
             for d in available
         ]
+        last_list.append(dict(_BACK_ROW))
         row_key = resolve_input(user_input, last_list)
+        if row_key == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
         if row_key:
             return (BookingAction.SELECT_DATE, {"row_key": row_key})
         return None
@@ -209,6 +230,12 @@ class WhatsAppInputParser:
         Reconstrói o título visual (mesma lógica do formatter) para matching via enquete.
         Payloads de navegação ("nav_mais_tarde", "nav_mais_cedo") são interceptados
         antes do matching de slots e mapeados para as actions de paginação.
+
+        [F3] O matching numérico espelha a PÁGINA exibida pelo formatter
+        (linhas de navegação + slots da página + "← Voltar"), na mesma ordem —
+        o número digitado seleciona exatamente a linha que o cliente vê.
+        Slots fora da página só resolvem por row_id/título (clique em mensagem
+        antiga), nunca por número.
         """
         # ── Navegação de página ── interceptar antes do matching de slots ──────
         t = (user_input or "").strip().lower()
@@ -221,17 +248,48 @@ class WhatsAppInputParser:
         if not slots:
             return None
         tz = _tz(company_tz)
-        last_list = [
-            {
+
+        # ── Espelho da página do formatter (_send_slots) ──────────────────────
+        page_size = settings.BOT_MAX_SLOTS_DISPLAYED
+        offset    = int(ctx.get("slot_offset", 0))
+        page_slots = slots[offset : offset + page_size]
+        if not page_slots:
+            # offset obsoleto (slots mudaram) — mesmo guard do formatter
+            offset     = 0
+            page_slots = slots[:page_size]
+        has_previous = offset > 0
+        has_more     = len(slots) > offset + page_size
+
+        last_list = []
+        if has_previous:
+            last_list.append({"row_id": "nav_mais_cedo", "payload": "nav_mais_cedo",
+                              "title": "← Mais cedo"})
+        for s in page_slots:
+            last_list.append({
                 "row_id":  s["row_key"],
                 "payload": s["row_key"],
                 "title":   _slot_title(s, tz),
-            }
-            for s in slots
-        ]
-        row_key = resolve_input(user_input, last_list)
-        if row_key:
-            return (BookingAction.SELECT_TIME, {"row_key": row_key})
+            })
+        if has_more:
+            last_list.append({"row_id": "nav_mais_tarde", "payload": "nav_mais_tarde",
+                              "title": "Mais tarde →"})
+        last_list.append(dict(_BACK_ROW))
+
+        resolved = resolve_input(user_input, last_list)
+        if resolved == "nav_mais_cedo":
+            return (BookingAction.MORE_SLOTS_EARLIER, {})
+        if resolved == "nav_mais_tarde":
+            return (BookingAction.MORE_SLOTS_LATER, {})
+        if resolved == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
+        if resolved:
+            return (BookingAction.SELECT_TIME, {"row_key": resolved})
+
+        # ── Fallback: clique em mensagem antiga (slot fora da página atual) ────
+        # Só row_id/título exato — número NUNCA resolve fora da página visível.
+        for s in slots:
+            if t and (s["row_key"].lower() == t or _slot_title(s, tz).lower() == t):
+                return (BookingAction.SELECT_TIME, {"row_key": s["row_key"]})
         return None
 
     def _parse_confirmation(

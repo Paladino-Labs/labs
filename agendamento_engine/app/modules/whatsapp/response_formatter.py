@@ -59,6 +59,12 @@ def _first_name(full_name: str | None) -> str:
     return parts[0] if parts else ""
 
 
+# Opção "← Voltar" (F3) — SEMPRE a última linha da lista. O input_parser anexa
+# uma entrada sintética no mesmo índice: o número exibido resolve para BACK sem
+# deslocar o mapeamento número→item dos demais.
+_BACK_NAV_ROW = {"rowId": "nav_voltar", "title": "← Voltar", "description": ""}
+
+
 class WhatsAppResponseFormatter:
     """
     Envia mensagens WhatsApp de acordo com o estado resultante do BookingEngine.
@@ -140,6 +146,7 @@ class WhatsAppResponseFormatter:
             }
             for o in options
         ]
+        rows.append(dict(_BACK_NAV_ROW))
         sender.send_list(
             instance, to,
             "✂️ Nossos serviços",
@@ -158,6 +165,7 @@ class WhatsAppResponseFormatter:
             {"rowId": o.row_key, "title": o.name, "description": ""}
             for o in options
         ]
+        rows.append(dict(_BACK_NAV_ROW))
         sender.send_list(
             instance, to,
             "👤 Escolha o profissional",
@@ -187,6 +195,7 @@ class WhatsAppResponseFormatter:
             {"rowId": o.row_key, "title": o.label, "description": ""}
             for o in available
         ]
+        rows.append(dict(_BACK_NAV_ROW))
         sender.send_list(
             instance, to,
             messages.escolha_data_titulo(svc_name),
@@ -263,6 +272,8 @@ class WhatsAppResponseFormatter:
 
         if has_more:
             rows.append({"rowId": "nav_mais_tarde", "title": "Mais tarde →", "description": ""})
+
+        rows.append(dict(_BACK_NAV_ROW))
 
         prof_name = ctx.get("professional_name", "")
         svc_name  = ctx.get("service_name", "")
