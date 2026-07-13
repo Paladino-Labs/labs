@@ -1,3 +1,33 @@
+## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
+  Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
+  com o web) NÃO conhece turno — engine com ZERO mudanças.
+  Fluxo bot: serviço → profissional → data → TURNO → horário → confirmar.
+  Fluxo web: data → horário direto (INALTERADO — provado por teste;
+    update(SELECT_SHIFT) ainda levanta InvalidActionError).
+
+  Implementação: quando SELECT_DATE devolve AWAITING_TIME, a camada marca
+  bot_substate="AWAITING_SHIFT" no context e deriva as contagens da MESMA lista
+  que o FSM entregou (result.options, dia inteiro) via _SHIFT_DEFS +
+  _filter_slots_by_shift → contagem == lista POR CONSTRUÇÃO (invariante do F2),
+  sem query extra. A escolha do turno NUNCA passa por engine.update() (travado
+  por teste); chama _handle_select_shift direto e espelha os metadados de sessão
+  (last_action, expires_at, guard de expiração) manualmente.
+  O FSM permanece em AWAITING_TIME o tempo todo.
+
+  Primitivas órfãs reusadas SEM alteração: get_shift_availability (stateless),
+  _SHIFT_DEFS, _filter_slots_by_shift, _handle_select_shift.
+  Ajustes só na apresentação: _send_shifts + "← Voltar" (F3); parser espelha o
+  título exibido ("Tarde (12 horários)") p/ voto de enquete.
+
+  Turno vazio: exibido com "— indisponível", escolha rejeitada com mensagem
+  (mesma UX do legado; mantém a NUMERAÇÃO DAS LINHAS ESTÁVEL entre datas).
+  Conflito de confirm (SLOT_UNAVAILABLE) re-entra no menu de TURNOS.
+  Sessões pré-F4 (AWAITING_TIME sem selected_shift) degradam p/ o BACK antigo.
+
+## Dívida p/ o F6
+  Reagendamento vai direto a ESCOLHENDO_HORARIO (pool sem data); o turno legado
+  só aparece via "outra data" — inconsistência do dispatcher duplo.
+
 ## Bot F3 — navegação BACK (2cbf71e)
   "voltar"/"volta"/nav_voltar/"← voltar" (helpers.BACK_WORDS, fonte única) →
     BACK de UM estado. Reset total só com 0/menu/início/sair.
