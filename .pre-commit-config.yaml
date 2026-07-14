@@ -1,0 +1,14 @@
+# Pre-commit — SOMENTE CHECK, nunca fix (auditoria A1, 2026-07-14).
+# Objetivo: depois que as correções da auditoria forem aplicadas, impedir que
+# a dívida volte a entrar. Instalar com:  pre-commit install
+# (deliberadamente NÃO rodado em todo o repo nesta fase — rodar
+#  `pre-commit run --all-files` só depois das correções.)
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff
+        name: ruff check (sem --fix)
+        # Config em agendamento_engine/pyproject.toml (per-file-ignores da A1)
+        args: ["--config", "agendamento_engine/pyproject.toml", "--no-fix"]
+        files: ^agendamento_engine/

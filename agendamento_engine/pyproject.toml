@@ -1,0 +1,68 @@
+# Configuração de ferramentas de qualidade (auditoria A1 — 2026-07-14).
+# Somente configuração de tooling: este arquivo NÃO define [project]/[build-system]
+# de propósito, para não alterar o comportamento de pip/build do projeto.
+
+# ── ruff ────────────────────────────────────────────────────────────────────
+# Regras: default do ruff (E4/E7/E9 + F). Ajustes abaixo separam IDIOMA DO
+# PROJETO (falso positivo) de dívida real — ver per-file-ignores.
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Bootstrap intencional: settings → CORS → logging → sentry → routers.
+# A ordem dos imports É o comportamento (setup_logging antes dos módulos).
+"app/main.py" = ["E402"]
+# Seção "Compatibilidade asyncio" demarcada no fim do arquivo (coexistência
+# Celery, candidata a remoção — ver auditoria A1). Import tardio é da seção.
+"app/workers/reminder_worker.py" = ["E402", "E712"]
+"app/workers/session_cleanup_worker.py" = ["E402"]
+# Scripts standalone: sys.path.insert antes de importar app.* (obrigatório).
+"scripts/*" = ["E402"]
+# Alembic: env.py configura path/context antes dos imports; migrations
+# geradas carregam imports de template não usados. Idioma da ferramenta.
+"migrations/*" = ["E402", "F401", "F811"]
+# E712/E711 em filters SQLAlchemy: `Coluna == True` / `== None` gera SQL via
+# sobrecarga de operador — `is True`/`is None` NÃO funciona em expression
+# context. Idioma CORRETO nos services abaixo (conferido caso a caso na A1).
+"app/core/deps.py" = ["E712"]
+"app/modules/appointments/service.py" = ["E712"]
+"app/modules/auth/service.py" = ["E712"]
+"app/modules/availability/service.py" = ["E712"]
+"app/modules/booking/router.py" = ["E712"]
+"app/modules/commission/service.py" = ["E712", "E711"]
+"app/modules/communication/service.py" = ["E712"]
+"app/modules/customer_credit/service.py" = ["E711"]
+"app/modules/customers/service.py" = ["E712"]
+"app/modules/payments/router.py" = ["E712"]
+"app/modules/payments/service.py" = ["E712"]
+"app/modules/portal/auth_service.py" = ["E712"]
+"app/modules/portal/service.py" = ["E712"]
+"app/modules/products/service.py" = ["E712"]
+"app/modules/professionals/service.py" = ["E712"]
+"app/modules/public/service.py" = ["E712"]
+"app/modules/services/service.py" = ["E712"]
+"app/modules/users/service.py" = ["E712"]
+"app/workers/communication_worker.py" = ["E712"]
+"app/workers/tasks/customer_credit_expiry.py" = ["E711"]
+"app/workers/tasks/subscription_renewal.py" = ["E712"]
+"tests/test_sprint8_asaas_pii.py" = ["E712"]
+
+# ── pytest ──────────────────────────────────────────────────────────────────
+# Sem --cov no addopts de propósito: cobertura é opt-in (comando documentado
+# abaixo) para não desacelerar o ciclo normal de testes.
+#   .\venv\Scripts\python.exe -m pytest tests/ --cov=app --cov-report=term --cov-report=json:coverage.json
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# ── coverage ────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+omit = ["venv/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+precision = 1

@@ -1,0 +1,8 @@
+# Ferramentas de qualidade (auditoria A1 — 2026-07-14). Instalar no venv:
+#   .\venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+ruff==0.15.21
+pytest-cov==7.1.0
+coverage==7.15.1
+vulture==2.16
+radon==6.0.1
+pre-commit==4.6.0
