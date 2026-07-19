@@ -1,5 +1,31 @@
 # SPRINT-LOG — agendamento_engine
 
+## Sprint S0.1 — Webhook Asaas + confirm() — 2026-07-19
+
+**Status:** ✅ Aprovado pelo auditor (diff de CLAUDE.md aplicado; push autorizado pelo Silva)
+**Branch:** `fix/s01-webhook-confirm`
+**Refs:** auditoria A4 §2.1/§2.2, plano de ação v2 (S0.1)
+**Suíte:** 1292 passed (baseline 1279), mesmas 12 falhas RBAC pré-existentes, nenhuma regressão.
+**Relatório:** `docs/sprint-s01-webhook-confirm.md`
+
+### Itens gerados para a fila
+
+1. **S0.3 — validação de assinatura no webhook de transaction.** Promovido a
+   Bloco 0 pelo auditor: o endpoint aceita POST anônimo no caminho do dinheiro.
+   Com o gate implementado, forjar `PAYMENT_CONFIRMED` é trivial para quem
+   descobrir a URL. Sugestão: executar logo após o S0.2.
+2. **D7 (existente) — acrescentar:** `confirm()` deve rejeitar `Payment` em
+   estado terminal (REFUNDED/CANCELLED) mesmo com `event_id` novo.
+3. **Fila —** `account_status:304` (`skipped=missing_fields`), mesmo padrão do
+   `:242`, não auditado.
+4. **Verificação de dados (pendente):** confirmar se há `Payment` CONFIRMED em
+   produção originado do bug do gate — `status = 'CONFIRMED' AND paid_at IS NULL`
+   é o sinal mais forte; `paid_at` muito próximo de `created_at` é o secundário.
+   Se houver, há Movement/Entry/comissão correspondentes a dinheiro que não
+   entrou, e a correção é operação de dados.
+
+---
+
 ## Sprint de Integrações (APIs externas) — 2026-06-02 a 2026-06-04
 
 **HEAD antes do sprint:** `d1e2f3g4h5i6` (align_orm_schema_gaps)

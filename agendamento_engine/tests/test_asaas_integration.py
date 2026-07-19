@@ -248,11 +248,19 @@ def test_confirm_fallback_reads_value_and_fee_from_root():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Webhook transaction com external_charge_id inexistente → skipped
+# 5. Webhook transaction com external_charge_id inexistente → 503 (S0.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_webhook_transaction_skips_when_payment_not_found():
-    """Webhook com external_charge_id desconhecido deve retornar skipped: payment_not_found."""
+def test_webhook_transaction_returns_503_when_payment_not_found():
+    """Webhook de confirmação com Payment ainda não visível → 503 para o Asaas
+    reenviar.
+
+    S0.1 (A4 §2.2): antes devolvia 200 {"skipped": "payment_not_found"} — a
+    corrida webhook × commit da linha Payment descartava o evento para sempre
+    (o Asaas decide retry pelo status HTTP, nunca pelo corpo).
+    """
+    from fastapi import HTTPException
+
     from app.modules.payments.router import webhook_asaas_transaction
 
     payload = {
@@ -269,10 +277,11 @@ def test_webhook_transaction_skips_when_payment_not_found():
     # db mock que nunca encontra nenhum Payment
     db = _make_db()
 
-    result = webhook_asaas_transaction(payload=payload, db=db)
+    with pytest.raises(HTTPException) as exc_info:
+        webhook_asaas_transaction(payload=payload, db=db)
 
-    assert result["ok"] is True
-    assert result["skipped"] == "payment_not_found"
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "payment_not_yet_visible"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

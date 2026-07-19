@@ -338,11 +338,16 @@ def confirm(
 
     Todos os 5 passos ocorrem na mesma transação ou nenhum persiste:
       1. Checar ProcessedIdempotencyKey — se já existe, retorna sem reprocessar.
-      2. INSERT PaymentTransaction — IntegrityError = duplicata = retorna payment.
+      2. INSERT PaymentTransaction — IntegrityError AQUI é candidato a duplicata:
+         só é tratada como duplicata benigna se o Payment já estiver CONFIRMED
+         no banco; caso contrário a exceção propaga (não é duplicata, é falha).
       3. UPDATE payments SET status=CONFIRMED, paid_at=now().
       4. FinancialCoreEngine.handle_payment_confirmed (Movements + Entries).
       5. INSERT ProcessedIdempotencyKey.
     COMMIT — só então EventBus.publish("payment.confirmed").
+
+    Falha nos passos 3–5 (incluindo violação de integridade do Financial Core)
+    SEMPRE propaga — o webhook responde não-2xx e o provider reenvia.
     """
     payment = _get_payment(payment_id, company_id, db)
 
@@ -373,7 +378,34 @@ def confirm(
         )
         db.add(txn)
         db.flush()
+    except IntegrityError:
+        # UNIQUE(company_id, provider_transaction_id) violado: CANDIDATO a
+        # duplicata de evento. Só é duplicata benigna se o processamento
+        # anterior chegou ao fim — o Payment precisa estar CONFIRMED no banco.
+        db.rollback()
+        reloaded = (
+            db.query(Payment)
+            .filter(Payment.payment_id == payment_id, Payment.company_id == company_id)
+            .first()
+        )
+        if reloaded is None or reloaded.status != "CONFIRMED":
+            logger.error(
+                "confirm: IntegrityError no evento de idempotência mas Payment "
+                "não está CONFIRMED — não é duplicata benigna, propagando. "
+                "payment_id=%s event_id=%s status=%s",
+                payment_id,
+                event_id,
+                getattr(reloaded, "status", None),
+            )
+            raise
+        logger.info(
+            "confirm: evento duplicado reconhecido payment_id=%s event_id=%s",
+            payment_id,
+            event_id,
+        )
+        return reloaded
 
+    try:
         # Passo 3: UPDATE payment
         payment.status = "CONFIRMED"
         payment.paid_at = datetime.now(timezone.utc)
@@ -406,16 +438,16 @@ def confirm(
         # COMMIT atômico dos 5 passos
         db.commit()
 
-    except IntegrityError:
-        # UNIQUE(company_id, provider_transaction_id) violado: duplicata de evento
-        db.rollback()
-        return (
-            db.query(Payment)
-            .filter(Payment.payment_id == payment_id, Payment.company_id == company_id)
-            .first()
-        )
     except Exception:
+        # Inclui violação de integridade do Financial Core (passo 4): NÃO é
+        # duplicata — propaga para o webhook responder não-2xx (provider reenvia).
         db.rollback()
+        logger.exception(
+            "confirm: falha nos passos 3-5 payment_id=%s event_id=%s external_charge_id=%s",
+            payment_id,
+            event_id,
+            payment.external_charge_id,
+        )
         raise
 
     db.refresh(payment)

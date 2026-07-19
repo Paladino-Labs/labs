@@ -234,12 +234,31 @@ def webhook_asaas_transaction(
     payload: dict,
     db: Session = Depends(get_db),
 ):
-    """Público, sem auth. Idempotência garantida dentro de confirm()."""
+    """Público, sem auth. Idempotência garantida dentro de confirm().
+
+    Contrato de resposta (o Asaas decide retry pelo STATUS HTTP, nunca pelo corpo):
+      - 200 → evento consumido ou reconhecidamente não-acionável (retry não ajudaria).
+      - 503 → Payment ainda não visível no banco (corrida webhook × commit) — reenviar.
+      - 500 → confirm() falhou (ex.: violação de integridade no Financial Core) — reenviar.
+    """
     event_id = payload.get("id") or payload.get("event_id")
     if not event_id:
+        # Payload malformado/não-nosso: o reenvio traria o MESMO payload sem id —
+        # retry não resolve, logo 200 (skip) é a resposta correta.
         logger.warning("asaas_webhook_transaction: payload sem id event_payload=%s",
                        list(payload.keys()))
         return {"ok": True, "skipped": "missing_event_id"}
+
+    # Gate de tipo de evento: só eventos de confirmação de pagamento acionam
+    # confirm(). Antes deste gate, QUALQUER evento (PAYMENT_CREATED,
+    # PAYMENT_OVERDUE, ...) confirmava o Payment. Também evita que o 503 do
+    # payment_not_found abaixo prenda a fila de retry do Asaas com eventos
+    # irrelevantes de cobranças desconhecidas.
+    event_type = payload.get("event", "")
+    if event_type not in ("PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"):
+        logger.info("asaas_webhook_transaction: evento não-acionável event_id=%s event=%s",
+                    event_id, event_type)
+        return {"ok": True, "skipped": "event_not_handled", "event": event_type}
 
     # Resolve payment a partir do externalReference ou similar
     external_charge_id = (
@@ -258,9 +277,15 @@ def webhook_asaas_transaction(
         )
 
     if not payment:
-        logger.info("asaas_webhook_transaction: payment não encontrado external_charge_id=%s",
-                    external_charge_id)
-        return {"ok": True, "skipped": "payment_not_found"}
+        # CORRIDA, não skip: com o gate acima só chegam aqui eventos de pagamento
+        # confirmado — se o Payment ainda não existe, o webhook chegou antes do
+        # commit da linha Payment. 503 faz o Asaas reenviar quando ela existir.
+        logger.warning(
+            "asaas_webhook_transaction: payment não encontrado (possível corrida "
+            "webhook × commit) external_charge_id=%s event_id=%s event=%s",
+            external_charge_id, event_id, event_type,
+        )
+        raise HTTPException(status_code=503, detail="payment_not_yet_visible")
 
     try:
         payment_service.confirm(
@@ -271,8 +296,14 @@ def webhook_asaas_transaction(
             db=db,
         )
     except Exception:
-        logger.exception("asaas_webhook_transaction: confirm falhou event_id=%s", event_id)
-        return {"ok": False, "error": "confirm_failed"}
+        # Falha de processamento do NOSSO lado: responder não-2xx para o Asaas
+        # reenviar (200 com {"ok": false} era interpretado como processado).
+        logger.exception(
+            "asaas_webhook_transaction: confirm falhou event_id=%s event=%s "
+            "external_charge_id=%s payment_id=%s",
+            event_id, event_type, external_charge_id, payment.payment_id,
+        )
+        raise HTTPException(status_code=500, detail="confirm_failed")
 
     return {"ok": True, "event_id": str(event_id)}
 

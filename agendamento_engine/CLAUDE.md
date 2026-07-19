@@ -1001,6 +1001,68 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
 - Payment.provider imutável (trigger banco + @validates)
 - DepositPolicy por serviço ou global
 
+### Webhook Asaas — contrato de `/payments/webhook/asaas/transaction`
+
+⚠️ **Este é o caminho de entrada de dinheiro.** As regras abaixo são deliberadas;
+não amplie nenhuma delas sem entender o motivo original.
+
+#### Gate de eventos (S0.1)
+
+Somente `PAYMENT_RECEIVED` e `PAYMENT_CONFIRMED` chamam `confirm()`. Qualquer
+outro tipo de evento é **descartado com 200 e log de baixo nível**.
+
+Motivo: antes do S0.1, qualquer evento com `id` no payload chamava `confirm()` —
+o que fazia `PAYMENT_CREATED` (cobrança apenas gerada) e `PAYMENT_OVERDUE`
+(cobrança vencida) **confirmarem o pagamento**, gerando Movement, Entry e comissão
+para dinheiro que nunca entrou.
+
+**Ao adicionar um novo tipo de evento à lista, verifique que ele significa
+"dinheiro entrou"** — não "cobrança existe", "cobrança mudou" ou "cobrança
+venceu". O descarte é logado justamente para que se possa auditar, depois, se
+algum evento relevante está caindo fora.
+
+#### Semântica dos status de resposta
+
+O Asaas decide reenviar **pelo status HTTP**, nunca pelo corpo. Portanto:
+
+| Situação | Status | Racional |
+|---|---|---|
+| Evento fora do gate | 200 | Descarte legítimo; reenviar não muda nada |
+| Payload sem `event_id` | 200 | Payload imutável — o retry traria o mesmo defeito |
+| Evento relevante, `Payment` não encontrado | 503 | **Corrida**: a linha pode existir em instantes; queremos reenvio |
+| `confirm()` levantou exceção | 500 | Falha nossa de processamento; queremos reenvio |
+| Sucesso / duplicata confirmada | 200 | Processado |
+
+⚠️ **Nunca devolver 2xx para uma falha de processamento.** Foi esse o defeito
+original (A4 §2.1): o corpo dizia `{"ok": false}` e ninguém o lia, então o Asaas
+considerava o evento entregue e nunca reenviava — pagamento pago ficava PENDING
+para sempre, sem Movement, sem Entry, sem comissão.
+
+#### Escopo do `except IntegrityError` em `confirm()`
+
+O `except IntegrityError` cobre **apenas o INSERT do evento de idempotência**
+(passo 2). Falhas dos passos 3–5 — incluindo violação de integridade do Financial
+Core — **propagam**.
+
+E mesmo no caminho de `IntegrityError`, a duplicata só é aceita como sucesso se o
+`Payment`, recarregado do banco, estiver de fato `CONFIRMED`. Caso contrário a
+exceção propaga.
+
+Motivo (A4 §2.2): quando o `except` cobria os passos 2–5, uma violação de FK do
+Financial Core era **indistinguível** da duplicata esperada do UNIQUE — o handler
+fazia rollback e devolvia o `Payment` ainda PENDING como se fosse caminho feliz,
+**sem uma linha de log**.
+
+#### Dívidas conhecidas neste caminho (fila pós-S0.1)
+
+- **Sem validação de assinatura** — o endpoint aceita POST anônimo, enquanto o
+  irmão `account_status` valida `asaas-access-token`. Superfície de fraude no
+  caminho do dinheiro. → **S0.3**
+- **`confirm()` não checa o status atual do `Payment`** — um `event_id` novo
+  re-confirmaria um `Payment` já REFUNDED/CANCELLED. → sprint **D7**
+- **`account_status:304`** (`skipped=missing_fields`) tem o mesmo padrão do
+  `:242` e não foi auditado. → fila
+
 **HEAD migration:** y1z2a3b4c5d6 (add_deposit_policies)
 
 ## Sprint de Integrações (pós-Fase 2)
