@@ -1,3 +1,74 @@
+## Isolamento multi-tenant no módulo `users` (S0.2)
+
+⚠️ **Não há rede de segurança no banco.** O `set_rls_context` é chamado, mas o role
+da aplicação tem `BYPASSRLS` e é dono das tabelas — as policies de RLS **nunca são
+avaliadas**. O isolamento entre tenants depende **inteiramente** dos filtros
+`company_id` no código. Um filtro esquecido é um vazamento real, não um risco
+mitigado por segunda camada.
+
+### Regra
+
+Toda função que resolve um **recurso-alvo por ID** deve filtrar também pelo tenant
+do ator. Buscar só por `Model.id` é o anti-padrão que produziu os dois vazamentos
+corrigidos no S0.2 (`assign_role` e `deactivate_user` permitiam que um OWNER/ADMIN
+alterasse o papel e desativasse usuários de **outro** tenant, bastando conhecer o
+UUID).
+
+### Escopo do `PLATFORM_OWNER` (decisão do S0.2)
+
+O filtro de posse vale **também** para o `PLATFORM_OWNER` nestes endpoints — não há
+exceção para o staff da plataforma.
+
+Isso é **deliberado**, não efeito colateral do fix:
+
+- O `effective_company_id` da impersonação é injetado pelo middleware, mas o módulo
+  `users` **nunca o lê** (só o `audit/router.py` consome). Não existe, portanto,
+  caminho *desenhado* para o staff administrar usuários de um tenant por aqui — o
+  único caminho era o próprio vazamento.
+- Com `actor.company_id IS NULL`, o `PLATFORM_OWNER` continua gerenciando **usuários
+  de plataforma**, que é o caso legítimo — coerente com `invite_user`, que grava
+  `company_id = NULL` para convites de plataforma.
+- Mesma semântica que `cancel_invitation` já usava corretamente por construção.
+
+**Se a plataforma precisar administrar usuários de tenants**, o caminho correto é
+ligar o `effective_company_id` (impersonação ELEVATED, time-boxed e auditada) a
+este módulo — **não** afrouxar o filtro. Está na fila.
+
+### Erro indistinguível
+
+Alvo inexistente e alvo de outro tenant devem produzir **o mesmo status e o mesmo
+`detail`**. Distinguir os dois transforma o endpoint em oráculo de enumeração de
+UUIDs — trocaria um vazamento de escrita por um de leitura.
+
+### Dívidas conhecidas neste módulo (fila pós-S0.2)
+
+- **Trilha de auditoria incompleta:** `deactivate_user` é a única das três operações
+  sensíveis do módulo **sem** `record_sensitive_action` — bloquear o login de um
+  usuário não deixa rastro. Somado a isto: o `assign_role` registrava
+  `company_id = actor.company_id`, então a trilha mentia sobre *onde* o fato
+  ocorreu (mitigado pelo fix, já que agora ator e alvo são sempre do mesmo tenant).
+- **`transfer_ownership` — ternário sem parênteses:**
+  `User.company_id == str(actor.company_id) if actor.company_id else None`
+  — a precedência faz o `filter()` receber `None` cru quando `company_id` é `None`,
+  o que levantaria `ArgumentError`. Inalcançável hoje (o guard de entrada exige
+  OWNER, que sempre tem `company_id`), mas armado se aquele gate for flexibilizado.
+  **Ocorrência única** no módulo — `cancel_invitation` é correto por construção.
+- **12 testes de RBAC não rodam na suíte completa** — ver abaixo.
+
+### ⚠️ `test_sprint2_rbac.py` — cobertura desligada
+
+As 12 falhas "pré-existentes conhecidas" da suíte **não são ruído**: são classes de
+`test_sprint2_rbac.py` (incluindo `TestAssignRoleService` e `TestDeactivateUser`)
+que falham por **contaminação de ordem de import** — o monkey-patch de modelos do
+arquivo não re-vincula o `User` que `users/service.py` já importou, então qualquer
+arquivo que importe o service antes quebra o arquivo inteiro. Isoladas, passam 35/35.
+
+**Consequência:** a cobertura de RBAC destes endpoints está efetivamente desligada
+na suíte completa. Foi um dos dois motivos pelos quais os vazamentos do S0.2
+sobreviveram — o outro é que nenhum dos testes existentes cobria cenário
+cross-tenant. Não normalize essas falhas como "conhecidas": é um mecanismo de
+defesa em silêncio. Correção na fila.
+
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
   com o web) NÃO conhece turno — engine com ZERO mudanças.
