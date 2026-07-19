@@ -4,7 +4,7 @@ Endpoints Sprint 8:
     GET    /payment-sources
     POST   /payment-sources            OWNER/ADMIN
     DELETE /payment-sources/{id}       OWNER/ADMIN
-    POST   /payments/webhook/asaas/account_status   público, sem auth
+    POST   /payments/webhook/asaas/account_status   token asaas-access-token (fail-closed)
     GET    /financial/settings         OWNER/ADMIN
 
 Endpoints Sprint 9:
@@ -12,7 +12,7 @@ Endpoints Sprint 9:
     GET    /payments                   OWNER/ADMIN
     GET    /payments/{id}
     POST   /payments/{id}/refund       OWNER/ADMIN + reason enum
-    POST   /payments/webhook/asaas/transaction   público, sem auth
+    POST   /payments/webhook/asaas/transaction   token asaas-access-token (fail-closed)
     GET    /deposit-policies           OWNER/ADMIN
     POST   /deposit-policies           OWNER/ADMIN
     PUT    /deposit-policies/{id}      OWNER/ADMIN
@@ -26,6 +26,7 @@ Endpoints PagSeguro Point:
       Requer IntegrationCredential provider=PAGSEGURO ativa.
       Retorna [] se o provider ativo não for PagSeguroProvider.
 """
+import hmac
 import logging
 from typing import Optional
 from uuid import UUID
@@ -227,20 +228,68 @@ def refund_payment(
     )
 
 
+# ── Webhooks Asaas — autenticação compartilhada ──────────────────────────────
+
+def _require_asaas_webhook_token(
+    received: str,
+    *,
+    endpoint: str,
+    event: str,
+    client_host: str,
+) -> None:
+    """Valida o header asaas-access-token contra ASAAS_WEBHOOK_TOKEN.
+
+    Fail-closed: sem token configurado no ambiente, TODA requisição é rejeitada
+    (falha nossa de config — logada como ERROR porque bloqueia webhooks legítimos
+    até alguém agir). Header ausente, vazio ou errado caem no MESMO 401 com o
+    mesmo detail — distinguir os casos daria oráculo a quem sonda o endpoint.
+    Comparação em tempo constante; o token recebido nunca vai para o log.
+    """
+    expected = settings.ASAAS_WEBHOOK_TOKEN.strip()
+    if not expected:
+        logger.error(
+            "asaas_webhook_auth: ASAAS_WEBHOOK_TOKEN não configurado — webhooks "
+            "Asaas rejeitarão todas as requisições (endpoint=%s event=%s origin=%s)",
+            endpoint, event, client_host,
+        )
+        raise HTTPException(status_code=401, detail="Token de webhook inválido")
+    if not hmac.compare_digest(received.encode(), expected.encode()):
+        logger.warning(
+            "asaas_webhook_auth: token inválido endpoint=%s event=%s origin=%s "
+            "token_len=%d",
+            endpoint, event, client_host, len(received),
+        )
+        raise HTTPException(status_code=401, detail="Token de webhook inválido")
+
+
 # ── Webhook Asaas — transaction ───────────────────────────────────────────────
 
 @router.post("/payments/webhook/asaas/transaction")
 def webhook_asaas_transaction(
     payload: dict,
+    request: Request = None,
+    asaas_access_token: str = Header(default="", alias="asaas-access-token"),
     db: Session = Depends(get_db),
 ):
-    """Público, sem auth. Idempotência garantida dentro de confirm().
+    """Público na rede, autenticado por token estático (asaas-access-token).
 
     Contrato de resposta (o Asaas decide retry pelo STATUS HTTP, nunca pelo corpo):
+      - 401 → token ausente/errado ou não configurado no ambiente — evento NÃO
+              processado; o Asaas reenfileira, então problema de config aparece
+              em vez de sumir evento legítimo em silêncio.
       - 200 → evento consumido ou reconhecidamente não-acionável (retry não ajudaria).
       - 503 → Payment ainda não visível no banco (corrida webhook × commit) — reenviar.
       - 500 → confirm() falhou (ex.: violação de integridade no Financial Core) — reenviar.
+
+    Idempotência garantida dentro de confirm().
     """
+    _require_asaas_webhook_token(
+        asaas_access_token,
+        endpoint="transaction",
+        event=payload.get("event", ""),
+        client_host=(request.client.host if request is not None and request.client else "?"),
+    )
+
     event_id = payload.get("id") or payload.get("event_id")
     if not event_id:
         # Payload malformado/não-nosso: o reenvio traria o MESMO payload sem id —
@@ -317,12 +366,17 @@ def webhook_asaas_account_status(
     asaas_access_token: str = Header(default="", alias="asaas-access-token"),
     db: Session = Depends(get_db),
 ):
-    """Público, sem auth. Valida token de assinatura e atualiza external_account_status."""
-    expected_token = settings.ASAAS_WEBHOOK_TOKEN.strip()
-    if expected_token and asaas_access_token != expected_token:
-        logger.warning("asaas_webhook_invalid_token",
-                       extra={"token_received": asaas_access_token[:8]})
-        raise HTTPException(status_code=401, detail="Token de webhook inválido")
+    """Autenticado por token estático (asaas-access-token); atualiza external_account_status.
+
+    Mesma validação fail-closed do webhook de transaction — antes deste sprint,
+    token não configurado aceitava tudo em silêncio e a comparação era `!=`.
+    """
+    _require_asaas_webhook_token(
+        asaas_access_token,
+        endpoint="account_status",
+        event=payload.get("event", ""),
+        client_host=(request.client.host if request.client else "?"),
+    )
 
     event = payload.get("event", "")
     account_data = payload.get("account", {})
