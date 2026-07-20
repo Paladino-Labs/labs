@@ -202,6 +202,27 @@ def _webhook_payload(event="PAYMENT_CONFIRMED", charge_id="pay_abc123"):
     }
 
 
+_WEBHOOK_TOKEN = "tok_s01"
+
+
+def _call_webhook(payload, db):
+    """S0.3: o endpoint passou a exigir o header asaas-access-token (fail-closed).
+
+    Estes testes autenticam com token válido — o contrato do S0.1 sob teste
+    (gate de eventos, 503 da corrida, 500 da falha) é o mesmo; só a credencial
+    foi acrescentada. Casos de rejeição vivem em test_s03_webhook_auth.py.
+    """
+    from app.modules.payments import router as router_module
+
+    with patch.object(router_module, "settings") as mock_settings:
+        mock_settings.ASAAS_WEBHOOK_TOKEN = _WEBHOOK_TOKEN
+        return router_module.webhook_asaas_transaction(
+            payload=payload,
+            asaas_access_token=_WEBHOOK_TOKEN,
+            db=db,
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Router — confirm() falha → HTTPException 500 (Defeito B)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -213,10 +234,9 @@ def test_webhook_confirm_failure_returns_500():
 
     with patch("app.modules.payments.router.payment_service") as mock_svc:
         mock_svc.confirm.side_effect = _integrity_error()
-        from app.modules.payments.router import webhook_asaas_transaction
 
         with pytest.raises(HTTPException) as exc_info:
-            webhook_asaas_transaction(payload=_webhook_payload(), db=db)
+            _call_webhook(_webhook_payload(), db)
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "confirm_failed"
@@ -232,10 +252,8 @@ def test_webhook_payment_not_found_returns_503():
     db = _make_db()  # first() → None: payment não existe ainda
 
     with patch("app.modules.payments.router.payment_service") as mock_svc:
-        from app.modules.payments.router import webhook_asaas_transaction
-
         with pytest.raises(HTTPException) as exc_info:
-            webhook_asaas_transaction(payload=_webhook_payload(), db=db)
+            _call_webhook(_webhook_payload(), db)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "payment_not_yet_visible"
@@ -255,9 +273,7 @@ def test_webhook_non_confirmation_event_skipped(event):
     db.query.return_value.filter.return_value.first.return_value = payment
 
     with patch("app.modules.payments.router.payment_service") as mock_svc:
-        from app.modules.payments.router import webhook_asaas_transaction
-
-        result = webhook_asaas_transaction(payload=_webhook_payload(event=event), db=db)
+        result = _call_webhook(_webhook_payload(event=event), db)
 
     assert result["ok"] is True
     assert result["skipped"] == "event_not_handled"
@@ -271,9 +287,7 @@ def test_webhook_confirmation_events_call_confirm(event):
     db.query.return_value.filter.return_value.first.return_value = payment
 
     with patch("app.modules.payments.router.payment_service") as mock_svc:
-        from app.modules.payments.router import webhook_asaas_transaction
-
-        result = webhook_asaas_transaction(payload=_webhook_payload(event=event), db=db)
+        result = _call_webhook(_webhook_payload(event=event), db)
 
     assert result == {"ok": True, "event_id": "evt_router"}
     mock_svc.confirm.assert_called_once()
@@ -287,9 +301,7 @@ def test_webhook_missing_event_id_skipped():
     db = _make_db()
 
     with patch("app.modules.payments.router.payment_service") as mock_svc:
-        from app.modules.payments.router import webhook_asaas_transaction
-
-        result = webhook_asaas_transaction(payload={"event": "PAYMENT_CONFIRMED"}, db=db)
+        result = _call_webhook({"event": "PAYMENT_CONFIRMED"}, db)
 
     assert result == {"ok": True, "skipped": "missing_event_id"}
     mock_svc.confirm.assert_not_called()

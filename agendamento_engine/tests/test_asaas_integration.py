@@ -259,9 +259,11 @@ def test_webhook_transaction_returns_503_when_payment_not_found():
     corrida webhook × commit da linha Payment descartava o evento para sempre
     (o Asaas decide retry pelo status HTTP, nunca pelo corpo).
     """
+    from unittest.mock import patch
+
     from fastapi import HTTPException
 
-    from app.modules.payments.router import webhook_asaas_transaction
+    from app.modules.payments import router as payments_router_module
 
     payload = {
         "id": "evt_unknown_123",
@@ -277,8 +279,16 @@ def test_webhook_transaction_returns_503_when_payment_not_found():
     # db mock que nunca encontra nenhum Payment
     db = _make_db()
 
-    with pytest.raises(HTTPException) as exc_info:
-        webhook_asaas_transaction(payload=payload, db=db)
+    # S0.3: o endpoint exige asaas-access-token (fail-closed); o teste autentica
+    # com token válido — o contrato sob teste (503 da corrida) é o mesmo.
+    with patch.object(payments_router_module, "settings") as mock_settings:
+        mock_settings.ASAAS_WEBHOOK_TOKEN = "tok_test"
+        with pytest.raises(HTTPException) as exc_info:
+            payments_router_module.webhook_asaas_transaction(
+                payload=payload,
+                asaas_access_token="tok_test",
+                db=db,
+            )
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "payment_not_yet_visible"

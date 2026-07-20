@@ -1126,13 +1126,64 @@ fazia rollback e devolvia o `Payment` ainda PENDING como se fosse caminho feliz,
 
 #### Dívidas conhecidas neste caminho (fila pós-S0.1)
 
-- **Sem validação de assinatura** — o endpoint aceita POST anônimo, enquanto o
-  irmão `account_status` valida `asaas-access-token`. Superfície de fraude no
-  caminho do dinheiro. → **S0.3**
+- ~~**Sem validação de assinatura**~~ → **RESOLVIDO no S0.3** (ver seção abaixo).
 - **`confirm()` não checa o status atual do `Payment`** — um `event_id` novo
   re-confirmaria um `Payment` já REFUNDED/CANCELLED. → sprint **D7**
 - **`account_status:304`** (`skipped=missing_fields`) tem o mesmo padrão do
   `:242` e não foi auditado. → fila
+
+#### Autenticação dos webhooks Asaas (S0.3)
+
+Ambos os endpoints (`/transaction` e `/account_status`) exigem o header
+`asaas-access-token`, validado pelo helper único
+`_require_asaas_webhook_token`. **Não duplique a validação** — se o mecanismo
+mudar, deve mudar num lugar só.
+
+**Mecanismo:** token estático. Não é escolha de desenho — o Asaas **não oferece
+HMAC do payload**; token no header é o teto do provider. Se um dia oferecer,
+migrar (HMAC resiste a replay; token estático não).
+
+**Fail-closed.** Token ausente, vazio, errado ou **não configurado no ambiente**
+produzem todos o **mesmo 401, com o mesmo `detail`**, e a validação ocorre
+**antes de qualquer query** — sem diferença de resposta nem de tempo entre os
+casos.
+
+⚠️ **Nunca reintroduzir `if expected_token and ...`.** Esse era o defeito do
+`account_status` antes do S0.3: com a env var vazia, a validação era pulada em
+silêncio. Configuração incompleta virava superfície aberta sem que nada parecesse
+errado.
+
+**Severidade de log é assimétrica, e é deliberado:**
+
+| Caso | Nível | Por quê |
+|---|---|---|
+| Token errado | `WARNING` | Tentativa de terceiro ou remetente mal configurado |
+| Token **não configurado** | `ERROR` (boot **e** por request) | Falha **nossa** — *todos* os webhooks legítimos estão sendo rejeitados |
+
+O log de rejeição registra endpoint, tipo de evento, origem e `token_len` —
+**nunca o conteúdo do token**. (Antes do S0.3, o `account_status` gravava
+`token_received[:8]`.)
+
+**401 é não-2xx, portanto o Asaas reenfileira** — coerente com o contrato de
+status do S0.1: erro de configuração *aparece* em vez de sumir evento.
+
+#### ⚠️ Token de produção (pendência do Silva)
+
+O `ASAAS_WEBHOOK_TOKEN` no Railway é hoje o token de **sandbox**. Ao ativar a
+conta Asaas de produção, o token precisa ser trocado nos **dois lados**: gerar no
+painel do Asaas de produção **e** atualizar a env var. Trocar só um lado faz o
+webhook rejeitar tudo — falha barulhenta (desejável), mas saiba o diagnóstico de
+antemão.
+
+#### Webhook Evolution (WhatsApp) — fail-open por limitação do provider
+
+O `EVOLUTION_WEBHOOK_SECRET` tem soft-gate fail-open, mas **não é o mesmo caso**:
+a Evolution v2 **não envia header de autenticação**, então não há token a validar.
+Não é o idioma do `account_status` copiado — é uma limitação estrutural.
+Corrigir exige **análise própria** (restringir por IP de origem? segredo na URL?
+aceitar e documentar?), não replicação do helper Asaas. Superfície real, mas de
+natureza distinta: forjar mensagem de bot é menos grave que forjar confirmação de
+pagamento. Está na fila.
 
 **HEAD migration:** y1z2a3b4c5d6 (add_deposit_policies)
 

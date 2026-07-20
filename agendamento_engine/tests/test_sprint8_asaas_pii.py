@@ -373,12 +373,14 @@ class TestAsaasWebhook:
         mock_request = MagicMock()
 
         # Chama a função diretamente (sem HTTP)
+        # S0.3: token vazio deixou de significar "sem validação" (fail-closed) —
+        # o teste passa a configurar um token e enviá-lo no header.
         with patch.object(payments_router_module, "settings") as mock_settings:
-            mock_settings.ASAAS_WEBHOOK_TOKEN = ""  # sem validação de token no teste
+            mock_settings.ASAAS_WEBHOOK_TOKEN = "tok_test"
             result = payments_router_module.webhook_asaas_account_status(
                 request=mock_request,
                 payload=payload,
-                asaas_access_token="",
+                asaas_access_token="tok_test",
                 db=mock_db,
             )
 
@@ -414,12 +416,13 @@ class TestAsaasWebhook:
         mock_db.query.return_value.filter.return_value.first.return_value = None
         mock_request = MagicMock()
 
+        # S0.3: fail-closed — teste configura token válido em vez de desligar a validação.
         with patch.object(payments_router_module, "settings") as mock_settings:
-            mock_settings.ASAAS_WEBHOOK_TOKEN = ""
+            mock_settings.ASAAS_WEBHOOK_TOKEN = "tok_test"
             result = payments_router_module.webhook_asaas_account_status(
                 request=mock_request,
                 payload={"event": "X", "account": {"id": "unknown", "status": "ACTIVE"}},
-                asaas_access_token="",
+                asaas_access_token="tok_test",
                 db=mock_db,
             )
 

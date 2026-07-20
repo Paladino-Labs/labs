@@ -164,6 +164,15 @@ async def lifespan(app: FastAPI):
     register_conversation_handlers()
     register_deposit_handlers()
 
+    # S0.3: os webhooks Asaas são fail-closed — sem token configurado, TODA
+    # requisição (inclusive as legítimas) é rejeitada com 401 até alguém agir.
+    if not settings.ASAAS_WEBHOOK_TOKEN.strip():
+        logging.getLogger(__name__).error(
+            "ASAAS_WEBHOOK_TOKEN não configurado — os webhooks Asaas "
+            "(transaction e account_status) rejeitarão TODAS as requisições. "
+            "Configure o token no painel do Asaas e na variável de ambiente."
+        )
+
     yield  # aplicação em execução
 
 
