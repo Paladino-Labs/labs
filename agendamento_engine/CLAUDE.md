@@ -53,21 +53,20 @@ UUIDs — trocaria um vazamento de escrita por um de leitura.
   o que levantaria `ArgumentError`. Inalcançável hoje (o guard de entrada exige
   OWNER, que sempre tem `company_id`), mas armado se aquele gate for flexibilizado.
   **Ocorrência única** no módulo — `cancel_invitation` é correto por construção.
-- **12 testes de RBAC não rodam na suíte completa** — ver abaixo.
+- ~~12 testes de RBAC não rodam na suíte completa~~ — resolvido no S0.4.
 
-### ⚠️ `test_sprint2_rbac.py` — cobertura desligada
+#### ✅ `test_sprint2_rbac.py` — resolvido no S0.4
 
-As 12 falhas "pré-existentes conhecidas" da suíte **não são ruído**: são classes de
-`test_sprint2_rbac.py` (incluindo `TestAssignRoleService` e `TestDeactivateUser`)
-que falham por **contaminação de ordem de import** — o monkey-patch de modelos do
-arquivo não re-vincula o `User` que `users/service.py` já importou, então qualquer
-arquivo que importe o service antes quebra o arquivo inteiro. Isoladas, passam 35/35.
+Até o S0.4, as 12 falhas "pré-existentes conhecidas" da suíte eram classes deste
+arquivo que não rodavam por contaminação de ordem de import — cobertura de RBAC
+efetivamente desligada, incluindo os endpoints corrigidos no S0.2.
 
-**Consequência:** a cobertura de RBAC destes endpoints está efetivamente desligada
-na suíte completa. Foi um dos dois motivos pelos quais os vazamentos do S0.2
-sobreviveram — o outro é que nenhum dos testes existentes cobria cenário
-cross-tenant. Não normalize essas falhas como "conhecidas": é um mecanismo de
-defesa em silêncio. Correção na fila.
+Foi um dos dois motivos pelos quais os vazamentos cross-tenant sobreviveram. O
+outro: nenhum teste existente cobria cenário cross-tenant (medido no S0.4 — as
+linhas do `raise 404` do filtro de posse permanecem em `Missing` nessas classes).
+
+**Corrigido no S0.4.** Mecanismo e limitações em "Ambiente de testes". Suíte fecha
+em 0 failed desde então.
 
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
