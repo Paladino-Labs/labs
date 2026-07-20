@@ -643,3 +643,32 @@ Ressalvas 🟡 viram dívida registrada aqui, sprint continua.
 - e4983ee — fix: Suspense 3 páginas
 - 124a3c9 — fix: normalizeProfile
 - de3dfb8 — docs: CLAUDE.md
+
+---
+
+## Sprint S0.2 — Vazamentos cross-tenant do módulo `users` — 2026-07-19
+
+**Branch:** `fix/s02-cross-tenant-users` · **Suíte:** 1294 passed / 12 failed (pré-existentes, ver item 1) / 6 skipped / 1 xfailed
+**Escopo:** filtros de posse em `assign_role` e `deactivate_user` (auditoria A-ISO) + 15 testes.
+
+### Itens para a fila
+
+1. ⬆️ **PROMOVIDO** — isolar o monkey-patch de `test_sprint2_rbac.py`. Não é
+   housekeeping de testes: são 12 testes de RBAC que não rodam na suíte completa,
+   incluindo os dois endpoints deste sprint. É cobertura de segurança desligada e
+   normalizada como "falha conhecida". Candidato ao Bloco 0, junto do S0.3.
+2. **Trilha de auditoria do módulo `users`** (agrupar): `deactivate_user` sem
+   `record_sensitive_action`; revisar a semântica de `company_id` registrada nas
+   ações sensíveis do módulo.
+3. **`transfer_ownership` — ternário sem parênteses** (`service.py:~297` após o
+   diff). Ocorrência única, inalcançável hoje, armada se o gate de entrada for
+   flexibilizado.
+4. **Wiring de `effective_company_id` no módulo `users`** — se a plataforma
+   precisar administrar usuários de tenants via impersonação ELEVATED. Hoje
+   inexistente por desenho.
+5. **Inconsistência de estilo** (menor, sem efeito): `cancel_invitation` compara
+   `company_id` com o valor cru; `transfer_ownership` e os fixes do S0.2 usam
+   `str(...)`. Ambos funcionam (o SQLAlchemy coage). Só padronizar se alguém
+   tocar o arquivo.
+
+**CLAUDE.md atualizado:** sim (seção "Isolamento multi-tenant no módulo `users` (S0.2)")

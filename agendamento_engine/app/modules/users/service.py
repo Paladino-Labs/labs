@@ -206,7 +206,19 @@ def assign_role(
     _assert_not_schema_only(new_role)
     _assert_not_platform_owner_by_tenant(actor, new_role)
 
-    target = db.query(User).filter(User.id == str(target_user_id), User.active == True).first()
+    # Posse do alvo: mesmo tenant do ator (PLATFORM_OWNER: company_id IS NULL
+    # → só usuários de plataforma). 404 idêntico ao de "não existe" — não
+    # revelar existência de usuários de outros tenants.
+    company_scope = str(actor.company_id) if actor.company_id else None
+    target = (
+        db.query(User)
+        .filter(
+            User.id == str(target_user_id),
+            User.company_id == company_scope,
+            User.active == True,
+        )
+        .first()
+    )
     if not target:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
@@ -247,7 +259,19 @@ def deactivate_user(
     actor: User,
     target_user_id: UUID,
 ) -> User:
-    target = db.query(User).filter(User.id == str(target_user_id)).first()
+    # Posse do alvo: mesmo tenant do ator (ver assign_role). active == True
+    # segue o padrão do módulo (transfer_ownership) — usuário já inativo é
+    # indistinguível de inexistente.
+    company_scope = str(actor.company_id) if actor.company_id else None
+    target = (
+        db.query(User)
+        .filter(
+            User.id == str(target_user_id),
+            User.company_id == company_scope,
+            User.active == True,
+        )
+        .first()
+    )
     if not target:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
 
