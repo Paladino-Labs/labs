@@ -988,8 +988,6 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
   EXPIRED; Coupon ACTIVE vencido → CANCELLED
 - `coupon_reopen_policy`: NEVER_REOPEN (default) | REOPEN_ON_REFUND
 - Testes: tests/test_sprint16_promotions.py (27 + 1 skip PostgreSQL)
-  ⚠ NÃO importar app.main em arquivos de teste que rodem antes de
-  test_sprint2_rbac (quebra o monkey-patch de modelos daquele arquivo)
 
 **HEAD migration:** e0s16a_promotions_coupons
 
@@ -1318,6 +1316,72 @@ NUNCA usar `pytest` direto — o Python global (pyenv) não tem `slowapi`, causa
 #### test_user_name.py — 9 ModuleNotFoundError
 Causa: importa `app.main` → carrega `slowapi` ausente no Python global.
 Solução: sempre usar `.\venv\Scripts\python.exe -m pytest`. Não confundir com regressão — ignorar quando usando venv.
+
+### Testes que exercitam services contra SQLite — o idioma do monkey-patch
+
+Alguns arquivos de teste rodam os services contra uma **sessão SQLite real**
+(INSERT/UPDATE/flush/refresh de verdade, não mock). Isso exige contornar os tipos
+do PostgreSQL: `User.id` é `postgresql.UUID(as_uuid=True)`, cujo bind processor
+chama `.hex` numa string e levanta
+`StatementError: 'str' object has no attribute 'hex'` — e a `Base` completa usa
+ARRAY/JSONB/EXCLUDE, então `create_all` real também não funciona.
+
+O contorno: espelhar as tabelas necessárias numa `TestBase` com PKs `String(36)`
+e re-vincular as referências de modelo no fixture.
+
+⚠️ **Patchar os módulos de modelo NÃO é suficiente.** Services importam os
+modelos no topo (`users/service.py:14`, `activate_service.py:11`), então o vínculo
+congela na primeira importação do service. Se qualquer arquivo de teste importar o
+service antes, o patch não alcança — e o arquivo inteiro falha.
+
+**Sempre re-vincular também os namespaces consumidores**, com restauração no
+teardown. É o idioma usado em `test_user_name.py`,
+`test_sprint27_professional_scope.py`, `test_sprint28_professional_contact.py`,
+`test_working_hours_multiperiod.py` e (desde o S0.4) `test_sprint2_rbac.py`.
+
+Namespaces patchados hoje em `test_sprint2_rbac.py`:
+
+| Namespace | Símbolos |
+|---|---|
+| `app.infrastructure.db.models.audit_log` | `AuditLog` |
+| `app.infrastructure.db.models.user_invitation` | `UserInvitation` |
+| `app.infrastructure.db.models.user` | `User` |
+| `app.infrastructure.db.models` (pacote) | `AuditLog`, `UserInvitation`, `User`, `InvitationStatus` |
+| `app.modules.users.service` | `User`, `UserInvitation` |
+| `app.modules.auth.activate_service` | `User`, `UserInvitation` |
+
+**Limitação conhecida:** a lista é explícita. Um consumidor novo que importe esses
+modelos no topo e entre no caminho dos testes quebra com o mesmo erro `.hex` —
+**falha barulhenta, não silenciosa**. Se você tropeçar nesse erro depois de
+adicionar um service ou um import, acrescente o namespace ao fixture.
+
+Eliminar a classe de problema exigiria refactor suite-wide da estratégia de
+fixtures — está na fila, não é urgente enquanto a falha for barulhenta.
+
+#### ❌ Convenção obsoleta (removida no S0.4)
+
+Havia uma nota (em `test_sprint16_promotions.py` e neste arquivo) instruindo a
+**não importar `app.main` antes de `test_sprint2_rbac`**. Era contorno do sintoma:
+evitava-se o gatilho em vez de corrigir a causa. **Não vale mais** — o fixture é
+robusto a ordem desde o S0.4, verificado em 6 permutações. Não replique essa
+restrição em testes novos.
+
+#### As duas coberturas de RBAC são complementares — não confunda
+
+| Arquivo | O que verifica |
+|---|---|
+| `test_sprint2_rbac.py` | **Permissão** — quem pode fazer o quê (anti-escalonamento, papéis, guards 403/422) |
+| `test_s02_cross_tenant_users.py` | **Posse** — sobre *quem* a ação recai (o alvo pertence ao tenant do ator?) |
+
+Medido no S0.4: as classes `TestAssignRoleService` e `TestDeactivateUser`
+exercitam o service real e atravessam até o banco, **mas as linhas do `raise 404`
+do filtro de posse (S0.2) não executam** — ou seja, esses testes passariam contra
+o código pré-S0.2.
+
+**Religar os 12 não substitui o S0.2.** Foi essa a combinação que deixou os
+vazamentos cross-tenant sobreviverem: cobertura de permissão desligada por
+contaminação de ordem, e cobertura de posse inexistente. Ao mexer nesses
+endpoints, os dois arquivos precisam continuar verdes.
 
 ### Testes skipados sem DATABASE_URL (PostgreSQL real) — validados 2026-06-08
 

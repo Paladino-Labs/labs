@@ -662,11 +662,7 @@ class TestManualDiscount:
         db.commit.assert_called_once()
 
     def test_operator_forbidden_403(self):
-        """RBAC: OPERATOR não pode aplicar desconto manual.
-
-        Não importa app.main (quebraria o monkey-patch de modelos do
-        test_sprint2_rbac) — valida a dependency da rota diretamente.
-        """
+        """RBAC: OPERATOR não pode aplicar desconto manual."""
         import inspect
         from app.modules.payments import router as payments_router_module
 
