@@ -1035,6 +1035,63 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
 - reminder_worker: flags reminder_*_sent só marcados quando dispatch != FAILED
   (FAILED → retry no próximo scan da janela)
 
+## Envio externo é enfileirado, não síncrono (S2.1-A)
+
+Confirmação de agendamento, remarcação e notificação de fila de espera são
+**enfileiradas em Celery** (`send_appointment_communication`,
+`notify_waitlist_slot_available`), não enviadas dentro do request.
+
+Antes do S2.1, `CommunicationService.dispatch` rodava inline: 3–5 queries + httpx
+da Evolution (timeout 15s) ou SMTP (10s), **pagos pelo cliente na latência da
+resposta**.
+
+⚠️ **O comentário "fire-and-forget" do `notifications.py` era enganoso**: descrevia
+apenas o *erro* (que não propagava). O **tempo era integral no request**. Se
+encontrar afirmação semelhante em outro lugar, verifique o que ela cobre.
+
+**Retry e dead-letter:** a task ressuscitada mantém `max_retries=5` com backoff e
+`_push_dead_letter` — é o único caminho de envio com resiliência real. O
+`.delay()` é envolvido em try/except: **broker fora do ar não derruba a resposta ao
+cliente**, apenas loga.
+
+**Renderização:** a task reutiliza os helpers de `notifications.py`
+(`_get_company_tz`, `_fmt_datetime`, `_dispatch_via_comm_service`). A versão morta
+divergia do caminho vivo (não montava `manage_url`, formatava data como `%d/%m` em
+vez de por extenso). **Não reintroduza renderização própria na task** — a
+divergência voltaria.
+
+**Branches dormentes:** `no_show` e `reminder_due` existem na task mas **não são
+enfileiradas** por este sprint. ⚠️ O branch `no_show` tem defeito conhecido
+(resolve OWNER e dispara para PROFESSIONAL) — corrigir quando o sprint de no-show
+o ativar.
+
+### Custo escondido atrás do EventBus
+
+`event_bus.publish` é **síncrono in-process**: todo handler registrado adiciona
+tempo ao request de quem publica, **sem que o service anuncie**. Quem lê
+`cancel_appointment` vê `publish`, não vê o httpx da fila de espera.
+
+Handlers com I/O externo hoje:
+
+| Handler | Estado |
+|---|---|
+| `waitlist_handler` (cancel/reschedule) | ✅ enfileirado no S2.1-A |
+| `handle_conversation_escalated` | coberto pela Entrega B (fluxo do bot) |
+| `handle_payment_confirmed_notification` | ⚠️ **síncrono** — roda no `confirm-manual` **e no webhook Asaas** |
+| `waitlist_handler` (stock) | síncrono (fora dos 4 pontos do sprint) |
+
+Os demais handlers de `payment.confirmed` (commission, promotion, package,
+subscription, deposit) são DB-only — custam query, não httpx.
+
+⚠️ **`handle_payment_confirmed_notification` é o caso mais sério da lista**: um
+envio lento ali atrasa a resposta ao Asaas, e o S0.1 estabeleceu que não-2xx faz o
+provedor reenviar. Timeout do lado dele → evento reenviado → processamento
+duplicado (idempotente pelo UNIQUE, mas é carga e ruído). **Candidato a sprint
+próprio.**
+
+A solução completa — tornar o `publish` assíncrono — é decisão de arquitetura do
+EventBus, pendente (afeta todos os eventos de domínio, inclusive financeiros).
+
 ## Canal EMAIL — CommunicationService (Sprint 11)
 - `_send_email()` em `modules/communication/service.py` via smtplib nativo (síncrono)
 - `dispatch()` tenta EMAIL primeiro (se email_enabled=True), fallback WHATSAPP
@@ -1401,6 +1458,43 @@ $env:DATABASE_URL="postgresql://postgres:<senha>@<host>:5432/postgres"
 ### 1 xfail esperado (permanente)
 `tests/test_asaas_integration.py::test_sandbox_create_subaccount`
 Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. Marcado `xfail(strict=False)` — comportamento esperado, não investigar.
+
+## ⛔ Nada pode depender de estado de sessão do Postgres
+
+A aplicação conecta pelo **pooler transaction-mode do Supabase (porta 6543)**.
+Nesse modo, o backend é devolvido ao pool a cada commit — **estado de sessão não
+sobrevive**.
+
+Isso já mordeu **duas vezes, por caminhos independentes**:
+
+1. **RLS** — o `set_config` de `app.current_company_id` é SESSION-level e vaza
+   entre clientes do pooler. (Um dos motivos pelos quais RLS nunca protegeu nada
+   em produção; ver a seção de isolamento.)
+2. **Advisory locks** — `pg_advisory_lock`/`pg_try_advisory_lock` são estado de
+   sessão. Verificado empiricamente contra o pooler real (S2.1): dois workers
+   adquirem **o mesmo lock simultaneamente** (o segundo recebe `True` em vez de
+   `False`). Em session-mode (5432) funciona corretamente — o primitivo está
+   certo, o modo de conexão é que não.
+
+**Regra:** qualquer mecanismo de coordenação, isolamento ou estado deve ser
+**transaction-scoped ou persistido em tabela**. Se um desenho depende de "a
+conexão lembra X entre comandos", ele está errado neste sistema.
+
+**Padrão para exclusão mútua:** lease em tabela com claim atômico
+(`INSERT ... ON CONFLICT DO UPDATE ... WHERE locked_until < now() RETURNING`) —
+uma transação por operação, pooler-agnóstico por construção. Implementado em
+`bot_conversation_leases` (e0s32).
+
+⚠️ **Por que não "basta configurar o worker em session-mode":** funcionaria, mas
+criaria dependência de configuração invisível — o código só estaria correto *se*
+alguém tivesse configurado a connection string certa, e o `DATABASE_URL` do worker
+não é versionado. Mesma classe do `if expected_token and ...` (S0.3) e da ordem de
+import dos testes de RBAC (S0.4): a correção certa elimina a dependência, não a
+documenta.
+
+**Ferramenta:** `scripts/verify_bot_serialization.py` compara advisory × lease
+contra qualquer `DATABASE_URL`. Foi o que provou o problema; use-o se suspeitar de
+qualquer coordenação entre processos.
 
 ## Stack e infraestrutura
 
