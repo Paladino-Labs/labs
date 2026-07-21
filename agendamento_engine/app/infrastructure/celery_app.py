@@ -20,6 +20,7 @@ celery_app.conf.update(
     imports=(
         "app.workers.communication_worker",       # send_appointment_communication (S2.1) + drain
         "app.workers.handlers.waitlist_handler",   # notify_waitlist_slot_available (S2.1)
+        "app.workers.bot_inbound_worker",          # drain_bot_inbound + sweeper (S2.1)
     ),
 )
 

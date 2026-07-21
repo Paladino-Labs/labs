@@ -12,6 +12,8 @@ from .company_settings import CompanySettings
 from .company_profile import CompanyProfile
 from .bot_session import BotSession
 from .conversation_message import ConversationMessage
+from .bot_inbound_message import BotInboundMessage
+from .bot_conversation_lease import BotConversationLease
 from .whatsapp_connection import WhatsAppConnection
 from .web_booking_session import WebBookingSession
 from .booking_session import BookingSession
@@ -86,6 +88,8 @@ __all__ = [
     "CompanyProfile",
     "BotSession",
     "ConversationMessage",
+    "BotInboundMessage",
+    "BotConversationLease",
     "WhatsAppConnection",
     "WebBookingSession",
     "BookingSession",
