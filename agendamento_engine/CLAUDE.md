@@ -53,21 +53,20 @@ UUIDs — trocaria um vazamento de escrita por um de leitura.
   o que levantaria `ArgumentError`. Inalcançável hoje (o guard de entrada exige
   OWNER, que sempre tem `company_id`), mas armado se aquele gate for flexibilizado.
   **Ocorrência única** no módulo — `cancel_invitation` é correto por construção.
-- **12 testes de RBAC não rodam na suíte completa** — ver abaixo.
+- ~~12 testes de RBAC não rodam na suíte completa~~ — resolvido no S0.4.
 
-### ⚠️ `test_sprint2_rbac.py` — cobertura desligada
+#### ✅ `test_sprint2_rbac.py` — resolvido no S0.4
 
-As 12 falhas "pré-existentes conhecidas" da suíte **não são ruído**: são classes de
-`test_sprint2_rbac.py` (incluindo `TestAssignRoleService` e `TestDeactivateUser`)
-que falham por **contaminação de ordem de import** — o monkey-patch de modelos do
-arquivo não re-vincula o `User` que `users/service.py` já importou, então qualquer
-arquivo que importe o service antes quebra o arquivo inteiro. Isoladas, passam 35/35.
+Até o S0.4, as 12 falhas "pré-existentes conhecidas" da suíte eram classes deste
+arquivo que não rodavam por contaminação de ordem de import — cobertura de RBAC
+efetivamente desligada, incluindo os endpoints corrigidos no S0.2.
 
-**Consequência:** a cobertura de RBAC destes endpoints está efetivamente desligada
-na suíte completa. Foi um dos dois motivos pelos quais os vazamentos do S0.2
-sobreviveram — o outro é que nenhum dos testes existentes cobria cenário
-cross-tenant. Não normalize essas falhas como "conhecidas": é um mecanismo de
-defesa em silêncio. Correção na fila.
+Foi um dos dois motivos pelos quais os vazamentos cross-tenant sobreviveram. O
+outro: nenhum teste existente cobria cenário cross-tenant (medido no S0.4 — as
+linhas do `raise 404` do filtro de posse permanecem em `Missing` nessas classes).
+
+**Corrigido no S0.4.** Mecanismo e limitações em "Ambiente de testes". Suíte fecha
+em 0 failed desde então.
 
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
@@ -988,8 +987,6 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
   EXPIRED; Coupon ACTIVE vencido → CANCELLED
 - `coupon_reopen_policy`: NEVER_REOPEN (default) | REOPEN_ON_REFUND
 - Testes: tests/test_sprint16_promotions.py (27 + 1 skip PostgreSQL)
-  ⚠ NÃO importar app.main em arquivos de teste que rodem antes de
-  test_sprint2_rbac (quebra o monkey-patch de modelos daquele arquivo)
 
 **HEAD migration:** e0s16a_promotions_coupons
 
@@ -1037,6 +1034,63 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
   credencial ausente → fallback SMTP (credencial tenant → SMTP_* global)
 - reminder_worker: flags reminder_*_sent só marcados quando dispatch != FAILED
   (FAILED → retry no próximo scan da janela)
+
+## Envio externo é enfileirado, não síncrono (S2.1-A)
+
+Confirmação de agendamento, remarcação e notificação de fila de espera são
+**enfileiradas em Celery** (`send_appointment_communication`,
+`notify_waitlist_slot_available`), não enviadas dentro do request.
+
+Antes do S2.1, `CommunicationService.dispatch` rodava inline: 3–5 queries + httpx
+da Evolution (timeout 15s) ou SMTP (10s), **pagos pelo cliente na latência da
+resposta**.
+
+⚠️ **O comentário "fire-and-forget" do `notifications.py` era enganoso**: descrevia
+apenas o *erro* (que não propagava). O **tempo era integral no request**. Se
+encontrar afirmação semelhante em outro lugar, verifique o que ela cobre.
+
+**Retry e dead-letter:** a task ressuscitada mantém `max_retries=5` com backoff e
+`_push_dead_letter` — é o único caminho de envio com resiliência real. O
+`.delay()` é envolvido em try/except: **broker fora do ar não derruba a resposta ao
+cliente**, apenas loga.
+
+**Renderização:** a task reutiliza os helpers de `notifications.py`
+(`_get_company_tz`, `_fmt_datetime`, `_dispatch_via_comm_service`). A versão morta
+divergia do caminho vivo (não montava `manage_url`, formatava data como `%d/%m` em
+vez de por extenso). **Não reintroduza renderização própria na task** — a
+divergência voltaria.
+
+**Branches dormentes:** `no_show` e `reminder_due` existem na task mas **não são
+enfileiradas** por este sprint. ⚠️ O branch `no_show` tem defeito conhecido
+(resolve OWNER e dispara para PROFESSIONAL) — corrigir quando o sprint de no-show
+o ativar.
+
+### Custo escondido atrás do EventBus
+
+`event_bus.publish` é **síncrono in-process**: todo handler registrado adiciona
+tempo ao request de quem publica, **sem que o service anuncie**. Quem lê
+`cancel_appointment` vê `publish`, não vê o httpx da fila de espera.
+
+Handlers com I/O externo hoje:
+
+| Handler | Estado |
+|---|---|
+| `waitlist_handler` (cancel/reschedule) | ✅ enfileirado no S2.1-A |
+| `handle_conversation_escalated` | coberto pela Entrega B (fluxo do bot) |
+| `handle_payment_confirmed_notification` | ⚠️ **síncrono** — roda no `confirm-manual` **e no webhook Asaas** |
+| `waitlist_handler` (stock) | síncrono (fora dos 4 pontos do sprint) |
+
+Os demais handlers de `payment.confirmed` (commission, promotion, package,
+subscription, deposit) são DB-only — custam query, não httpx.
+
+⚠️ **`handle_payment_confirmed_notification` é o caso mais sério da lista**: um
+envio lento ali atrasa a resposta ao Asaas, e o S0.1 estabeleceu que não-2xx faz o
+provedor reenviar. Timeout do lado dele → evento reenviado → processamento
+duplicado (idempotente pelo UNIQUE, mas é carga e ruído). **Candidato a sprint
+próprio.**
+
+A solução completa — tornar o `publish` assíncrono — é decisão de arquitetura do
+EventBus, pendente (afeta todos os eventos de domínio, inclusive financeiros).
 
 ## Canal EMAIL — CommunicationService (Sprint 11)
 - `_send_email()` em `modules/communication/service.py` via smtplib nativo (síncrono)
@@ -1319,6 +1373,72 @@ NUNCA usar `pytest` direto — o Python global (pyenv) não tem `slowapi`, causa
 Causa: importa `app.main` → carrega `slowapi` ausente no Python global.
 Solução: sempre usar `.\venv\Scripts\python.exe -m pytest`. Não confundir com regressão — ignorar quando usando venv.
 
+### Testes que exercitam services contra SQLite — o idioma do monkey-patch
+
+Alguns arquivos de teste rodam os services contra uma **sessão SQLite real**
+(INSERT/UPDATE/flush/refresh de verdade, não mock). Isso exige contornar os tipos
+do PostgreSQL: `User.id` é `postgresql.UUID(as_uuid=True)`, cujo bind processor
+chama `.hex` numa string e levanta
+`StatementError: 'str' object has no attribute 'hex'` — e a `Base` completa usa
+ARRAY/JSONB/EXCLUDE, então `create_all` real também não funciona.
+
+O contorno: espelhar as tabelas necessárias numa `TestBase` com PKs `String(36)`
+e re-vincular as referências de modelo no fixture.
+
+⚠️ **Patchar os módulos de modelo NÃO é suficiente.** Services importam os
+modelos no topo (`users/service.py:14`, `activate_service.py:11`), então o vínculo
+congela na primeira importação do service. Se qualquer arquivo de teste importar o
+service antes, o patch não alcança — e o arquivo inteiro falha.
+
+**Sempre re-vincular também os namespaces consumidores**, com restauração no
+teardown. É o idioma usado em `test_user_name.py`,
+`test_sprint27_professional_scope.py`, `test_sprint28_professional_contact.py`,
+`test_working_hours_multiperiod.py` e (desde o S0.4) `test_sprint2_rbac.py`.
+
+Namespaces patchados hoje em `test_sprint2_rbac.py`:
+
+| Namespace | Símbolos |
+|---|---|
+| `app.infrastructure.db.models.audit_log` | `AuditLog` |
+| `app.infrastructure.db.models.user_invitation` | `UserInvitation` |
+| `app.infrastructure.db.models.user` | `User` |
+| `app.infrastructure.db.models` (pacote) | `AuditLog`, `UserInvitation`, `User`, `InvitationStatus` |
+| `app.modules.users.service` | `User`, `UserInvitation` |
+| `app.modules.auth.activate_service` | `User`, `UserInvitation` |
+
+**Limitação conhecida:** a lista é explícita. Um consumidor novo que importe esses
+modelos no topo e entre no caminho dos testes quebra com o mesmo erro `.hex` —
+**falha barulhenta, não silenciosa**. Se você tropeçar nesse erro depois de
+adicionar um service ou um import, acrescente o namespace ao fixture.
+
+Eliminar a classe de problema exigiria refactor suite-wide da estratégia de
+fixtures — está na fila, não é urgente enquanto a falha for barulhenta.
+
+#### ❌ Convenção obsoleta (removida no S0.4)
+
+Havia uma nota (em `test_sprint16_promotions.py` e neste arquivo) instruindo a
+**não importar `app.main` antes de `test_sprint2_rbac`**. Era contorno do sintoma:
+evitava-se o gatilho em vez de corrigir a causa. **Não vale mais** — o fixture é
+robusto a ordem desde o S0.4, verificado em 6 permutações. Não replique essa
+restrição em testes novos.
+
+#### As duas coberturas de RBAC são complementares — não confunda
+
+| Arquivo | O que verifica |
+|---|---|
+| `test_sprint2_rbac.py` | **Permissão** — quem pode fazer o quê (anti-escalonamento, papéis, guards 403/422) |
+| `test_s02_cross_tenant_users.py` | **Posse** — sobre *quem* a ação recai (o alvo pertence ao tenant do ator?) |
+
+Medido no S0.4: as classes `TestAssignRoleService` e `TestDeactivateUser`
+exercitam o service real e atravessam até o banco, **mas as linhas do `raise 404`
+do filtro de posse (S0.2) não executam** — ou seja, esses testes passariam contra
+o código pré-S0.2.
+
+**Religar os 12 não substitui o S0.2.** Foi essa a combinação que deixou os
+vazamentos cross-tenant sobreviverem: cobertura de permissão desligada por
+contaminação de ordem, e cobertura de posse inexistente. Ao mexer nesses
+endpoints, os dois arquivos precisam continuar verdes.
+
 ### Testes skipados sem DATABASE_URL (PostgreSQL real) — validados 2026-06-08
 
 Usam `@pytest.mark.skipif(not DATABASE_URL)` — pulam automaticamente sem banco real; passam contra Supabase. Implementados com SAVEPOINT + rollback: zero resíduo no banco, usam registros reais para satisfazer FKs.
@@ -1338,6 +1458,43 @@ $env:DATABASE_URL="postgresql://postgres:<senha>@<host>:5432/postgres"
 ### 1 xfail esperado (permanente)
 `tests/test_asaas_integration.py::test_sandbox_create_subaccount`
 Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. Marcado `xfail(strict=False)` — comportamento esperado, não investigar.
+
+## ⛔ Nada pode depender de estado de sessão do Postgres
+
+A aplicação conecta pelo **pooler transaction-mode do Supabase (porta 6543)**.
+Nesse modo, o backend é devolvido ao pool a cada commit — **estado de sessão não
+sobrevive**.
+
+Isso já mordeu **duas vezes, por caminhos independentes**:
+
+1. **RLS** — o `set_config` de `app.current_company_id` é SESSION-level e vaza
+   entre clientes do pooler. (Um dos motivos pelos quais RLS nunca protegeu nada
+   em produção; ver a seção de isolamento.)
+2. **Advisory locks** — `pg_advisory_lock`/`pg_try_advisory_lock` são estado de
+   sessão. Verificado empiricamente contra o pooler real (S2.1): dois workers
+   adquirem **o mesmo lock simultaneamente** (o segundo recebe `True` em vez de
+   `False`). Em session-mode (5432) funciona corretamente — o primitivo está
+   certo, o modo de conexão é que não.
+
+**Regra:** qualquer mecanismo de coordenação, isolamento ou estado deve ser
+**transaction-scoped ou persistido em tabela**. Se um desenho depende de "a
+conexão lembra X entre comandos", ele está errado neste sistema.
+
+**Padrão para exclusão mútua:** lease em tabela com claim atômico
+(`INSERT ... ON CONFLICT DO UPDATE ... WHERE locked_until < now() RETURNING`) —
+uma transação por operação, pooler-agnóstico por construção. Implementado em
+`bot_conversation_leases` (e0s32).
+
+⚠️ **Por que não "basta configurar o worker em session-mode":** funcionaria, mas
+criaria dependência de configuração invisível — o código só estaria correto *se*
+alguém tivesse configurado a connection string certa, e o `DATABASE_URL` do worker
+não é versionado. Mesma classe do `if expected_token and ...` (S0.3) e da ordem de
+import dos testes de RBAC (S0.4): a correção certa elimina a dependência, não a
+documenta.
+
+**Ferramenta:** `scripts/verify_bot_serialization.py` compara advisory × lease
+contra qualquer `DATABASE_URL`. Foi o que provou o problema; use-o se suspeitar de
+qualquer coordenação entre processos.
 
 ## Stack e infraestrutura
 

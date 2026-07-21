@@ -27,6 +27,12 @@ beat_schedule = {
         "task": "app.workers.communication_worker.drain_scheduled_communications",
         "schedule": crontab(minute="*/5"),
     },
+    "bot-inbound-sweep": {
+        # S2.1: re-enfileira mensagens do bot órfãs (worker caiu após o 200) e
+        # destrava PROCESSING travadas. Safety net do desacoplamento do webhook.
+        "task": "app.workers.bot_inbound_worker.sweep_bot_inbound_orphans",
+        "schedule": crontab(minute="*/2"),
+    },
     "soft-reservation-expiry-scan": {
         "task": "app.workers.tasks.expire_reservations.expire_soft_reservations_scan",
         "schedule": crontab(minute="*/5"),

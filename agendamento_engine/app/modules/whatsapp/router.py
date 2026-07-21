@@ -79,6 +79,66 @@ def refresh_qr(
 # IMPORTANTE: sem autenticação JWT — validado por IP ou segredo no header
 # ---------------------------------------------------------------------------
 
+def _persist_and_enqueue_inbound(db: Session, instance_name: str, data: dict) -> None:
+    """S2.1 (Entrega B): persiste a mensagem recebida (RECEIVED) e enfileira o
+    processamento no worker — o webhook responde 200 sem tocar em httpx/LLM/FSM.
+
+    Fronteira do desacoplamento: a mensagem é durável ANTES do 200. Se o worker
+    cair depois, a linha fica RECEIVED e o sweeper a re-enfileira. Dedup durável
+    por (company_id, whatsapp_message_id) via ON CONFLICT DO NOTHING — resolve
+    também a re-entrega da Evolution.
+    """
+    import uuid as _uuid
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.infrastructure.db.models import BotInboundMessage, WhatsAppConnection
+    from app.modules.whatsapp.helpers import parse_inbound_envelope
+
+    envelope = parse_inbound_envelope(data)
+    if envelope is None:
+        return  # grupo/fromMe/sem jid — ignorado (mesmo critério do processamento)
+    message_id, whatsapp_id = envelope
+    if not message_id:
+        # id vazio não deduplica por chave — sintetiza um id único por mensagem.
+        message_id = f"noid_{_uuid.uuid4()}"
+
+    conn = (
+        db.query(WhatsAppConnection)
+        .filter(WhatsAppConnection.instance_name == instance_name)
+        .first()
+    )
+    if not conn:
+        logger.warning("webhook: instance_name=%s sem conexão, ignorado", instance_name)
+        return
+    company_id = conn.company_id
+
+    stmt = (
+        pg_insert(BotInboundMessage.__table__)
+        .values(
+            company_id=company_id,
+            instance_name=instance_name,
+            whatsapp_id=whatsapp_id,
+            whatsapp_message_id=message_id,
+            raw_payload=data,
+            status="RECEIVED",
+        )
+        .on_conflict_do_nothing(index_elements=["company_id", "whatsapp_message_id"])
+    )
+    db.execute(stmt)
+    db.commit()
+
+    # Enfileira o drain da conversa. Best-effort (retry=False): broker fora do ar
+    # é logado — o sweeper re-enfileira a linha RECEIVED depois.
+    try:
+        import importlib
+        _mod = importlib.import_module("app.workers.bot_inbound_worker")
+        _mod.drain_bot_inbound.apply_async(
+            args=[str(company_id), whatsapp_id], retry=False,
+        )
+    except Exception:
+        logger.exception("webhook: falha ao enfileirar drain conv=%s", whatsapp_id)
+
+
 @router.post("/webhook", status_code=200)
 async def webhook(request: Request, db: Session = Depends(get_db)):
     """
@@ -121,14 +181,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             connection_service.handle_qr_update(db, instance_name, data)
 
         elif event_normalized == "messages.upsert":
-            # Importação tardia para evitar circular import entre bot e router
-            from app.modules.whatsapp.bot_service import handle_inbound_message
-            await handle_inbound_message(db, instance_name, data)
+            # S2.1: persiste + enfileira; o processamento (SQLAlchemy + httpx +
+            # LLM shadow) roda no worker, fora do event loop. Responde 200 já.
+            _persist_and_enqueue_inbound(db, instance_name, data)
 
         elif event_normalized == "messages.update":
             # Votos de enquete (sendPoll) chegam como MESSAGES_UPDATE.
             # Extrai o voto e roteia como se fosse uma mensagem de texto normal.
-            from app.modules.whatsapp.bot_service import handle_inbound_message
             updates = data if isinstance(data, list) else [data]
             for update in updates:
                 key = update.get("key", {})
@@ -154,7 +213,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     logger.info(
                         "POLL VOTE: jid=%s option=%r", remote_jid, option_name
                     )
-                    # Cria mensagem sintética e roteia pelo dispatcher normal
+                    # Cria mensagem sintética e enfileira (mesmo caminho S2.1)
                     msg_id = key.get("id", "")
                     synthetic = {
                         "key": {
@@ -164,7 +223,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                         },
                         "message": {"conversation": option_name},
                     }
-                    await handle_inbound_message(db, instance_name, synthetic)
+                    _persist_and_enqueue_inbound(db, instance_name, synthetic)
                     break  # um voto por update
 
     except Exception:
