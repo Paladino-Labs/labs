@@ -1,26 +1,19 @@
 """
 Notificações transacionais de agendamento.
 
-Responsabilidades (S2.1):
-  - ENFILEIRAR a confirmação de agendamento/reagendamento ao cliente para o
-    worker Celery (send_appointment_communication). O envio em si sai do request.
+Responsabilidades:
+  - Enviar confirmação de agendamento ao cliente (via CommunicationService)
+  - Enviar confirmação de reagendamento ao cliente (via CommunicationService)
 
 Contrato:
-  - send_booking_confirmation/send_reschedule_confirmation apenas ENFILEIRAM.
-    O envio real — 3-5 queries + httpx Evolution (timeout 15s) ou SMTP (10s) —
-    roda no worker, FORA do request HTTP. Antes do S2.1 era "fire-and-forget"
-    só no sentido de "erro não propaga": o TEMPO era integral no request. Agora
-    o tempo também sai; a resiliência de envio (retry + dead-letter) é da task.
-  - O enfileiramento é best-effort: broker indisponível é logado, nunca propaga
-    (o fluxo de negócio não deve ser interrompido por falha de notificação).
-  - As funções recebem db + Appointment já commitado — assinatura preservada
-    para os callers (appointments/service.py) e para os patches de teste; o
-    worker re-hidrata por ID (payload da task é 100% escalar).
-  - Os helpers de renderização (_get_company_tz, _fmt_datetime,
-    _use_communication_service) são reutilizados pela task — fonte única de
-    formatação/kill-switch, sem divergência de contrato.
+  - Todas as funções são fire-and-forget: erros são logados, nunca propagados.
+    O fluxo de negócio não deve ser interrompido por falha de notificação.
+  - Recebem db + Appointment já commitado e refreshado.
+  - Convertem start_at de UTC para o fuso da empresa antes de formatar.
 
 Sprint I:
+  Chamadas diretas ao evolution_client foram removidas — todo envio passa por
+  CommunicationService.dispatch (template + CommunicationLog).
   Feature flag TenantConfig.permission_overrides["use_communication_service"]
   funciona como kill-switch: default True (ausente = habilitado).
 """
@@ -30,7 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
-from app.infrastructure.db.models import Appointment
+from app.infrastructure.db.models import Appointment, Customer
 from app.infrastructure.db.models.company_settings import CompanySettings
 
 logger = logging.getLogger(__name__)
@@ -84,56 +77,104 @@ def _fmt_datetime(dt: datetime, tz: ZoneInfo) -> tuple[str, str]:
 def send_booking_confirmation(
     db: Session, appointment: Appointment, manage_token: str | None = None
 ) -> None:
-    """Enfileira a confirmação de agendamento ao cliente (S2.1).
-
-    `db` é mantido na assinatura por compatibilidade com os callers e patches
-    de teste; o envio roda no worker, que abre a própria sessão.
     """
-    _enqueue_appointment_communication(
-        appointment, "appointment.confirmed", manage_token, "send_booking_confirmation",
+    Envia confirmação de agendamento ao cliente via CommunicationService.
+    Fire-and-forget: erros são apenas logados.
+    """
+    _notify_appointment(
+        db, appointment, "appointment.confirmed", "send_booking_confirmation",
+        manage_token=manage_token,
     )
 
 
 def send_reschedule_confirmation(
     db: Session, appointment: Appointment, manage_token: str | None = None
 ) -> None:
-    """Enfileira a confirmação de reagendamento ao cliente (S2.1)."""
-    _enqueue_appointment_communication(
-        appointment, "appointment.confirmed", manage_token, "send_reschedule_confirmation",
+    """
+    Envia confirmação de reagendamento ao cliente via CommunicationService.
+    Fire-and-forget: erros são apenas logados.
+    """
+    _notify_appointment(
+        db, appointment, "appointment.confirmed", "send_reschedule_confirmation",
+        manage_token=manage_token,
     )
 
 
-def _enqueue_appointment_communication(
+def _notify_appointment(
+    db: Session,
     appointment: Appointment,
     event_type: str,
-    manage_token: str | None,
     caller: str,
+    manage_token: str | None = None,
 ) -> None:
-    """Enfileira send_appointment_communication no worker Celery.
-
-    importlib.import_module permite que testes substituam o módulo/task via
-    patch de sys.modules (mesmo idioma de reservation_service). O payload é
-    100% escalar: IDs + o token CRU (o banco guarda só o hash, irreversível,
-    então o token precisa viajar aqui). Broker indisponível é logado e engolido
-    — o enfileiramento é best-effort; a resiliência de envio é da própria task.
-    """
     try:
-        import importlib
-        _mod = importlib.import_module("app.workers.communication_worker")
-        # retry=False: broker fora do ar falha rápido (não bloqueia o request em
-        # retries de publish — o oposto do que este sprint quer). Best-effort.
-        _mod.send_appointment_communication.apply_async(
-            args=[
-                event_type,
-                str(appointment.id),
-                str(appointment.company_id),
-                manage_token,
-            ],
-            retry=False,
+        customer = db.query(Customer).filter(
+            Customer.id == appointment.client_id
+        ).first()
+        if not customer or not customer.phone:
+            logger.debug("%s: cliente sem phone appt_id=%s", caller, appointment.id)
+            return
+
+        if not _use_communication_service(db, appointment.company_id):
+            logger.debug(
+                "%s: use_communication_service desligado company_id=%s",
+                caller, appointment.company_id,
+            )
+            return
+
+        tz = _get_company_tz(db, appointment.company_id)
+        _dispatch_via_comm_service(
+            db, appointment, customer, event_type, "CLIENT", tz,
+            manage_token=manage_token,
         )
-        logger.info("%s: enfileirado appt_id=%s", caller, appointment.id)
+
+        logger.info(
+            "%s: dispatch enviado appt_id=%s phone=%s",
+            caller, appointment.id, customer.phone,
+        )
+    except Exception:
+        # Nunca propagar — notificação não deve derrubar o fluxo de negócio
+        logger.exception("%s: falha ao enviar appt_id=%s", caller, appointment.id)
+
+
+def _dispatch_via_comm_service(
+    db: Session,
+    appointment: Appointment,
+    customer: Customer,
+    event_type: str,
+    recipient_type: str,
+    tz: ZoneInfo,
+    manage_token: str | None = None,
+) -> None:
+    """Dispatch via CommunicationService (fire-and-forget)."""
+    try:
+        from app.modules.appointments.manage_tokens import build_manage_url
+
+        data, hora = _fmt_datetime(appointment.start_at, tz)
+        svc_name = appointment.services[0].service_name if appointment.services else "serviço"
+        prof_name = appointment.professional.name if appointment.professional else "profissional"
+        manage_url = build_manage_url(manage_token) if manage_token else ""
+
+        from app.modules.communication.service import communication_service
+        communication_service.dispatch(
+            event_type=event_type,
+            company_id=appointment.company_id,
+            context={
+                "cliente_nome": customer.name,
+                "horario": hora,
+                "data": data,
+                "servico": svc_name,
+                "profissional": prof_name,
+                "empresa_nome": "",
+                "manage_url": manage_url,
+                "recipient_phone": customer.phone,
+            },
+            recipient_id=customer.id,
+            recipient_type=recipient_type,
+            db=db,
+        )
     except Exception:
         logger.exception(
-            "%s: falha ao enfileirar appt_id=%s",
-            caller, getattr(appointment, "id", None),
+            "_dispatch_via_comm_service: falha event=%s appt_id=%s",
+            event_type, appointment.id,
         )

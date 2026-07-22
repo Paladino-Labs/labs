@@ -103,40 +103,6 @@ def extract_user_text(data: dict) -> str:
     return msg.get("conversation", "") or msg.get("extendedTextMessage", {}).get("text", "")
 
 
-def parse_inbound_envelope(data: dict) -> Optional[tuple[str, str]]:
-    """Extrai (message_id, whatsapp_id) de um evento messages.upsert, espelhando
-    a normalização de bot_service.handle_inbound_message (batch v2, LID
-    addressing, skip de fromMe/grupo). Retorna None se a mensagem deve ser
-    ignorada (grupo, fromMe, sem remoteJid).
-
-    S2.1: usado pelo webhook para persistir/dedup/rotear ANTES do 200. O
-    processamento real continua em handle_inbound_message, que re-parseia o
-    mesmo payload — este helper é a fonte da CHAVE de conversa e do id de dedup,
-    mantido byte-a-byte alinhado ao parse do processamento.
-    """
-    if isinstance(data, dict) and "messages" in data:
-        messages_list = data.get("messages") or []
-        if not messages_list:
-            return None
-        data = messages_list[0]
-
-    key = data.get("key", {}) if isinstance(data, dict) else {}
-    if key.get("fromMe"):
-        return None
-
-    message_id = key.get("id", "")
-
-    addressing_mode = key.get("addressingMode", "")
-    remote_jid_alt = key.get("remoteJidAlt", "")
-    raw_jid = key.get("remoteJid", "")
-    remote_jid = remote_jid_alt if (addressing_mode == "lid" and remote_jid_alt) else raw_jid
-
-    if not remote_jid or remote_jid.endswith("@g.us"):
-        return None
-
-    return message_id, remote_jid
-
-
 def is_universal_command(text: str) -> Optional[str]:
     """Detecta comandos globais independente do estado atual.
 

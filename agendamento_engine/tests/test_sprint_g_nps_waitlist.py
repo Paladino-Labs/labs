@@ -558,17 +558,15 @@ class TestWaitlistNotify:
 
 class TestWaitlistHandlers:
     def test_cancelamento_notifica_fila(self, monkeypatch):
-        # S2.1: o handler agora ENFILEIRA a notificação da fila por escopo (o
-        # envio httpx saiu do request de cancel/reschedule). notify_waitlist é
-        # chamado pela task notify_waitlist_slot_available, não mais inline.
-        from unittest.mock import MagicMock
-
         from app.workers.handlers import waitlist_handler
 
-        # Patch do objeto-task inteiro (robusto à contaminação de celery em que a
-        # task vira função crua sem .apply_async).
-        mock_task = MagicMock()
-        monkeypatch.setattr(waitlist_handler, "notify_waitlist_slot_available", mock_task)
+        calls = []
+        monkeypatch.setattr(waitlist_handler, "SessionLocal", lambda: FakeDB())
+        monkeypatch.setattr(waitlist_handler, "set_rls_context", lambda db, cid: None)
+        monkeypatch.setattr(
+            waitlist_service, "notify_waitlist",
+            lambda db, company_id, scope_type, **kw: calls.append((scope_type, kw)),
+        )
 
         company_id = uuid.uuid4()
         service_id = uuid.uuid4()
@@ -582,8 +580,7 @@ class TestWaitlistHandlers:
             },
             company_id=company_id,
         ))
-        # args = [company_id, scope_type, target_id, reason]
-        scopes = [c.kwargs["args"][1] for c in mock_task.apply_async.call_args_list]
+        scopes = [c[0] for c in calls]
         assert "SERVICE" in scopes
         assert "PROFESSIONAL" in scopes
 
