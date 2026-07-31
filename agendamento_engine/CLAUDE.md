@@ -1,3 +1,128 @@
+## Registro de tasks do Celery — `conf.imports` é obrigatório (S-registro)
+
+O worker de produção sobe com
+`-A app.infrastructure.celery_app:celery_app`. **Esse alvo só conhece as tasks
+listadas em `celery_app.conf.imports`** — não há descoberta automática.
+
+Antes da correção, `imports` não existia e o worker registrava **zero** tasks,
+enquanto o beat despachava 18. Toda mensagem viraria `NotRegistered`.
+
+⚠️ **Ao criar um módulo de task novo, acrescente-o a `conf.imports`.** Se
+esquecer, o teste `test_celery_task_registration.py` falha dizendo o nome —
+não descubra em produção.
+
+### Por que não `autodiscover_tasks`
+
+Ele procura um módulo de nome fixo (`tasks.py`) dentro dos pacotes. Este repo
+tem tasks em **duas convenções** — `app/workers/*.py` e `app/workers/tasks/*.py`
+— e **nenhum arquivo se chama `tasks.py`**. O autodiscover pegaria o pacote
+`app.workers.tasks` como se fosse módulo e ignoraria os 5 de `app/workers/`.
+Falha silenciosa. Não é alternativa aqui.
+
+### Sobre o entrypoint separado do beat
+
+Este `CLAUDE.md` afirmava que `celery_beat_entrypoint` existe para "evitar import
+circular". **Verificado: o ciclo não ocorre** — `conf.imports` é configuração,
+não import em tempo de módulo; o loader importa no boot do worker, quando
+`celery_app.py` já está carregado.
+
+O entrypoint separado **continua necessário** — é ele que aplica o
+`beat_schedule` —, mas não é barreira anti-ciclo. Os 4 `import` avulsos em
+`celery_beat_entrypoint.py:14-21` ficaram redundantes (inofensivos, `import` é
+idempotente).
+
+### O teste que protege o invariante
+
+`tests/test_celery_task_registration.py` afirma: **toda task que o
+`beat_schedule` despacha está registrada quando o worker sobe pelo alvo de
+produção.**
+
+Roda em **subprocesso**, e isso não é cerimônia: dez e poucos arquivos da suíte
+injetam `sys.modules["celery"] = MagicMock()`, então um teste in-process leria
+registro contaminado — passaria por acidente ou falharia por ordenação. O
+subprocesso reproduz o boot real (`loader.import_default_modules()`).
+
+⚠️ A contaminação corre nas **duas direções**: o arquivo de teste também não pode
+importar celery no processo do pytest, senão o guard `if "celery" not in
+sys.modules` dos outros arquivos não dispara e 10 testes de worker quebram
+(sprint13/15/17). Toda inspeção acontece no subprocesso.
+
+Cobre também as 2 tasks despachadas por `.delay()` fora do beat
+(`send_appointment_communication`, `dispatch_soft_reservation_expired`), que a
+verificação pelo `beat_schedule` não alcançaria.
+
+## ⚠️ O beat nunca rodou em produção — leia antes de ligar
+
+Medido em 2026-07-31. Ligar o beat sem tratar estes pontos gera efeito externo
+indevido.
+
+### 🔴 NPS — armadilha de duas decisões acopladas
+
+49 pesquisas em `PENDING`, a mais antiga de 2026-06-22.
+`send_pending_surveys` **não tem piso de data** — todo `PENDING` com
+`scheduled_for <= now()` entra numa varredura (limite 500).
+
+| Tenant | PENDING | Tem template `nps.survey_request`? | Efeito hoje |
+|---|---|---|---|
+| Le Duc | 47 | **não** | `SKIPPED_NO_TEMPLATE`, permanece PENDING, retenta a cada 15 min |
+| Paladino Labs | 2 | sim | 2 mensagens sobre atendimentos de junho |
+
+⚠️ **Os 47 estão contidos por acidente** — pela ausência do template. E este
+mesmo `CLAUDE.md` (Sprint G) instrui a inserir os templates via SQL para tenants
+antigos. **Seguir aquela instrução com o beat ligado dispara 47 pesquisas de
+junho de uma vez.** As duas decisões precisam ser tomadas juntas.
+
+Saídas: marcar o passivo como `EXPIRED`, ou dar piso de data ao
+`send_pending_surveys`.
+
+### 🔴 Assinaturas
+
+2 assinaturas `ACTIVE` (as únicas do sistema) com `next_billing_at` vencido
+desde 2026-06-29:
+
+- **`subscription-renewal`** cria **0 pagamentos** — o guard de idempotência
+  pula quem já tem `Payment` PENDING, e ambas têm.
+  ⚠️ **Mas o `continue` acontece antes de avançar `next_billing_at`**: enquanto o
+  PENDING existir, essas assinaturas **nunca renovam nem avançam o ciclo**.
+  Comportamento pré-existente, não regressão.
+- **`subscription-overdue`** marca as 2 como `OVERDUE` na primeira rodada.
+  Mudança de status **visível no portal do cliente**; o relógio de 30 dias para
+  suspensão começa a contar a partir daí (não retroage).
+
+Decidir antes: elas estão inadimplentes de fato, ou o `Payment` PENDING é
+resíduo de a renovação nunca ter rodado?
+
+### 🟡 Lembretes — sem retroativo (verificado)
+
+Há 550 agendamentos passados com `reminder_24h_sent=false`, mas são **inertes**:
+a janela do worker é `now + 24h ± 10min` e `now + 2h ± 10min` — sempre no futuro.
+Um agendamento passado nunca entra na query. Confirmado: 0 na janela.
+
+### 🟢 Inofensivas — só estado interno
+
+`session-cleanup` (182 sessões), `idempotency-cleanup` (86 keys),
+`crm-recompute` (279 customers), `booking-session-expiry` (501 sessões, ~3
+rodadas). Sem mensagem a cliente.
+
+**No-op hoje:** `communication-drain`, `promotions-expiry`,
+`customer-credit-expiry`, `stock-alert`, `waitlist-expire`,
+`expense-recurrence`, `expense-due-soon`, `payable-due`,
+`soft-reservation-expiry` (tabela `reservations` **vazia**).
+
+### Dívidas registradas na medição (não corrigidas)
+
+- **`booking_session_handlers.py:9`** — a docstring diz que a ação "marca sessão
+  como EXPIRED, **libera slot ocupado pelo TTL**". O código só muda `state`; não
+  toca em `reservations` nem em `appointments`. Mesma família do comentário falso
+  de `celery_app.py:17`. Inofensivo hoje (`reservations` está vazia), mas quem
+  ler vai supor que a liberação de slot tem dono — e ela não tem.
+- **596 appointments `SCHEDULED` já passados** (563 Le Duc, 33 Paladino Labs)
+  contra 138 `COMPLETED`. `SCHEDULED` **ativa a EXCLUDE constraint**, então cada
+  um bloqueia aquele horário para sempre. Também explica por que só há 49 NPS —
+  a pesquisa nasce em `operation.completed`. ⚠️ Insumo para a FD-1: a comissão
+  desenhada para nascer em `operation.completed` **nunca seria calculada**, mesmo
+  com o E6 implementado. É problema de operação/UX, não de código.
+
 ## Isolamento multi-tenant no módulo `users` (S0.2)
 
 ⚠️ **Não há rede de segurança no banco.** O `set_rls_context` é chamado, mas o role
@@ -1352,8 +1477,11 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - Workers: Celery + Redis (session_cleanup e reminder exclusivamente via Celery Beat)
 - EventBus ativo em `app/infrastructure/event_bus.py` (best-effort, fluxos tolerantes)
 - Idempotência: `processed_idempotency_keys` (PK composta key+consumer; company_id como auditoria)
-- Beat: worker usa `-A app.infrastructure.celery_app:celery_app`
-       beat usa `-A app.workers.celery_beat_entrypoint:celery_app` (evita import circular)
+- Beat: worker usa `-A app.infrastructure.celery_app:celery_app` — só registra as
+       tasks de `conf.imports` (ver seção "Registro de tasks do Celery")
+       beat usa `-A app.workers.celery_beat_entrypoint:celery_app` — é ele que
+       aplica o `beat_schedule`. **NÃO é barreira anti-ciclo**: o import circular
+       foi verificado e não ocorre (S-registro)
 - CommunicationService ativo em `modules/communication/service.py`
 - Tabelas: integration_credentials, communication_settings,
   communication_templates, communication_logs
@@ -1411,8 +1539,9 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
 - `infrastructure/celery_app.py` — configuração Celery
 - `infrastructure/event_bus.py` — EventBus (tolerantes)
 - `core/idempotency.py` — is_processed, mark_processed
-- `workers/beat_schedule.py` — reminder/10min, session-cleanup/5min,
-    idempotency-cleanup/03:00, booking-session-scan/5min
+- `workers/beat_schedule.py` — **18 entradas** (o arquivo é a fonte; esta lista é
+    ilustrativa): reminder/10min, session-cleanup/5min, idempotency-cleanup/03:00,
+    booking-session-scan/5min, …
 - `workers/celery_beat_entrypoint.py` — entrypoint exclusivo do beat
 - `workers/booking_session_worker.py` + `booking_session_handlers.py`
 - `workers/appointment_reminder_handler.py` — stub, Sprint 5 substitui
