@@ -8,13 +8,12 @@ acrescentada depois, no passo de auditoria, com o diff do auditor.
 
 Sprint de backend. Define o contrato que o sprint de frontend vai consumir.
 
-> ⚠️ **Nota de registro — leia primeiro.**
-> Este relatório sucede `docs/inv-operador.md` e `docs/s-operador-proposta.md`,
-> mas **nenhum dos dois existe no disco**. As duas investigações foram feitas e
-> aprovadas em sessões anteriores, porém o modo de planejamento daquelas sessões
-> só permitia escrever no arquivo de plano — os documentos nunca chegaram a
-> `docs/`. O conteúdo está no transcript das sessões; posso reconstruí-lo a
-> pedido. O essencial para executar este sprint está reproduzido abaixo.
+> **Nota de registro.** Este relatório sucede [`inv-operador.md`](inv-operador.md)
+> e [`s-operador-proposta.md`](s-operador-proposta.md). Os dois documentos foram
+> escritos **depois** deste, por reconstrução a partir do transcript: as sessões
+> de investigação rodavam em modo de planejamento, que só permite escrever no
+> arquivo de plano, e por isso não chegaram a `docs/` na época. O conteúdo é o do
+> momento da medição, não do estado de agora.
 
 ---
 
