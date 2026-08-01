@@ -22,6 +22,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -316,6 +317,37 @@ def list_payments(company_id: UUID, db: Session) -> list[Payment]:
     return (
         db.query(Payment)
         .filter(Payment.company_id == company_id)
+        .order_by(Payment.created_at.desc())
+        .all()
+    )
+
+
+def list_payments_for_day(
+    company_id: UUID,
+    day_start: datetime,
+    day_end: datetime,
+    db: Session,
+) -> list[Payment]:
+    """Pagamentos do tenant dentro de uma janela [day_start, day_end).
+
+    Irmão escopado de `list_payments`, para o perfil de balcão: a janela chega
+    pronta do caller (calculada do fuso do tenant), nunca do cliente HTTP.
+
+    Casa por `created_at` OU `paid_at` — a cobrança criada ontem e recebida hoje
+    é recebimento de hoje, e o operador precisa vê-la. Sem o `paid_at` ele não
+    encontraria o próprio caixa.
+
+    Não soma nada: devolve as transações, e o agregado é do dono.
+    """
+    return (
+        db.query(Payment)
+        .filter(
+            Payment.company_id == company_id,
+            or_(
+                and_(Payment.created_at >= day_start, Payment.created_at < day_end),
+                and_(Payment.paid_at >= day_start, Payment.paid_at < day_end),
+            ),
+        )
         .order_by(Payment.created_at.desc())
         .all()
     )
