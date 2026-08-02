@@ -11,8 +11,7 @@ import {
   Users,
   ListOrdered,
   MessageSquare,
-  CreditCard,
-  Landmark,
+  CheckSquare,
   UserX,
   BadgeDollarSign,
 } from "lucide-react"
@@ -511,6 +510,10 @@ function OwnerDashboard({ name }: { name: string }) {
 }
 
 // ── OPERATOR ────────────────────────────────────────────────────────────────
+// O operador vê a operação corrente, não o acumulado: contagens do turno e
+// listas de trabalho. Nenhum agregado de valor — `GET /payments` (soma do caixa)
+// e a lista de cobranças com valores saíram daqui no S-operador
+// (ver docs/s-operador-backend.md §6).
 function OperatorDashboard({ name }: { name: string }) {
   const [loading, setLoading] = useState(true)
   const [fatal, setFatal] = useState(false)
@@ -519,7 +522,6 @@ function OperatorDashboard({ name }: { name: string }) {
   const [naFila, setNaFila] = useState<number | null>(null)
   const [queue, setQueue] = useState<WaitlistEntry[] | null>(null)
   const [atendimento, setAtendimento] = useState<number | null>(null)
-  const [payments, setPayments] = useState<Payment[] | null>(null)
   const [nameMap, setNameMap] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
@@ -527,11 +529,10 @@ function OperatorDashboard({ name }: { name: string }) {
     const counter = { ok: 0, total: 0 }
     const guard = makeGuard(counter)
 
-    const [apptsRes, queueRes, convsRes, paymentsRes, customers] = await Promise.all([
+    const [apptsRes, queueRes, convsRes, customers] = await Promise.all([
       guard(() => api.get<Appointment[]>(`/appointments/?${todayApptParams()}`)),
       guard(() => api.get<WaitlistEntry[]>("/waitlist/entries")),
       guard(() => api.get<Conversation[]>("/conversations")),
-      guard(() => api.get<Payment[]>("/payments")),
       guard(() => api.get<Customer[]>("/customers/")),
     ])
 
@@ -539,7 +540,6 @@ function OperatorDashboard({ name }: { name: string }) {
     setQueue(queueRes ?? null)
     setNaFila(queueRes ? queueRes.length : null)
     setAtendimento(convsRes ? convsRes.length : null)
-    setPayments(paymentsRes ?? null)
     setNameMap(new Map((customers ?? []).map((c) => [c.id, c.name])))
 
     setFatal(counter.ok === 0)
@@ -548,31 +548,28 @@ function OperatorDashboard({ name }: { name: string }) {
 
   useEffect(() => { load() }, [load])
 
-  const agenda = useMemo(
+  const ordenados = useMemo(
     () =>
       (appts ?? [])
         .slice()
-        .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
-        .slice(0, 5),
+        .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()),
     [appts],
   )
 
-  const todayConfirmed = useMemo(() => {
-    const todayStr = new Date().toDateString()
-    return (payments ?? []).filter(
-      (p) => p.status === "CONFIRMED" && new Date(p.created_at).toDateString() === todayStr,
+  const agenda = useMemo(() => ordenados.slice(0, 5), [ordenados])
+
+  /**
+   * "A concluir" — atendimentos do dia cujo horário já passou e que continuam
+   * SCHEDULED. É a fila de trabalho do balcão: sem a conclusão não nasce NPS
+   * nem comissão. O recorte é o dia corrente porque `GET /appointments/` não
+   * tem filtro de status — varrer o passivo histórico exigiria backend.
+   */
+  const aConcluir = useMemo(() => {
+    const agora = Date.now()
+    return ordenados.filter(
+      (a) => a.status === "SCHEDULED" && new Date(a.start_at).getTime() < agora,
     )
-  }, [payments])
-
-  const caixaDia = useMemo(
-    () => todayConfirmed.reduce((s, p) => s + Number(p.net_charged_amount), 0),
-    [todayConfirmed],
-  )
-
-  const pendingPayments = useMemo(
-    () => (payments ?? []).filter((p) => p.status === "PENDING"),
-    [payments],
-  )
+  }, [ordenados])
 
   if (loading) return <DashboardSkeleton />
   if (fatal) {
@@ -586,11 +583,18 @@ function OperatorDashboard({ name }: { name: string }) {
 
   const kpis: KpiItem[] = [
     {
-      label: "Agendamentos hoje",
+      label: "Atendimentos hoje",
       value: appts == null ? "—" : String(appts.length),
       icon: Calendar,
-      href: "/appointments",
+      href: "/agenda",
       delta: "no dia de hoje",
+    },
+    {
+      label: "A concluir",
+      value: appts == null ? "—" : String(aConcluir.length),
+      icon: CheckSquare,
+      href: "/agenda",
+      delta: "horário já passou",
     },
     {
       label: "Na fila",
@@ -598,13 +602,6 @@ function OperatorDashboard({ name }: { name: string }) {
       icon: ListOrdered,
       href: "/fila",
       delta: "clientes aguardando",
-    },
-    {
-      label: "Caixa do dia",
-      value: payments == null ? "—" : formatBRL(caixaDia),
-      icon: Landmark,
-      href: "/caixa",
-      delta: `${todayConfirmed.length} recebimento(s)`,
     },
   ]
 
@@ -628,7 +625,14 @@ function OperatorDashboard({ name }: { name: string }) {
                     {hourLabel(a.start_at)}
                   </span>
                   <div className="min-w-0">
-                    <p className="font-display text-lg leading-tight">{a.customer?.name ?? "Cliente"}</p>
+                    <p className="font-display text-lg leading-tight">
+                      {a.customer?.name ?? "Cliente"}
+                      {aConcluir.some((p) => p.id === a.id) && (
+                        <span className="ml-2 align-middle rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-warning">
+                          a concluir
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs italic text-muted-foreground">
                       {a.services.map((s) => s.service_name).join(", ") || "—"}
                     </p>
@@ -666,23 +670,6 @@ function OperatorDashboard({ name }: { name: string }) {
                     : `${atendimento} conversa(s) em atendimento`}
                 </span>
               </div>
-            )}
-          </Panel>
-
-          <Panel title="Cobranças pendentes" icon={CreditCard}>
-            {payments == null ? (
-              <EmptyHint>Não foi possível carregar.</EmptyHint>
-            ) : pendingPayments.length === 0 ? (
-              <EmptyHint>Nenhuma cobrança pendente.</EmptyHint>
-            ) : (
-              <BulletList
-                items={pendingPayments
-                  .slice(0, 5)
-                  .map(
-                    (p) =>
-                      `${nameMap.get(p.customer_id ?? "") ?? "Cliente"} · ${formatBRL(p.net_charged_amount)}`,
-                  )}
-              />
             )}
           </Panel>
         </div>

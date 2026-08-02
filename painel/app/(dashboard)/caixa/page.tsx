@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ArrowDownCircle, ArrowUpCircle, Wallet } from "lucide-react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/hooks/useAuth"
 import { cn, formatBRL, formatBRLFromDecimal, formatDateTime } from "@/lib/utils"
 import type { FinancialAccount, FinancialMovement, CashCount } from "@/types"
 import { CASH_COUNT_RESOLUTION_LABELS } from "@/lib/constants"
@@ -296,6 +297,24 @@ function CashCountTab() {
 
 /* --------------------------------- Página --------------------------------- */
 export default function CaixaPage() {
+  const { role } = useAuth()
+
+  // OPERATOR só vê a conferência de gaveta. A aba de movimentações é agregado do
+  // dia por tipo (Entradas/Saídas/Saldo) e sua fonte — `GET /financial/movements`
+  // — responde 403 ao papel (docs/s-operador-backend.md §2). Conferir a gaveta é
+  // tarefa de balcão: o esperado é calculado no servidor, o operador só informa
+  // o contado.
+  const isOperator = role === "OPERATOR"
+
+  if (isOperator) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Financeiro" title="Caixa" description="Conferência da gaveta." />
+        <CashCountTab />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Financeiro" title="Caixa" description="Movimentações e contagem do dia." />

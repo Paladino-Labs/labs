@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Banknote, CheckCircle, CreditCard, KeyRound, QrCode } from "lucide-react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/hooks/useAuth"
 import { PAYMENT_METHOD_GROUPS, PAYMENT_METHOD_OPTIONS } from "@/lib/constants"
 import { formatBRL } from "@/lib/utils"
 import { FeeWarningBanner } from "@/components/FeeWarningBanner"
@@ -82,6 +83,9 @@ export function PaymentOnCompleteDialog({
   const [error, setError] = useState<string | null>(null)
   const [availableCredit, setAvailableCredit] = useState<AvailableCredit | null>(null)
   const [usingCredit, setUsingCredit] = useState(false)
+
+  const { role } = useAuth()
+  const canConfigureFees = role === "OWNER" || role === "ADMIN" || role === "PROFESSIONAL"
 
   // Reset whenever the dialog opens with (possibly) a different appointment
   useEffect(() => {
@@ -217,10 +221,16 @@ export function PaymentOnCompleteDialog({
                 feeSource={feeWarning.fee_source}
                 message={feeWarning.message}
                 onDismiss={() => setFeeWarningDismissed(true)}
-                onConfigureClick={() => {
-                  setFeeWarningDismissed(true)
-                  window.open("/financeiro/taxas", "_blank")
-                }}
+                // /financeiro/taxas é OWNER/ADMIN/PROFESSIONAL — sem o gate, o
+                // operador cairia num beco sem saída assim que passasse a cobrar.
+                onConfigureClick={
+                  canConfigureFees
+                    ? () => {
+                        setFeeWarningDismissed(true)
+                        window.open("/financeiro/taxas", "_blank")
+                      }
+                    : undefined
+                }
               />
             )}
 

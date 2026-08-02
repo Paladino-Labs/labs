@@ -34,6 +34,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [hydrated, role, pathname, router])
 
+  // OPERATOR não acessa telas de resultado do negócio: todo o /financeiro
+  // (DRE, contas, conciliação, extrato, taxas, lista completa de pagamentos),
+  // relatórios e comissões. O backend já responde 403 — o guard existe para dar
+  // um redirect limpo no lugar de uma tela de erro.
+  // As superfícies do balcão vivem FORA de /financeiro por construção:
+  // /caixa (conferência de gaveta) e /recebimentos (pagamentos do dia).
+  useEffect(() => {
+    if (!hydrated || role !== "OPERATOR") return
+    const bloqueado =
+      pathname.startsWith("/financeiro") ||
+      pathname.startsWith("/relatorios") ||
+      pathname.startsWith("/comissoes")
+    if (bloqueado) router.replace("/dashboard")
+  }, [hydrated, role, pathname, router])
+
   // Enquanto não hidratou, mostra tela de carregamento neutra
   if (!hydrated) {
     return (

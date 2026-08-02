@@ -134,7 +134,12 @@ const NAV: NavGroup[] = [
   {
     label: "Financeiro",
     items: [
-      { title: "Pagamentos", url: "/financeiro/pagamentos",  icon: CreditCard, roles: ["OWNER", "ADMIN", "OPERATOR"] },
+      // A lista completa de pagamentos (GET /payments) é 403 para OPERATOR; o
+      // balcão tem a sua própria entrada, escopada ao dia (GET /payments/today).
+      { title: "Pagamentos",          url: "/financeiro/pagamentos", icon: CreditCard, roles: ["OWNER", "ADMIN"] },
+      // "Recebimentos" (e não "Recebimentos do dia") para não truncar no menu —
+      // o título da tela carrega o recorte do dia.
+      { title: "Recebimentos",        url: "/recebimentos",          icon: CreditCard, roles: ["OPERATOR"] },
       { title: "Caixa",      url: "/caixa",                  icon: Landmark,   roles: ["OWNER", "ADMIN", "OPERATOR"] },
       {
         title: "Gestão Financeira", url: "/financeiro/dre", icon: BarChart3, roles: ["OWNER", "ADMIN"],
@@ -172,7 +177,11 @@ const NAV: NavGroup[] = [
       { title: "Profissionais",      url: "/professionals",     icon: UserCheck,   roles: ["OWNER", "ADMIN"] },
       { title: "Usuários e acessos", url: "/settings/usuarios", icon: ShieldCheck, roles: ["OWNER", "ADMIN"] },
       {
-        title: "Configurações", url: "/configuracoes", icon: Settings, roles: ["OWNER", "ADMIN", "PROFESSIONAL"],
+        // OPERATOR entra pela conta própria (Meu Perfil / Segurança, ambos "ALL").
+        // Os demais subitens têm roles próprias e continuam fora do alcance dele —
+        // é `roleVisible` por subitem que garante isso, não o item pai.
+        title: "Configurações", url: "/configuracoes", icon: Settings,
+        roles: ["OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL"],
         submenu: [
           { title: "Meu Perfil",  url: "/settings/perfil",      icon: UserCircle, roles: "ALL" },
           { title: "Segurança",   url: "/settings/security",    icon: KeyRound,   roles: "ALL" },

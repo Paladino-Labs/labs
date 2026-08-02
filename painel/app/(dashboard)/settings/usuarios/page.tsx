@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext"
 import { formatDateTime } from "@/lib/utils"
 import {
   ROLE_LABELS,
+  ROLE_INVITE_HINTS,
   INVITATION_STATUS_LABELS,
   ASSIGNABLE_ROLES_BY_ACTOR,
 } from "@/lib/constants"
@@ -54,22 +55,29 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
-/* ------------------------------ Convidar profissional ------------------------------ */
-function InviteDialog({ open, onOpenChange, onDone }: {
+/* ------------------------------ Convidar usuário ------------------------------ */
+function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
   open: boolean
   onOpenChange: (v: boolean) => void
+  actorRole: string
   onDone: () => void
 }) {
+  // Papéis que este ator pode convidar (anti-escalonamento, espelha INVITE_PERMISSION).
+  const allowed = ASSIGNABLE_ROLES_BY_ACTOR[actorRole] ?? []
+  // Default no papel menos poderoso da lista — para OWNER, `allowed[0]` seria
+  // OWNER, e um convite de proprietário por descuido é caro de desfazer.
+  const defaultRole = allowed.includes("PROFESSIONAL") ? "PROFESSIONAL" : (allowed[0] ?? "")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
+  const [role, setRole] = useState(defaultRole)
   const [saving, setSaving] = useState(false)
 
-  // Vínculo opcional com um cadastro de profissional.
+  // Vínculo opcional com um cadastro de profissional (só faz sentido em PROFESSIONAL).
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [linkedProfId, setLinkedProfId] = useState("")
 
   useEffect(() => {
-    if (open) { setEmail(""); setName(""); setLinkedProfId("") }
+    if (open) { setEmail(""); setName(""); setRole(defaultRole); setLinkedProfId("") }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carrega profissionais sem vínculo quando o Dialog abre.
@@ -85,14 +93,16 @@ function InviteDialog({ open, onOpenChange, onDone }: {
     : ""
 
   async function handleInvite() {
-    if (!email.trim()) return
+    if (!email.trim() || !role) return
     setSaving(true)
     try {
       const res = await api.post<{ expires_at: string }>("/users/invite", {
         email: email.trim(),
-        role: "PROFESSIONAL",
+        role,
         ...(name.trim() ? { name: name.trim() } : {}),
-        ...(linkedProfId && linkedProfId !== "__none__" ? { professional_id: linkedProfId } : {}),
+        ...(role === "PROFESSIONAL" && linkedProfId && linkedProfId !== "__none__"
+          ? { professional_id: linkedProfId }
+          : {}),
       })
       toast.success(`Convite enviado — expira em ${formatDateTime(res.expires_at)}`)
       onOpenChange(false)
@@ -108,7 +118,7 @@ function InviteDialog({ open, onOpenChange, onDone }: {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Mail className="h-4 w-4" /> Convidar profissional</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Mail className="h-4 w-4" /> Convidar usuário</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
@@ -120,29 +130,43 @@ function InviteDialog({ open, onOpenChange, onDone }: {
             <Input id="inv-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label>
-              Profissional vinculado{" "}
-              <span className="text-muted-foreground text-xs">(opcional)</span>
-            </Label>
-            <Select value={linkedProfId} onValueChange={(v) => setLinkedProfId(v === "__none__" ? "" : (v ?? ""))}>
-              <SelectTrigger className="w-full">
-                <span className={linkedProfId ? "text-foreground" : "text-muted-foreground"}>
-                  {linkedProfId ? linkedProfLabel : "Selecionar profissional…"}
-                </span>
-              </SelectTrigger>
+            <Label>Papel</Label>
+            <Select value={role} onValueChange={(v) => v && setRole(v)}>
+              <SelectTrigger className="w-full"><SelectValue>{ROLE_LABELS[role] ?? role}</SelectValue></SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">Nenhum (vincular depois)</SelectItem>
-                {professionals.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
+                {allowed.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r] ?? r}</SelectItem>)}
               </SelectContent>
             </Select>
-            {professionals.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Todos os profissionais já têm conta vinculada.
-              </p>
+            {role && ROLE_INVITE_HINTS[role] && (
+              <p className="text-xs text-muted-foreground">{ROLE_INVITE_HINTS[role]}</p>
             )}
           </div>
+          {role === "PROFESSIONAL" && (
+            <div className="space-y-1.5">
+              <Label>
+                Profissional vinculado{" "}
+                <span className="text-muted-foreground text-xs">(opcional)</span>
+              </Label>
+              <Select value={linkedProfId} onValueChange={(v) => setLinkedProfId(v === "__none__" ? "" : (v ?? ""))}>
+                <SelectTrigger className="w-full">
+                  <span className={linkedProfId ? "text-foreground" : "text-muted-foreground"}>
+                    {linkedProfId ? linkedProfLabel : "Selecionar profissional…"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nenhum (vincular depois)</SelectItem>
+                  {professionals.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {professionals.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Todos os profissionais já têm conta vinculada.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" />}>Cancelar</DialogClose>
@@ -459,7 +483,7 @@ export default function UsuariosPage() {
         </Tabs>
       )}
 
-      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onDone={load} />
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} actorRole={actorRole ?? ""} onDone={load} />
       <TransferDialog open={transferOpen} onOpenChange={setTransferOpen} members={users} onDone={load} />
 
       {/* Desativar */}

@@ -11,6 +11,14 @@ export const ROLE_LABELS: Record<string, string> = {
   CLIENT:       "Cliente",
 }
 
+// O que cada papel alcança — exibido ao escolher o papel de um convite.
+export const ROLE_INVITE_HINTS: Record<string, string> = {
+  OWNER:        "Acesso total, incluindo o resultado do negócio.",
+  ADMIN:        "Acesso total, incluindo o resultado do negócio.",
+  OPERATOR:     "Balcão: agenda, conclusão de atendimentos e recebimentos do dia. Não vê o resultado do negócio.",
+  PROFESSIONAL: "Vê a própria agenda e as próprias comissões.",
+}
+
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   // Métodos/submethods canônicos (chaves MAQUININHA_* = MAQUININHA + payment_submethod)
   CASH:                          "Dinheiro",
