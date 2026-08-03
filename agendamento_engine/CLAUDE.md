@@ -1,3 +1,106 @@
+﻿## RBAC — papéis
+
+### O recorte do papel OPERATOR: o dia
+
+> **O operador vê a operação corrente; o dono vê o acumulado.**
+
+O critério é **temporal**, não de natureza do dado:
+
+| | OPERATOR |
+|---|---|
+| Valor de uma transação (preço do serviço, valor daquela despesa) | ✅ precisa — é como ele cobra e informa o cliente |
+| Contagem ("12 pendentes", "8 atendimentos hoje") | ✅ |
+| Soma do **dia corrente** (caixa de hoje, pagamentos de hoje) | ✅ é o turno dele |
+| Soma que **atravessa dias** (mês, histórico, DRE, saldo consolidado) | ❌ é resultado do negócio |
+
+Origem: o cliente parou de concluir atendimentos porque o painel do dono expõe
+resultado financeiro, e quem trabalha no balcão evitava a tela. O papel existia
+inteiro no código, mas o convite estava travado em PROFESSIONAL desde `121921e`.
+
+**Ao criar tela ou rota nova para OPERATOR, aplique o teste:** *este número
+descreve o turno de hoje, ou o negócio?*
+
+#### Escopo por construção, não por disciplina
+
+`GET /payments/today` **não tem parâmetro de data**. A janela é calculada no
+servidor, no fuso do tenant. Isso é deliberado: a alternativa (abrir
+`GET /payments` filtrando por papel) exigiria *criar* a superfície de data só
+para restringi-la, e deixaria o mesmo endpoint com dois contratos conforme quem
+chama.
+
+⚠️ **Não adicione parâmetro de data a essa rota.** O teste verifica contra o app
+real que parâmetros espúrios (`date_from`, `day`, `as_of`) não deslocam a janela,
+e que o OpenAPI declara zero parâmetros. É a prova de que o papel não alcança
+outro dia — e ela é estrutural.
+
+Mesmo racional do lease sobre o advisory lock (S2.1): restrição por construção
+vale mais que restrição por disciplina.
+
+⚠️ **Fuso importa aqui.** O Railway roda em UTC. Entre 21h e meia-noite em
+Brasília o dia UTC já virou — e é o fim do expediente do balcão. A janela usa o
+fuso do tenant (`get_tenant_timezone`, em `modules/tenant/service.py`), não UTC.
+
+A rota casa por `created_at` **ou** `paid_at`: a cobrança criada ontem e recebida
+hoje no balcão precisa aparecer, senão o operador não vê o próprio recebimento.
+
+#### Exceção registrada: `GET /financial/accounts`
+
+Aberta ao OPERATOR sem escopo de dia, porque devolve **cadastro de contas** —
+name, type, currency, status, **sem valor monetário**. Roster é configuração, não
+dado temporal: não há dia a escopar.
+
+⚠️ Há teste que trava isso: **se um campo monetário aparecer no schema
+`AccountResponse`, o teste quebra** e a decisão precisa ser revista.
+
+#### `confirm-manual` — por que o papel foi ampliado
+
+A proteção real do endpoint é o **422 para pagamento não-CASH/manual**
+(`payments/service.py:576-587`), que impede confirmar cobrança digital sem passar
+pelo webhook. Essa proteção **independe de papel** e permanece intacta.
+
+O endpoint não aceita valor, não dá desconto e é idempotente. Desconto manual é
+`/manual-discount` — endpoint separado, OWNER/ADMIN, com `reason` obrigatório,
+`record_sensitive_action` e `manual_override_count += 1`.
+
+A restrição original a OWNER/ADMIN apareceu na especificação **sem justificativa**
+— reflexo do padrão "escrita financeira = OWNER/ADMIN" do resto do módulo.
+
+**Permanecem OWNER/ADMIN:** `/manual-discount`, `/refund`, `GET /payments`
+(lista completa, sem paginação — A7), DRE, movimentações, entries, transfers,
+conciliação, `accounts/{id}/balance`, fee-policies, comissões, statement.
+
+#### Rotas que o OPERATOR alcança
+
+| Rota | Escopo |
+|---|---|
+| `GET /appointments/` + cancel/reschedule/complete | tenant; unitário nas ações |
+| `GET /appointments/{id}` · `available-credit` · `pending-products` | unitário |
+| `GET /professionals/` · `/services/` · `/products/` · `/customers/` | tenant |
+| `POST /payments` · `GET /payments/{id}` | unitário |
+| `POST /payments/{id}/confirm-manual` | unitário; 422 se não for CASH/manual |
+| `GET /payments/today` | **dia corrente, fuso do tenant**; sem parâmetro de data |
+| `GET /financial/accounts` | tenant (cadastro, sem valor) |
+| `GET/POST /financial/cash-counts` | ⚠️ herdado do Sprint 7 — ver dívidas |
+| `/waitlist/*` · `/conversations/*` · `/nps/*` · `/crm/config` (GET) | conforme antes |
+
+#### ⚠️ Permissões que o OPERATOR herdou do Sprint 7, sem decisão
+
+Anteriores ao princípio do recorte por dia. **Não corrigidas** — pendência.
+
+1. **`GET /financial/cash-counts` devolve o histórico inteiro**, com
+   `expected_amount` por linha (saldo esperado da conta). Cada linha é evento
+   discreto, mas o valor é acumulado **e o histórico atravessa dias** — fere o
+   recorte. Deveria ser escopado como `/payments/today`.
+
+2. **O OPERATOR pode lançar ajuste contábil** via `resolution=ADJUSTED` no
+   `POST /financial/cash-counts`, **e isso cria Movement e Entry**. É escrita no
+   Financial Core por um papel que não pode nem *ver* saldo consolidado. Movement
+   e Entry são imutáveis por design (RBAC-2) — uma vez criados, só se corrigem
+   por fato compensatório.
+
+Nenhuma das duas foi decisão explícita: vieram por herança quando o papel foi
+desenhado, antes de existir o critério atual.
+
 ## Registro de tasks do Celery — `conf.imports` é obrigatório (S-registro)
 
 O worker de produção sobe com

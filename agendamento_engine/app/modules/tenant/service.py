@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -20,6 +21,54 @@ def get_tenant_config_or_404(db: Session, company_id: UUID) -> TenantConfig:
     if not config:
         raise HTTPException(status_code=404, detail="TenantConfig não encontrado")
     return config
+
+
+def get_tenant_timezone(db: Session, company_id: UUID) -> ZoneInfo:
+    """Timezone do tenant (TenantConfig.timezone), fallback America/Sao_Paulo.
+
+    Sem TenantConfig, com timezone vazio ou com nome inválido → o fallback.
+    Nunca levanta — resolver fuso não é caminho de erro de negócio.
+
+    ⚠️ Dívida: `appointments/service._resolve_tenant_tz` faz o mesmo. São dois
+    resolvedores com comportamento idêntico; unificar em housekeeping fazendo
+    aquele delegar para cá. Não foi feito neste sprint porque `_resolve_tenant_tz`
+    está no caminho de gravação de horário — mudança de risco desproporcional.
+    """
+    config = db.query(TenantConfig).filter(
+        TenantConfig.company_id == company_id
+    ).first()
+    tz_name = getattr(config, "timezone", None)
+    if not isinstance(tz_name, str) or not tz_name:
+        tz_name = "America/Sao_Paulo"
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("America/Sao_Paulo")
+
+
+def current_day_bounds_utc(
+    db: Session,
+    company_id: UUID,
+    now: Optional[datetime] = None,
+) -> Tuple[datetime, datetime]:
+    """Início (inclusivo) e fim (exclusivo) do dia corrente do tenant, em UTC.
+
+    O "dia" é o dia civil no fuso do tenant, não o dia UTC do servidor — em
+    produção (Railway roda em UTC) as duas coisas divergem entre 21h e 00h no
+    horário de Brasília, e é justamente o fim do expediente do balcão.
+
+    `now` existe para teste; em produção sempre parte de datetime.now(tz).
+    """
+    tz = get_tenant_timezone(db, company_id)
+    local_now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    day_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Soma no horário de parede e só então converte: somar 24h em UTC erraria o
+    # dia em datas de mudança de horário (o fuso do tenant pode ter DST).
+    day_end_local = day_start_local + timedelta(days=1)
+    return (
+        day_start_local.astimezone(timezone.utc),
+        day_end_local.astimezone(timezone.utc),
+    )
 
 
 def update_tenant_config(

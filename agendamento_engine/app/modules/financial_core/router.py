@@ -68,9 +68,20 @@ _fee_policies_read = require_role("OWNER", "ADMIN", "PROFESSIONAL", "PLATFORM_OW
 @router.get("/accounts", response_model=List[AccountResponse])
 def list_accounts(
     company_id: UUID = Depends(get_current_company_id),
-    actor: User = Depends(_owner_admin),
+    actor: User = Depends(_owner_admin_operator),
     db: Session = Depends(get_db),
 ):
+    """Cadastro de contas do tenant.
+
+    OPERATOR incluído no S-operador: é esta rota que faltava para a conferência
+    de gaveta — `/cash-counts` (GET e POST) já permitia o papel desde o Sprint 7,
+    mas a tela não conseguia listar as contas para escolher qual conferir.
+
+    Não é exceção ao princípio "o operador vê o dia": `AccountResponse` não tem
+    **nenhum** campo monetário (nome/tipo/moeda/status). Roster de conta é
+    configuração, não dado temporal — não há dia a escopar. O saldo vive em
+    `/accounts/{id}/balance`, que é OWNER/ADMIN.
+    """
     return service.list_accounts(company_id, db)
 
 
@@ -98,9 +109,19 @@ def get_account_balance(
     account_id: UUID,
     as_of: Optional[datetime] = Query(None),
     company_id: UUID = Depends(get_current_company_id),
-    actor: User = Depends(_owner_admin_operator),
+    actor: User = Depends(_owner_admin),
     db: Session = Depends(get_db),
 ):
+    """Saldo consolidado da conta.
+
+    ⚠️ **Estreitado no S-operador**: era `_owner_admin_operator` por herança do
+    Sprint 7. `compute_balance` soma o histórico inteiro da conta — é saldo
+    acumulado, resultado do negócio, e o princípio do perfil de balcão é "o
+    operador vê o dia; o dono vê o acumulado".
+
+    Não afeta a conferência de gaveta: `record_count` calcula o esperado no
+    servidor (o body manda só account_id/counted_amount/resolution/notes).
+    """
     # Valida que conta pertence ao tenant
     service.get_account(account_id, company_id, db)
     balance = service.compute_balance(

@@ -18,7 +18,10 @@ Endpoints Sprint 9:
     PUT    /deposit-policies/{id}      OWNER/ADMIN
 
 Endpoints Sprint 11:
-    POST   /payments/{id}/confirm-manual   OWNER/ADMIN — CASH/manual apenas
+    POST   /payments/{id}/confirm-manual   OWNER/ADMIN/OPERATOR — CASH/manual apenas
+
+Endpoints S-operador (perfil de balcão):
+    GET    /payments/today             OWNER/ADMIN/OPERATOR — dia corrente do tenant
 
 Endpoints PagSeguro Point:
     GET    /payments/terminals         OWNER/ADMIN
@@ -41,6 +44,7 @@ from app.infrastructure.db.models.company import Company
 from app.infrastructure.db.models.payment_source import PaymentSource
 from app.infrastructure.db.session import get_db
 from app.modules.payments import service as payment_service
+from app.modules.tenant import service as tenant_service
 from app.modules.payments.schemas import (
     ConfirmManualRequest,
     ConfirmManualResponse,
@@ -63,6 +67,9 @@ router = APIRouter(tags=["payments"])
 financial_router = APIRouter(prefix="/financial", tags=["financial"])
 
 _owner_admin = require_role("OWNER", "ADMIN", "PLATFORM_OWNER")
+# Perfil de balcão (S-operador): confirmar recebimento e ver o caixa do DIA.
+# A lista completa de pagamentos permanece em _owner_admin — o acumulado é do dono.
+_owner_admin_operator = require_role("OWNER", "ADMIN", "OPERATOR", "PLATFORM_OWNER")
 
 
 # ── Payment Sources ───────────────────────────────────────────────────────────
@@ -150,6 +157,35 @@ def list_payments(
     return payment_service.list_payments(company_id=user.company_id, db=db)
 
 
+@router.get("/payments/today", response_model=list[PaymentResponse])
+def list_payments_today(
+    user=Depends(_owner_admin_operator),
+    company_id: UUID = Depends(get_current_company_id),
+    db: Session = Depends(get_db),
+):
+    """Pagamentos do dia corrente do tenant — superfície do balcão.
+
+    ⚠️ **Declarado ANTES de `/payments/{payment_id}`**: o FastAPI casa as rotas
+    na ordem de declaração, e depois dele "today" seria capturado pelo path
+    param e viraria 422 de UUID inválido.
+
+    **Não aceita parâmetro de data — por construção.** O recorte é calculado no
+    servidor a partir do fuso do tenant, então não há nada que o cliente possa
+    manipular para alcançar outro dia. Foi essa a escolha do S-operador: a
+    alternativa (forçar filtro por papel no `GET /payments`) deixaria o mesmo
+    endpoint com dois contratos e dependeria de disciplina a cada filtro novo.
+
+    Devolve transações, nunca totais — o agregado é do dono.
+    """
+    day_start, day_end = tenant_service.current_day_bounds_utc(db, company_id)
+    return payment_service.list_payments_for_day(
+        company_id=company_id,
+        day_start=day_start,
+        day_end=day_end,
+        db=db,
+    )
+
+
 @router.get("/payments/{payment_id}", response_model=PaymentResponse)
 def get_payment(
     payment_id: UUID,
@@ -167,9 +203,20 @@ def get_payment(
 def confirm_manual_payment(
     payment_id: UUID,
     body: Optional[ConfirmManualRequest] = None,
-    user=Depends(_owner_admin),
+    user=Depends(_owner_admin_operator),
     db: Session = Depends(get_db),
 ):
+    """Confirma recebimento de pagamento CASH/manual.
+
+    OPERATOR incluído no S-operador: sem isto o balcão não fecha atendimento
+    com pagamento — o dialog do painel encadeia POST /payments → confirm-manual
+    → PATCH /complete, e o 403 aqui deixava `Payment` PENDING órfão com o
+    agendamento ainda SCHEDULED.
+
+    ⚠️ A proteção que importa é o **422 CASH/manual** em `confirm_manual`, não o
+    papel: é ele que impede confirmar cobrança digital sem passar pelo webhook.
+    Não afrouxar aquele guard. `/manual-discount` e `/refund` seguem OWNER/ADMIN.
+    """
     payment, fee_warning_data = payment_service.confirm_manual(
         payment_id=payment_id,
         company_id=user.company_id,
