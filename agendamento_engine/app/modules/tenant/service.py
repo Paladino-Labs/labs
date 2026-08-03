@@ -29,10 +29,9 @@ def get_tenant_timezone(db: Session, company_id: UUID) -> ZoneInfo:
     Sem TenantConfig, com timezone vazio ou com nome inválido → o fallback.
     Nunca levanta — resolver fuso não é caminho de erro de negócio.
 
-    ⚠️ Dívida: `appointments/service._resolve_tenant_tz` faz o mesmo. São dois
-    resolvedores com comportamento idêntico; unificar em housekeeping fazendo
-    aquele delegar para cá. Não foi feito neste sprint porque `_resolve_tenant_tz`
-    está no caminho de gravação de horário — mudança de risco desproporcional.
+    Resolvedor **canônico** do fuso do tenant: `appointments/service.
+    _resolve_tenant_tz` delega para cá (S-housekeeping). Novo caminho que
+    precise do fuso deve chamar esta função, não reimplementar a busca.
     """
     config = db.query(TenantConfig).filter(
         TenantConfig.company_id == company_id

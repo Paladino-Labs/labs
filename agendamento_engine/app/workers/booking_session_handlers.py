@@ -4,7 +4,14 @@ Handlers de eventos para booking_session — registrados no EventBus no startup.
 booking_session.expired:
   Idempotency key: booking_session.expired:{booking_session_id}  (Padrão A)
   Consumer: "booking_session_cleanup"
-  Ação: marca sessão como EXPIRED, libera slot ocupado pelo TTL.
+  Ação: marca a sessão como EXPIRED. **Só isso** — `state` é o único campo
+        tocado.
+
+⚠️ Este handler NÃO libera slot. Não escreve em `reservations` nem em
+`appointments`; uma sessão de booking abandonada que já materializou reserva ou
+agendamento continua segurando o horário depois de expirar aqui. A docstring
+antiga prometia "libera slot ocupado pelo TTL" e dava a entender que a liberação
+tinha dono — não tem.
 """
 import logging
 from uuid import UUID

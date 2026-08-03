@@ -1,23 +1,17 @@
 """
 Ponto de entrada para o Celery Beat.
 
-Importa celery_app e registra o beat_schedule após todos os workers
-estarem carregados (evita import circular com celery_app.py).
+Existe por UMA razão: é aqui que o `beat_schedule` é aplicado ao `celery_app`.
+(Não é barreira anti-ciclo — o import circular foi verificado e não ocorre.)
+
+O registro das tasks é responsabilidade de `celery_app.conf.imports`, que o
+worker e o beat carregam por igual; os 4 `import` avulsos que ficavam aqui eram
+redundantes desde o S-registro e foram removidos.
 
 Uso no docker-compose / Railway:
   celery -A app.workers.celery_beat_entrypoint:celery_app beat --loglevel=info
 """
 from app.infrastructure.celery_app import celery_app  # noqa: F401 — exportado para CLI
 from app.workers.beat_schedule import beat_schedule
-
-# Sprint 13 — registra task para visibilidade do beat
-import app.workers.tasks.customer_credit_expiry  # noqa: F401
-
-# Sprint 15 — registra tasks de assinatura para visibilidade do beat
-import app.workers.tasks.subscription_renewal  # noqa: F401
-import app.workers.tasks.subscription_overdue  # noqa: F401
-
-# Sprint 16 — registra scanner de expiração de promoções/cupons
-import app.workers.tasks.promotions_expiry  # noqa: F401
 
 celery_app.conf.beat_schedule = beat_schedule

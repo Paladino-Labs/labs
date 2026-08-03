@@ -216,12 +216,18 @@ def confirm_manual_payment(
     ⚠️ A proteção que importa é o **422 CASH/manual** em `confirm_manual`, não o
     papel: é ele que impede confirmar cobrança digital sem passar pelo webhook.
     Não afrouxar aquele guard. `/manual-discount` e `/refund` seguem OWNER/ADMIN.
+
+    O ator é repassado ao service porque a confirmação deixa rastro em
+    audit_logs (S-housekeeping): com o balcão batendo caixa, "quem confirmou o
+    recebimento" passou a ser pergunta com resposta.
     """
     payment, fee_warning_data = payment_service.confirm_manual(
         payment_id=payment_id,
         company_id=user.company_id,
         db=db,
         payment_submethod=body.payment_submethod if body else None,
+        actor_id=user.id,
+        actor_role=user.role,
     )
     response = ConfirmManualResponse.model_validate(payment)
     if fee_warning_data:

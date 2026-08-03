@@ -586,6 +586,8 @@ def confirm_manual(
     company_id: UUID,
     db: Session,
     payment_submethod: Optional[str] = None,
+    actor_id: Optional[UUID] = None,
+    actor_role: str = "OWNER",
 ) -> tuple[Payment, Optional[dict]]:
     """Confirma pagamento CASH ou provider=manual de forma síncrona e idempotente.
 
@@ -602,6 +604,18 @@ def confirm_manual(
         (Payment, dict)       — confirmado, mas taxa não configurada (ver dict).
 
     Idempotência: re-submit em payment já CONFIRMED retorna (payment, None).
+
+    Auditoria (S-housekeeping): grava `confirm_manual_payment` em audit_logs,
+    espelhando `refund` e `apply_manual_discount` — mesmo `SensitiveAuditContext`,
+    mesmo `resource_type="Payment"`, `amount` = valor confirmado. `reason` fica
+    None: ao contrário dos dois vizinhos, este endpoint não pede justificativa
+    (não altera valor, não dá desconto) e a action não está em REASON_REQUIRED.
+
+    O registro é feito ANTES de `confirm()` de propósito: é `confirm()` que faz o
+    commit, então a linha de auditoria entra na MESMA transação do fato. Se a
+    confirmação falhar e sofrer rollback, não fica rastro de algo que não
+    aconteceu — e o caminho idempotente (já confirmado antes) não registra de
+    novo, porque nada novo aconteceu.
     """
     payment = _get_payment(payment_id, company_id, db)
 
@@ -650,6 +664,26 @@ def confirm_manual(
         "value": str(payment.net_charged_amount),
         "fee": str(fee),
     }
+
+    record_sensitive_action(
+        SensitiveAuditContext(
+            actor_id=actor_id,
+            actor_role=actor_role,
+            action="confirm_manual_payment",
+            resource_type="Payment",
+            resource_id=payment.payment_id,
+            company_id=company_id,
+            amount=payment.net_charged_amount,
+            after_snapshot={
+                "payment_method": payment.payment_method,
+                "payment_submethod": effective_submethod,
+                "fee_applied": str(fee),
+                "fee_not_configured": bool(warning_fee_source),
+            },
+        ),
+        db,
+    )
+
     confirmed = confirm(
         payment_id=payment_id,
         event_id=event_id,

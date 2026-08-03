@@ -69,6 +69,21 @@ A restrição original a OWNER/ADMIN apareceu na especificação **sem justifica
 (lista completa, sem paginação — A7), DRE, movimentações, entries, transfers,
 conciliação, `accounts/{id}/balance`, fee-policies, comissões, statement.
 
+#### `confirm-manual` agora deixa rastro
+
+Grava `confirm_manual_payment` espelhando `refund` e `manual-discount`: mesmo
+`SensitiveAuditContext`, `resource_type="Payment"`, `amount`, `after_snapshot`.
+
+**`reason` fica `None`, deliberadamente.** Os vizinhos exigem justificativa
+porque **alteram valor**; confirmar recebimento não altera nada — cobra o
+`net_charged_amount` já fixado na criação.
+
+O registro acontece **antes** de `confirm()`, que é quem commita: audit e fato na
+mesma transação, e o re-submit idempotente não registra duas vezes.
+
+Motivo: com o OPERATOR confirmando recebimento no balcão, "quem bateu o caixa"
+passou a importar.
+
 #### Rotas que o OPERATOR alcança
 
 | Rota | Escopo |
@@ -130,9 +145,30 @@ não import em tempo de módulo; o loader importa no boot do worker, quando
 `celery_app.py` já está carregado.
 
 O entrypoint separado **continua necessário** — é ele que aplica o
-`beat_schedule` —, mas não é barreira anti-ciclo. Os 4 `import` avulsos em
-`celery_beat_entrypoint.py:14-21` ficaram redundantes (inofensivos, `import` é
-idempotente).
+`beat_schedule` —, mas não é barreira anti-ciclo. Os 4 `import` avulsos que
+ficavam em `celery_beat_entrypoint.py:14-21` **foram removidos no housekeeping**:
+eram inertes por três vias — estão em `conf.imports`, o `beat_schedule` despacha
+por **nome**, e `test_celery_task_registration` segue verde.
+
+### ⚠️ O worker roda como root — e a correção não é código
+
+O Celery avisa no boot: `SecurityWarning: You're running the worker with
+superuser privileges` (`uid=0`).
+
+**Não se corrige no `Dockerfile`.** O `entrypoint.sh` precisa de root para
+escrever em `/etc/hosts` (bypass IPv4 do Supabase), e o Dockerfile é
+**compartilhado pelos três serviços** — um `USER` quebraria a API junto.
+
+A saída é no comando do Railway, derrubando o privilégio **depois** do boot:
+
+```
+celery -A app.infrastructure.celery_app:celery_app worker \
+  --loglevel=info --concurrency=2 --uid=nobody --gid=nogroup
+```
+
+O beat tem a mesma exposição e o mesmo tratamento. **Não verificado rodando** —
+`nobody`/`nogroup` são as contas padrão do bookworm; a primeira subida merece
+olhada no log.
 
 ### O teste que protege o invariante
 
@@ -214,17 +250,46 @@ rodadas). Sem mensagem a cliente.
 
 ### Dívidas registradas na medição (não corrigidas)
 
-- **`booking_session_handlers.py:9`** — a docstring diz que a ação "marca sessão
-  como EXPIRED, **libera slot ocupado pelo TTL**". O código só muda `state`; não
-  toca em `reservations` nem em `appointments`. Mesma família do comentário falso
-  de `celery_app.py:17`. Inofensivo hoje (`reservations` está vazia), mas quem
-  ler vai supor que a liberação de slot tem dono — e ela não tem.
+- ~~**`booking_session_handlers.py:9`** — docstring afirmando "libera slot ocupado
+  pelo TTL"~~ → **corrigida no housekeeping**. O handler só muda `state`; a
+  docstring agora diz isso, e diz também que a liberação de slot **não tem dono**.
 - **596 appointments `SCHEDULED` já passados** (563 Le Duc, 33 Paladino Labs)
   contra 138 `COMPLETED`. `SCHEDULED` **ativa a EXCLUDE constraint**, então cada
   um bloqueia aquele horário para sempre. Também explica por que só há 49 NPS —
   a pesquisa nasce em `operation.completed`. ⚠️ Insumo para a FD-1: a comissão
   desenhada para nascer em `operation.completed` **nunca seria calculada**, mesmo
   com o E6 implementado. É problema de operação/UX, não de código.
+
+## Timezone do tenant — um resolvedor canônico, e uma cópia que diverge
+
+**Canônico:** `get_tenant_timezone` em `modules/tenant/service.py` — onde o
+`TenantConfig` mora. `_resolve_tenant_tz` (`appointments/service.py`) **delega**
+a ele desde o housekeeping; não reimplemente.
+
+Comportamento: fallback `America/Sao_Paulo` para tenant sem config, tz vazio,
+`None`, não-string ou inexistente.
+
+### 🔴 Existe uma terceira cópia, inline, e ela NÃO é equivalente
+
+`_assert_slot_available` (`appointments/service.py:140`) resolve o fuso inline,
+com duas diferenças de comportamento:
+
+| | canônico | cópia inline |
+|---|---|---|
+| Checagem de tipo | `isinstance` | `or` |
+| Exceções capturadas | `ZoneInfoNotFoundError` **e** `ValueError` | só `ZoneInfoNotFoundError` |
+
+**Consequência:** num tenant com timezone malformado que produza `ValueError`, o
+canônico cai no fallback e a cópia inline **propaga a exceção** — e ela está no
+caminho de **validação de slot**, a checagem que impede double-booking.
+
+Não foi unificada no housekeeping porque mudar comportamento no caminho de
+gravação não é manutenção. **Está na fila.** Se você for mexer em
+`_assert_slot_available`, resolva isto junto.
+
+⚠️ Mesma assinatura de `calculate_commission` e `mask_cpf_cnpj`: cópias do mesmo
+código que divergiram em silêncio. A diferença aqui é que as duas unificadas eram
+byte-a-byte idênticas — a delegação era segura por construção; esta não é.
 
 ## Isolamento multi-tenant no módulo `users` (S0.2)
 

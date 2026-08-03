@@ -63,17 +63,24 @@ def _publish_slot_released(appointment: Appointment, event_type: str) -> None:
 
 
 def _resolve_tenant_tz(db: Session, company_id: UUID) -> ZoneInfo:
-    """Timezone do tenant (TenantConfig.timezone), fallback America/Sao_Paulo."""
-    config = db.query(TenantConfig).filter(
-        TenantConfig.company_id == company_id
-    ).first()
-    tz_name = getattr(config, "timezone", None)
-    if not isinstance(tz_name, str) or not tz_name:
-        tz_name = "America/Sao_Paulo"
-    try:
-        return ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        return ZoneInfo("America/Sao_Paulo")
+    """Timezone do tenant — delega ao resolvedor canônico de `tenant/service`.
+
+    Era uma segunda cópia, byte-a-byte idêntica, de
+    `tenant.service.get_tenant_timezone`. O nome local permanece porque este é o
+    ponto de uso no caminho de GRAVAÇÃO de horário (`_normalize_start_at`) — o
+    que muda é que a lógica passa a existir num lugar só.
+
+    Fallback e tratamento de tenant sem config são os do canônico, e são os
+    mesmos de antes: sem TenantConfig, `timezone` vazio/não-string ou nome
+    inválido → America/Sao_Paulo; nunca levanta.
+
+    Import local (e não no topo do módulo) de propósito: mantém o grafo de
+    imports de `appointments.service` inalterado — a suíte tem arquivos que
+    dependem de ordem de import (ver `test_sprint2_rbac`).
+    """
+    from app.modules.tenant.service import get_tenant_timezone
+
+    return get_tenant_timezone(db, company_id)
 
 
 def _normalize_start_at(db: Session, company_id: UUID, value: datetime) -> datetime:
