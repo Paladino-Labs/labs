@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import {
   UserCircle,
@@ -13,6 +15,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react"
+import { useAuth, type Role } from "@/context/AuthContext"
 import { PageHeader } from "@/components/PageHeader"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -21,22 +24,33 @@ type Section = {
   icon: LucideIcon
   title: string
   description: string
+  roles: Role[] | "ALL"
 }
 
+const OWNER_ADMIN: Role[] = ["OWNER", "ADMIN"]
+
+// As roles espelham o submenu "Configurações" da Sidebar — este hub é a outra
+// porta para as mesmas telas (a Sidebar recolhida leva a ele). Um card para
+// tela que o papel não abre é menu que leva a erro.
 const SECTIONS: Section[] = [
-  { href: "/settings/perfil",      icon: UserCircle, title: "Meu Perfil",        description: "Nome e informações da sua conta." },
-  { href: "/settings/profile",     icon: Building2,  title: "Perfil da empresa", description: "Dados, identidade visual e contato." },
-  { href: "/settings/security",    icon: KeyRound,   title: "Segurança",         description: "Alterar senha e acesso." },
-  { href: "/settings/usuarios",    icon: UserCog,    title: "Usuários",          description: "Membros da equipe e convites." },
-  { href: "/settings/integracoes", icon: Link2,      title: "Integrações",       description: "WhatsApp, Asaas e pagamentos." },
-  { href: "/comunicacao",          icon: MessageSquare, title: "Comunicação",    description: "Templates e canais de envio." },
-  { href: "/financeiro/taxas",     icon: Percent,    title: "Taxas",             description: "Taxas de maquininha por método." },
-  { href: "/settings/modulos",     icon: Blocks,     title: "Módulos",           description: "Ative ou desative funcionalidades." },
-  { href: "/settings/branding",    icon: Palette,    title: "Branding",          description: "Cores, logo e identidade." },
-  { href: "/relatorios",           icon: BarChart3,  title: "Relatórios",        description: "Acesso rápido a indicadores." },
+  { href: "/settings/perfil",      icon: UserCircle, title: "Meu Perfil",        description: "Nome e informações da sua conta.",       roles: "ALL" },
+  { href: "/settings/profile",     icon: Building2,  title: "Perfil da empresa", description: "Dados, identidade visual e contato.",    roles: OWNER_ADMIN },
+  { href: "/settings/security",    icon: KeyRound,   title: "Segurança",         description: "Alterar senha e acesso.",                roles: "ALL" },
+  { href: "/settings/usuarios",    icon: UserCog,    title: "Usuários",          description: "Membros da equipe e convites.",          roles: OWNER_ADMIN },
+  { href: "/settings/integracoes", icon: Link2,      title: "Integrações",       description: "WhatsApp, Asaas e pagamentos.",          roles: OWNER_ADMIN },
+  { href: "/comunicacao",          icon: MessageSquare, title: "Comunicação",    description: "Templates e canais de envio.",           roles: OWNER_ADMIN },
+  { href: "/financeiro/taxas",     icon: Percent,    title: "Taxas",             description: "Taxas de maquininha por método.",        roles: ["OWNER", "ADMIN", "PROFESSIONAL"] },
+  { href: "/settings/modulos",     icon: Blocks,     title: "Módulos",           description: "Ative ou desative funcionalidades.",     roles: OWNER_ADMIN },
+  { href: "/settings/branding",    icon: Palette,    title: "Branding",          description: "Cores, logo e identidade.",              roles: OWNER_ADMIN },
+  { href: "/relatorios",           icon: BarChart3,  title: "Relatórios",        description: "Acesso rápido a indicadores.",           roles: OWNER_ADMIN },
 ]
 
 export default function ConfiguracoesPage() {
+  const { role } = useAuth()
+  const sections = SECTIONS.filter(
+    (s) => s.roles === "ALL" || s.roles.includes((role ?? "") as Role),
+  )
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -45,7 +59,7 @@ export default function ConfiguracoesPage() {
         description="Gerencie as configurações da sua empresa."
       />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <Link key={s.href} href={s.href}>
             <Card className="h-full cursor-pointer transition-colors hover:border-primary">
               <CardContent className="flex items-start gap-4 p-6">

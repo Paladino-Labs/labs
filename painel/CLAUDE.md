@@ -1,5 +1,83 @@
 # painel — contexto operacional
 
+### O perfil OPERATOR — a tela do balcão
+
+O papel existe para uma pessoa **concluir atendimentos e receber pagamento sem
+encontrar resultado do negócio**. Foi religado depois de o cliente relatar que
+não concluía atendimentos: quem trabalha no balcão evitava o painel, porque o
+painel do dono expõe faturamento.
+
+> **O operador vê a operação corrente; o dono vê o acumulado.**
+
+O recorte é **o dia**. Valor de uma transação ✅ (é como ele cobra), contagem ✅,
+soma do dia corrente ✅, soma que atravessa dias ❌.
+
+**Ao criar tela ou KPI para OPERATOR, aplique o teste:** *este número descreve o
+turno de hoje, ou o negócio?*
+
+#### O que o dashboard dele mostra — e por quê
+
+Só **contagens**: Atendimentos hoje · **A concluir** · Na fila.
+
+⚠️ **"A concluir" não é decoração.** São os `SCHEDULED` com `start_at` já
+passado — e havia 596 deles quando o perfil foi religado. O KPI transforma
+passivo invisível em fila de trabalho; é o que dá ao operador motivo para abrir
+a tela. Sem conclusão não nasce NPS, o ciclo financeiro não fecha, e a comissão
+(gatilho em `operation.completed`) nunca é calculada.
+
+**Não reintroduza agregado aqui.** O KPI "Caixa do dia" e o painel "Cobranças
+pendentes" foram removidos: somavam todos os pagamentos do dia, e a fonte
+(`GET /payments`) é fechada ao papel.
+
+#### `/recebimentos` — tela própria, não adaptação
+
+Consome `GET /payments/today` (dia civil do tenant, sem parâmetro de data, sem
+totais). **Não** é a `financeiro/pagamentos` adaptada por papel — adaptar daria
+dois contratos à mesma tela, que é o que o backend recusou ao criar a rota
+escopada. E, por viver fora de `/financeiro`, o guard daquela área fica absoluto,
+sem exceção.
+
+#### `/caixa` — a aba de movimentações sai inteira
+
+O OPERATOR vê só a conferência de gaveta. A faixa Entradas/Saídas/Saldo saiu
+**junto com a aba que a hospedava**: a fonte dela (`/financial/movements`) é 403
+ao papel, então manter a aba seria manter tela em erro permanente.
+
+`GET /financial/accounts/{id}/balance` foi fechado ao papel no sprint de backend
+(devolvia saldo consolidado). **Não reabrir.**
+
+#### ⚠️ O hub `/configuracoes` e a barra recolhida
+
+Ao incluir um papel no item Configurações do `Sidebar.tsx`, **não basta o
+`roleVisible` dos subitens.** Com a barra **recolhida**, o `NavItemRow` renderiza
+o item pai como link direto para `/configuracoes` — e aquele hub não tinha filtro
+de papel algum: 10 cards para qualquer autenticado.
+
+O hub agora filtra pelas mesmas roles do submenu. Efeito deliberado: o
+PROFESSIONAL, que via 10 cards, passa a ver 3 (Meu Perfil, Segurança, Taxas) —
+os 7 restantes já lhe davam 403 ou redirect. OWNER/ADMIN seguem com 10.
+
+**Sempre que mexer em visibilidade de menu, verifique o modo recolhido.** É o
+caminho que não aparece na leitura do submenu.
+
+#### Guard de rota
+
+`app/(dashboard)/layout.tsx` bloqueia OPERATOR em `/financeiro/*`,
+`/relatorios` e `/comissoes/*` — redirect limpo em vez de tela com erro de API.
+É defesa em profundidade; o backend já responde 403.
+
+#### Dívidas do caminho de pagamento (pré-existentes, não corrigidas)
+
+- **`/payments/{id}` oferece "Confirmar manualmente" para qualquer PENDING**,
+  sem checar `provider == "manual"` como a lista faz. Numa cobrança digital o
+  clique bate no 422 do backend. Vale para **todos os papéis**.
+  ⚠️ Nota de leitura: o `canManage = isOwner || isAdmin` daquela tela cobre
+  **apenas** `DiscountDialog` e `RefundDialog`. O `ConfirmDialog` está sob
+  `{isPending && ...}`, sem gate de papel — a tela sempre permitiu confirmar.
+  Não generalize o gate pelo grep de `isOwner`/`isAdmin`.
+- **`fee_warning`** mandava o operador para `/financeiro/taxas`, que ele não
+  abre. O CTA agora orienta conforme o papel; o backend não mudou.
+
 ## Sprint C Produtos — aviso no painel (1ce4854)
   PendingProductsNotice: componente único, aplicado nas 2 superfícies de
     conclusão (PaymentOnCompleteDialog da Agenda + dialog do appointments/[id]).
