@@ -60,6 +60,7 @@ from .waitlist import WaitlistConfig, WaitlistEntry
 from .crm import CrmConfig, CustomerClassification
 from .intent_classification import IntentClassification, IntentOutcome
 from .product_sale import ProductSale
+from .worker_heartbeat import WorkerHeartbeat
 
 __all__ = [
     "Company",
@@ -154,4 +155,5 @@ __all__ = [
     "IntentClassification",
     "IntentOutcome",
     "ProductSale",
+    "WorkerHeartbeat",
 ]

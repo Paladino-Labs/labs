@@ -86,6 +86,7 @@ from app.modules.nps.router import router as nps_router
 from app.modules.waitlist.router import router as waitlist_router
 from app.modules.crm.router import router as crm_router
 from app.modules.conversations.router import router as conversations_router
+from app.modules.health.router import router as health_deep_router
 
 from app.infrastructure.db.session import engine
 from app.core.db_rls import configure_rls_events
@@ -245,8 +246,15 @@ app.include_router(nps_router)
 app.include_router(waitlist_router)
 app.include_router(crm_router)
 app.include_router(conversations_router)
+app.include_router(health_deep_router)
 
 
 @app.get("/health")
 def health():
+    """Liveness do PROCESSO web — healthcheck de deploy do Railway.
+
+    ⚠️ Não acrescente dependência externa aqui. Se este endpoint reprovar porque
+    o Redis oscilou, um deploy legítimo falha por dependência secundária.
+    Readiness do sistema é `GET /health/deep` (app/modules/health/router.py).
+    """
     return {"status": "ok", "version": "2.0.0"}

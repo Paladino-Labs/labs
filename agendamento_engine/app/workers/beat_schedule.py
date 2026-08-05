@@ -6,7 +6,25 @@ ou passado diretamente como CELERYBEAT_SCHEDULE no worker de beat.
 """
 from celery.schedules import crontab
 
+# ── Batimento do worker (S-heartbeat) ────────────────────────────────────────
+# Separado de propósito: é a ÚNICA entrada segura de ligar hoje. As demais
+# despacham trabalho represado (47 pesquisas NPS de junho, 2 assinaturas a
+# vencer — ver CLAUDE.md "O beat nunca rodou em produção"), e ligá-las é
+# decisão do Silva.
+#
+# ⚠️ O batimento NÃO depende desta entrada. O worker se auto-despacha via
+# `worker_ready` (app/workers/heartbeat.py) — o monitor funciona sem beat
+# nenhum. Esta entrada existe para que, quando o beat subir, o batimento
+# continue vindo pelo caminho canônico; o upsert absorve os dois escritores.
+heartbeat_schedule = {
+    "worker-heartbeat": {
+        "task": "app.workers.heartbeat.worker_heartbeat",
+        "schedule": crontab(minute="*"),
+    },
+}
+
 beat_schedule = {
+    **heartbeat_schedule,
     "reminder-check": {
         "task": "app.workers.reminder_worker.send_reminders",
         "schedule": crontab(minute="*/10"),

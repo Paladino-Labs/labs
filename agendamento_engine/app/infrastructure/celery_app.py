@@ -25,6 +25,10 @@ celery_app.conf.update(
         # app/workers/
         "app.workers.booking_session_worker",
         "app.workers.communication_worker",
+        # ⚠️ Também instala os sinais worker_ready/worker_shutdown que sobem o
+        # auto-despacho do batimento. Sem esta linha o worker não bate — e o
+        # /health/deep fica vermelho, corretamente.
+        "app.workers.heartbeat",
         "app.workers.idempotency_cleanup",
         "app.workers.reminder_worker",
         "app.workers.session_cleanup_worker",
