@@ -116,6 +116,52 @@ Anteriores ao princípio do recorte por dia. **Não corrigidas** — pendência.
 Nenhuma das duas foi decisão explícita: vieram por herança quando o papel foi
 desenhado, antes de existir o critério atual.
 
+## Migrations / Alembic (S-cadeia)
+
+### ⚠️ Migration aplicada em produção não se apaga revertendo código
+
+O revert do S2.1 apagou os arquivos `e0s31_bot_inbound_messages.py` e
+`e0s32_bot_conversation_leases.py`. Mas as migrations **já tinham sido aplicadas
+em produção** — e o `alembic_version` continuou registrando
+`e0s32_bot_conversation_leases`.
+
+Resultado: o Alembic lia a revisão no banco, procurava o arquivo, não encontrava,
+e falhava com `Can't locate revision identified by 'e0s32_...'` **antes de
+qualquer DDL**. O container morria no boot, e o pre-deploy precisou ser desativado
+por semanas.
+
+**Regra:** ao reverter código que inclui migrations, verifique se elas foram
+aplicadas. Se foram, o banco fica **à frente do código** — e reverter os arquivos
+quebra o boot. As saídas são: manter os arquivos (as tabelas ficam órfãs e
+inertes), `alembic stamp` para realinhar o ponteiro, ou uma migration de
+downgrade.
+
+**O que foi feito aqui:** restaurados **apenas os arquivos de migration**, sem
+nenhum código da Entrega B. As duas são SQL cru (`op.execute`) e não importam
+modelos, então restaurá-las isoladamente funciona. As tabelas
+`bot_inbound_messages` e `bot_conversation_leases` seguem em produção, órfãs e
+inertes, até a Entrega B voltar — e as **45 mensagens de 7 clientes** presas ali
+desde o incidente de 22/07 estão preservadas.
+
+### Bifurcação de cadeia — o outro modo de falha
+
+Migrations com ids diferentes ainda quebram se **descenderem da mesma revisão**:
+a cadeia bifurca e `alembic upgrade head` falha com *"Multiple heads"*.
+
+Foi o que quase aconteceu: a migration do heartbeat (`e0s31_worker_heartbeats`) e
+a restaurada (`e0s31_bot_inbound_messages`) têm ids distintos, mas ambas
+declaravam `down_revision = "e0s30_intent_telemetry"`.
+
+**Ao criar migration nova, confirme de qual revisão ela deve descender** — e rode
+`alembic heads` esperando **um único head**. O prefixo do nome do arquivo não é o
+id; o que importa é `revision` e `down_revision`.
+
+Cadeia correta após este sprint:
+
+```
+e0s30_intent_telemetry → e0s31_bot_inbound_messages → e0s32_bot_conversation_leases → e0s33_worker_heartbeats (a renumerar na branch do heartbeat)
+```
+
 ## Registro de tasks do Celery — `conf.imports` é obrigatório (S-registro)
 
 O worker de produção sobe com
