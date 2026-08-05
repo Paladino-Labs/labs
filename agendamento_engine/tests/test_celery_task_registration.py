@@ -146,7 +146,7 @@ class TestImportsIsTheRegistrationSource:
 
 
 class TestTasksDispatchedOutsideTheBeat:
-    """Duas tasks não têm entrada no beat — são chamadas por `.delay()`.
+    """Três tasks não têm entrada no beat — são chamadas por `.delay()`.
 
     Rodam no MESMO worker, então precisam do mesmo registro. Ficam de fora da
     verificação por beat_schedule e por isso são afirmadas em separado.
@@ -157,6 +157,8 @@ class TestTasksDispatchedOutsideTheBeat:
         [
             "app.workers.communication_worker.send_appointment_communication",
             "app.workers.tasks.expire_reservations.dispatch_soft_reservation_expired",
+            # S2.1-A: enfileirada pelo waitlist_handler no cancel/reschedule.
+            "app.workers.handlers.waitlist_handler.notify_waitlist_slot_available",
         ],
     )
     def test_delay_dispatched_task_is_registered(self, worker_registry, task_name):

@@ -186,9 +186,84 @@ importar celery no processo do pytest, senão o guard `if "celery" not in
 sys.modules` dos outros arquivos não dispara e 10 testes de worker quebram
 (sprint13/15/17). Toda inspeção acontece no subprocesso.
 
-Cobre também as 2 tasks despachadas por `.delay()` fora do beat
-(`send_appointment_communication`, `dispatch_soft_reservation_expired`), que a
-verificação pelo `beat_schedule` não alcançaria.
+Cobre também as 3 tasks despachadas por `.delay()`/`.apply_async()` fora do beat
+(`send_appointment_communication`, `dispatch_soft_reservation_expired`,
+`notify_waitlist_slot_available`), que a verificação pelo `beat_schedule` não
+alcançaria.
+
+### Envio externo sai do request (S2.1-A)
+
+Confirmação de agendamento, remarcação e notificação de fila de espera são
+**enfileiradas em Celery**, não enviadas dentro do request.
+
+Antes, o `CommunicationService.dispatch` rodava inline: 3–5 queries + httpx da
+Evolution (timeout 15s) ou SMTP (10s), **pagos pelo cliente na latência**.
+
+⚠️ **O `"fire-and-forget"` do `notifications.py` descrevia só o erro** — o tempo
+era integral no request. Se encontrar afirmação parecida em outro lugar, verifique
+o que ela cobre.
+
+**Os quatro pontos** (enumerados dos 14 call sites de `dispatch`):
+
+| Ponto | Como |
+|---|---|
+| `create_appointment` | enfileira |
+| `reschedule_appointment` | enfileira |
+| `unified_checkout` | **herda** — o laço sobre `services` chama `create_appointment`; packages/subscriptions/products não enviam |
+| `waitlist_handler` (cancel/reschedule) | enfileira, uma task por escopo |
+
+Os dois `dispatch` de `appointments/router.py` (pós-atendimento e
+`product_pickup.reminder`) **não** contam: rodam em `BackgroundTasks`, depois da
+resposta.
+
+#### Degradação é suave — e isso foi o critério
+
+Worker morto: a task fica na fila (`task_acks_late=True` devolve a mensagem se o
+worker cair no meio) e drena quando ele voltar. Broker fora: `apply_async` levanta,
+o `except` loga, o cliente **recebe a resposta normalmente** — perde-se a
+notificação daquele agendamento, não o agendamento.
+
+⚠️ **Foi essa diferença que liberou a Entrega A e adiou a B.** A B faz o webhook
+do bot depender do worker: se ele cair, o **bot fica mudo** (foi o incidente de
+22/07). A B volta depois do epic do bot.
+
+#### `cancel` não notifica quem cancela
+
+⚠️ Não existe `send_cancellation`. `cancel_appointment` publica
+`appointment.cancelled` no EventBus, e o único assinante é o `waitlist_handler` —
+que avisa **a fila de espera**, outros clientes.
+
+O corte foi **dentro do handler**, sem tocar no EventBus: tornar o `publish`
+assíncrono afeta todos os eventos de domínio, inclusive os financeiros, e é
+decisão de arquitetura pendente.
+
+⚠️ **Custo escondido:** quem lê `cancel_appointment` vê `publish`, não vê o httpx.
+Todo handler registrado no bus adiciona tempo ao request de quem publica.
+
+#### A task ressuscitada
+
+`send_appointment_communication` já existia com `max_retries=5`, backoff e
+`_push_dead_letter` — é o único caminho de envio com resiliência real. Foi
+**ressuscitada, não reescrita**.
+
+⚠️ **Reutiliza os helpers de `notifications.py`** (`_use_communication_service`,
+`_get_company_tz`, `_fmt_datetime`). A versão morta divergia do caminho vivo — não
+montava `manage_url` e formatava data como `%d/%m` em vez de por extenso. **Não
+reintroduza renderização própria na task.**
+
+**Branches dormentes:** `no_show` e `reminder_due` não são enfileirados. ⚠️ O
+`no_show` tem defeito conhecido (resolve OWNER, dispara para PROFESSIONAL) —
+preservado byte-a-byte nesta reentrega; corrigir quando o sprint de no-show o
+ativar.
+
+#### ⚠️ `conf.imports` não se sobrescreve
+
+O commit original desta entrega **criava** a chave com 2 entradas. Ela existe
+desde o S-registro com 17 — aplicar cru teria apagado 15 e devolvido o worker ao
+`NotRegistered`.
+
+**Ao acrescentar módulo de task, some à lista; não a redefina.** O
+`test_celery_task_registration` (subprocesso, alvo real de produção) trava isso.
 
 ## ⚠️ O beat nunca rodou em produção — leia antes de ligar
 
@@ -290,6 +365,36 @@ gravação não é manutenção. **Está na fila.** Se você for mexer em
 ⚠️ Mesma assinatura de `calculate_commission` e `mask_cpf_cnpj`: cópias do mesmo
 código que divergiram em silêncio. A diferença aqui é que as duas unificadas eram
 byte-a-byte idênticas — a delegação era segura por construção; esta não é.
+
+#### 🔴 `_get_company_tz` é uma constante disfarçada de resolvedor
+
+`notifications.py::_get_company_tz` consulta `CompanySettings.timezone` — e o
+modelo **não tem essa coluna**. O `AttributeError` é engolido pelo
+`except (ZoneInfoNotFoundError, Exception)`, então a função **sempre** devolve
+`America/Sao_Paulo`, **sem log**.
+
+É a quarta fonte de fuso do sistema, e a única que nem consulta a fonte certa
+(`TenantConfig.timezone`, que o canônico lê).
+
+⚠️ **Inofensiva hoje só por coincidência:** os dois tenants são de São Paulo. Num
+tenant com outro fuso, **toda mensagem de confirmação sai com hora errada,
+silenciosamente** — mesma classe do bug que o F0 corrigiu, ressurgindo por outro
+caminho.
+
+Está no caminho vivo de renderização (a task de envio a usa). Não foi corrigida na
+reentrega porque apontá-la ao canônico **muda a renderização** — é comportamento,
+não manutenção.
+
+⚠️ **Resolver antes de cadastrar tenant fora de São Paulo.**
+
+**Inventário das quatro:**
+
+| Fonte | Estado |
+|---|---|
+| `get_tenant_timezone` (`tenant/service.py`) | ✅ canônico |
+| `_resolve_tenant_tz` (`appointments/service.py`) | ✅ delega ao canônico |
+| inline em `_assert_slot_available` | 🔴 diverge (`or` em vez de `isinstance`; não captura `ValueError`) |
+| `_get_company_tz` (`notifications.py`) | 🔴 **quebrada** — lê coluna inexistente, sempre fallback |
 
 ## Isolamento multi-tenant no módulo `users` (S0.2)
 
