@@ -121,13 +121,28 @@ def db_session(engine):
     import app.infrastructure.db.models.user_invitation as ui_module
     import app.infrastructure.db.models.user as u_module
 
+    # Re-vincula TAMBÉM os namespaces consumidores (idioma de test_user_name.py):
+    # users/service e activate_service importam User/UserInvitation no topo do
+    # módulo — patchar só os módulos de modelo funciona apenas se este arquivo
+    # for o primeiro a importar o service (contaminação de ordem de import).
+    import app.modules.users.service as users_svc_module
+    import app.modules.auth.activate_service as activate_module
+
     orig_al = al_module.AuditLog
     orig_ui = ui_module.UserInvitation
     orig_user = u_module.User
+    orig_svc_user = users_svc_module.User
+    orig_svc_ui = users_svc_module.UserInvitation
+    orig_act_user = activate_module.User
+    orig_act_ui = activate_module.UserInvitation
 
     al_module.AuditLog = TAuditLog
     ui_module.UserInvitation = TUserInvitation
     u_module.User = TUser
+    users_svc_module.User = TUser
+    users_svc_module.UserInvitation = TUserInvitation
+    activate_module.User = TUser
+    activate_module.UserInvitation = TUserInvitation
 
     # Também patch nos __init__ imports
     import app.infrastructure.db.models as models_pkg
@@ -143,6 +158,10 @@ def db_session(engine):
         al_module.AuditLog = orig_al
         ui_module.UserInvitation = orig_ui
         u_module.User = orig_user
+        users_svc_module.User = orig_svc_user
+        users_svc_module.UserInvitation = orig_svc_ui
+        activate_module.User = orig_act_user
+        activate_module.UserInvitation = orig_act_ui
         models_pkg.AuditLog = orig_al
         models_pkg.UserInvitation = orig_ui
         models_pkg.User = orig_user

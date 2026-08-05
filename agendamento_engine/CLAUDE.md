@@ -346,21 +346,53 @@ UUIDs — trocaria um vazamento de escrita por um de leitura.
   o que levantaria `ArgumentError`. Inalcançável hoje (o guard de entrada exige
   OWNER, que sempre tem `company_id`), mas armado se aquele gate for flexibilizado.
   **Ocorrência única** no módulo — `cancel_invitation` é correto por construção.
-- **12 testes de RBAC não rodam na suíte completa** — ver abaixo.
+- ~~12 testes de RBAC não rodam na suíte completa~~ — resolvido no S0.4, desfeito
+  pelo revert do S2.1, restaurado no S0.4-bis.
 
-### ⚠️ `test_sprint2_rbac.py` — cobertura desligada
+#### ✅ `test_sprint2_rbac.py` — resolvido no S0.4, restaurado no S0.4-bis
 
-As 12 falhas "pré-existentes conhecidas" da suíte **não são ruído**: são classes de
-`test_sprint2_rbac.py` (incluindo `TestAssignRoleService` e `TestDeactivateUser`)
-que falham por **contaminação de ordem de import** — o monkey-patch de modelos do
-arquivo não re-vincula o `User` que `users/service.py` já importou, então qualquer
-arquivo que importe o service antes quebra o arquivo inteiro. Isoladas, passam 35/35.
+Até o S0.4, as 12 falhas "pré-existentes conhecidas" da suíte eram classes deste
+arquivo que não rodavam por contaminação de ordem de import — cobertura de RBAC
+efetivamente desligada, incluindo os endpoints corrigidos no S0.2.
 
-**Consequência:** a cobertura de RBAC destes endpoints está efetivamente desligada
-na suíte completa. Foi um dos dois motivos pelos quais os vazamentos do S0.2
-sobreviveram — o outro é que nenhum dos testes existentes cobria cenário
-cross-tenant. Não normalize essas falhas como "conhecidas": é um mecanismo de
-defesa em silêncio. Correção na fila.
+Foi um dos dois motivos pelos quais os vazamentos cross-tenant sobreviveram. O
+outro: nenhum teste existente cobria cenário cross-tenant (medido no S0.4 — as
+linhas do `raise 404` do filtro de posse permanecem em `Missing` nessas classes).
+
+**Corrigido no S0.4.** Mecanismo e limitações em "Ambiente de testes".
+
+#### Estado da suíte
+
+**A suíte fecha em 0 failed.** Não há falha normalizada para descontar — qualquer
+falha nova significa alguma coisa.
+
+Histórico: o S0.4 religou `test_sprint2_rbac.py` e levou a suíte a 0 failed pela
+primeira vez. O revert do S2.1 desfez isso (ver abaixo), e o S0.4-bis restaurou.
+
+## ⚠️ `git revert -m 1` de um merge desfaz TUDO daquele merge
+
+Aconteceu: a branch do S2.1 nasceu **de cima do S0.4**, o PR #1 mesclou os dois
+juntos, e quando o S2.1 precisou ser revertido (não havia worker Celery em
+produção, o bot ficou mudo), o revert desfez **também o S0.4** — 19 linhas do
+fixture de `test_sprint2_rbac.py`, a remoção da convenção obsoleta em
+`test_sprint16_promotions.py` e a documentação deste arquivo.
+
+A cobertura de RBAC ficou desligada por dias, sem ninguém perceber, porque as 12
+falhas voltaram a parecer "as de sempre".
+
+**Antes de reverter um merge, leia o `--stat` do revert.** É onde os arquivos que
+você *não* pretendia desfazer ficam visíveis. Um `19 -` num arquivo de teste que
+nada tem a ver com o motivo do revert é o sinal.
+
+⚠️ **E remesclar não conserta.** Os commits continuam sendo ancestrais de `main`
+através do merge revertido, então `git merge` responde *"Already up to date"* —
+a linhagem está lá, o conteúdo não. A restauração é por
+`git checkout <commit> -- <arquivos>` (ou cherry-pick, se o commit não carregar
+conteúdo fora de escopo).
+
+**Consequência de desenho:** branch que nasce de cima de outra ainda não mesclada
+acopla as duas no revert. Se um trabalho pode precisar voltar atrás sozinho, ele
+deve sair de `main`.
 
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
@@ -1281,8 +1313,6 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
   EXPIRED; Coupon ACTIVE vencido → CANCELLED
 - `coupon_reopen_policy`: NEVER_REOPEN (default) | REOPEN_ON_REFUND
 - Testes: tests/test_sprint16_promotions.py (27 + 1 skip PostgreSQL)
-  ⚠ NÃO importar app.main em arquivos de teste que rodem antes de
-  test_sprint2_rbac (quebra o monkey-patch de modelos daquele arquivo)
 
 **HEAD migration:** e0s16a_promotions_coupons
 
@@ -1611,6 +1641,73 @@ NUNCA usar `pytest` direto — o Python global (pyenv) não tem `slowapi`, causa
 #### test_user_name.py — 9 ModuleNotFoundError
 Causa: importa `app.main` → carrega `slowapi` ausente no Python global.
 Solução: sempre usar `.\venv\Scripts\python.exe -m pytest`. Não confundir com regressão — ignorar quando usando venv.
+
+### Testes que exercitam services contra SQLite — o idioma do monkey-patch
+
+Alguns arquivos de teste rodam os services contra uma **sessão SQLite real**
+(INSERT/UPDATE/flush/refresh de verdade, não mock). Isso exige contornar os tipos
+do PostgreSQL: `User.id` é `postgresql.UUID(as_uuid=True)`, cujo bind processor
+chama `.hex` numa string e levanta
+`StatementError: 'str' object has no attribute 'hex'` — e a `Base` completa usa
+ARRAY/JSONB/EXCLUDE, então `create_all` real também não funciona.
+
+O contorno: espelhar as tabelas necessárias numa `TestBase` com PKs `String(36)`
+e re-vincular as referências de modelo no fixture.
+
+⚠️ **Patchar os módulos de modelo NÃO é suficiente.** Services importam os
+modelos no topo (`users/service.py:14`, `activate_service.py:11`), então o vínculo
+congela na primeira importação do service. Se qualquer arquivo de teste importar o
+service antes, o patch não alcança — e o arquivo inteiro falha.
+
+**Sempre re-vincular também os namespaces consumidores**, com restauração no
+teardown. É o idioma usado em `test_user_name.py`,
+`test_sprint27_professional_scope.py`, `test_sprint28_professional_contact.py`,
+`test_working_hours_multiperiod.py` e (desde o S0.4) `test_sprint2_rbac.py`.
+
+Namespaces patchados hoje em `test_sprint2_rbac.py`:
+
+| Namespace | Símbolos |
+|---|---|
+| `app.infrastructure.db.models.audit_log` | `AuditLog` |
+| `app.infrastructure.db.models.user_invitation` | `UserInvitation` |
+| `app.infrastructure.db.models.user` | `User` |
+| `app.infrastructure.db.models` (pacote) | `AuditLog`, `UserInvitation`, `User`, `InvitationStatus` |
+| `app.modules.users.service` | `User`, `UserInvitation` |
+| `app.modules.auth.activate_service` | `User`, `UserInvitation` |
+
+**Limitação conhecida:** a lista é explícita. Um consumidor novo que importe esses
+modelos no topo e entre no caminho dos testes quebra com o mesmo erro `.hex` —
+**falha barulhenta, não silenciosa**. Se você tropeçar nesse erro depois de
+adicionar um service ou um import, acrescente o namespace ao fixture.
+
+Eliminar a classe de problema exigiria refactor suite-wide da estratégia de
+fixtures — está na fila, não é urgente enquanto a falha for barulhenta.
+
+#### ❌ Convenção obsoleta (removida no S0.4)
+
+Havia uma nota (em `test_sprint16_promotions.py` e neste arquivo) instruindo a
+**não importar `app.main` antes de `test_sprint2_rbac`**. Era contorno do sintoma:
+evitava-se o gatilho em vez de corrigir a causa. **Não vale mais** — o fixture é
+robusto a ordem desde o S0.4, verificado em 6 permutações. Não replique essa
+restrição em testes novos.
+
+#### As duas coberturas de RBAC são complementares — não confunda
+
+| Arquivo | O que verifica |
+|---|---|
+| `test_sprint2_rbac.py` | **Permissão** — quem pode fazer o quê (anti-escalonamento, papéis, guards 403/422) |
+| `test_s02_cross_tenant_users.py` | **Posse** — sobre *quem* a ação recai (o alvo pertence ao tenant do ator?) |
+
+Medido no S0.4 e reconfirmado no S0.4-bis: as classes `TestAssignRoleService` e
+`TestDeactivateUser` exercitam o service real e atravessam até o banco (76,3% de
+`app/modules/users/service.py`), **mas as linhas do `raise 404` do filtro de posse
+(S0.2 — `service.py:223` e `service.py:276`) não executam** — ou seja, esses testes
+passariam contra o código pré-S0.2.
+
+**Religar os 12 não substitui o S0.2.** Foi essa a combinação que deixou os
+vazamentos cross-tenant sobreviverem: cobertura de permissão desligada por
+contaminação de ordem, e cobertura de posse inexistente. Ao mexer nesses
+endpoints, os dois arquivos precisam continuar verdes.
 
 ### Testes skipados sem DATABASE_URL (PostgreSQL real) — validados 2026-06-08
 
