@@ -10,6 +10,11 @@ Todos os 4 fluxos de appointment são críticos: Celery task direta (não EventB
 O evento publicado para lembretes é único (reminder_due); o handler deriva
 o nome do template (reminder_24h ou reminder_2h) via payload["interval"].
 
+S2.1-A: send_appointment_communication voltou a ser enfileirada — por
+notifications.send_booking_confirmation/reschedule — e é o caminho pelo qual
+appointment.confirmed sai do request HTTP. Os demais eventos da lista acima
+seguem dormantes (nada os enfileira).
+
 Sprint I: chamadas diretas ao evolution_client foram removidas — todo envio
 passa pelo CommunicationService. A flag
 TenantConfig.permission_overrides["use_communication_service"] é kill-switch
@@ -18,6 +23,7 @@ TenantConfig.permission_overrides["use_communication_service"] é kill-switch
 import logging
 from uuid import UUID
 
+from app.core.celery_db_context import celery_db_session
 from app.infrastructure.celery_app import celery_app
 from app.infrastructure.db.session import SessionLocal
 
@@ -57,103 +63,117 @@ def send_appointment_communication(
     event_type: str,
     appointment_id: str,
     company_id: str,
+    manage_token: str | None = None,
     interval: str | None = None,
 ):
     """
-    Envia comunicação para um evento de agendamento via CommunicationService.
+    Envia comunicação de um evento de agendamento via CommunicationService.
 
-    Executa salvo opt-out explícito: permission_overrides["use_communication_service"] = False.
+    Enfileirada por notifications.send_booking_confirmation/reschedule (S2.1-A) —
+    tira o envio (3-5 queries + httpx Evolution 15s / SMTP 10s) do request HTTP.
+    Executa salvo opt-out: permission_overrides["use_communication_service"]=False.
+
+    O contexto (data por extenso + manage_url) reutiliza os helpers de
+    renderização de notifications.py, mantendo paridade com o caminho síncrono
+    antigo — o payload da task é 100% escalar (IDs + token), re-hidratado aqui.
+
+    Só appointment.confirmed é enfileirado hoje; reminder_due/no_show ficam
+    DORMANTES (lembretes vêm do reminder_worker; no-show é sprint próprio — e o
+    branch abaixo tem defeito conhecido, ver comentário lá).
     """
-    db = SessionLocal()
     try:
-        from app.core.db_rls import set_rls_context
-        set_rls_context(db, company_id)
-        from app.infrastructure.db.models.tenant_config import TenantConfig
-        from app.infrastructure.db.models import Appointment, Customer
+        with celery_db_session(company_id) as db:
+            from app.infrastructure.db.models import Appointment, Customer
+            from app.modules import notifications
+            from app.modules.appointments.manage_tokens import build_manage_url
 
-        company_uuid = UUID(company_id)
-        appt_uuid = UUID(appointment_id)
+            company_uuid = UUID(company_id)
+            appt_uuid = UUID(appointment_id)
 
-        # Feature flag (kill-switch): ausente → True (default Sprint I)
-        config = db.query(TenantConfig).filter(TenantConfig.company_id == company_uuid).first()
-        overrides = (config.permission_overrides or {}) if config else {}
-        if not overrides.get("use_communication_service", True):
-            logger.debug(
-                "communication_worker: flag use_communication_service desligado company=%s",
-                company_id,
-            )
-            return
-
-        appt = db.query(Appointment).filter(
-            Appointment.id == appt_uuid,
-            Appointment.company_id == company_uuid,
-        ).first()
-        if not appt:
-            logger.warning("communication_worker: appointment não encontrado id=%s", appointment_id)
-            return
-
-        customer = db.query(Customer).filter(Customer.id == appt.client_id).first()
-        if not customer or not customer.phone:
-            logger.debug("communication_worker: cliente sem phone appt_id=%s", appointment_id)
-            return
-
-        # Deriva event_type para template de lembrete
-        template_event = event_type
-        if event_type == "appointment.reminder_due" and interval:
-            template_event = f"appointment.reminder_{interval}"
-
-        prof_name = appt.professional.name if appt.professional else "profissional"
-        svc_name = appt.services[0].service_name if appt.services else "serviço"
-
-        from zoneinfo import ZoneInfo
-        from datetime import timezone
-        from app.infrastructure.db.models.company_settings import CompanySettings
-        tz_row = db.query(CompanySettings.timezone).filter(
-            CompanySettings.company_id == company_uuid
-        ).first()
-        tz = ZoneInfo(tz_row.timezone if tz_row and tz_row.timezone else "America/Sao_Paulo")
-        start_local = appt.start_at.astimezone(tz) if appt.start_at.tzinfo else appt.start_at
-
-        context = {
-            "cliente_nome": customer.name,
-            "horario": start_local.strftime("%H:%M"),
-            "data": start_local.strftime("%d/%m"),
-            "servico": svc_name,
-            "profissional": prof_name,
-            "empresa_nome": "",
-            "recipient_phone": customer.phone,
-        }
-
-        from app.modules.communication.service import communication_service
-        communication_service.dispatch(
-            event_type=template_event,
-            company_id=company_uuid,
-            context=context,
-            recipient_id=customer.id,
-            recipient_type="CLIENT",
-            db=db,
-        )
-
-        # Para no_show: notificar PROFESSIONAL e OWNER também
-        if event_type == "appointment.no_show" and appt.professional:
-            from app.infrastructure.db.models import User
-            owner = db.query(User).filter(
-                User.company_id == company_uuid,
-                User.role == "OWNER",
-                User.active == True,
-            ).first()
-            if owner and owner.id:
-                communication_service.dispatch(
-                    event_type=template_event,
-                    company_id=company_uuid,
-                    context=context,
-                    recipient_id=appt.professional.user_id if hasattr(appt.professional, "user_id") else appt.professional.id,
-                    recipient_type="PROFESSIONAL",
-                    db=db,
+            # Kill-switch (mesmo helper do caminho vivo): ausente → True.
+            if not notifications._use_communication_service(db, company_uuid):
+                logger.debug(
+                    "communication_worker: flag use_communication_service desligado company=%s",
+                    company_id,
                 )
+                return
+
+            appt = db.query(Appointment).filter(
+                Appointment.id == appt_uuid,
+                Appointment.company_id == company_uuid,
+            ).first()
+            if not appt:
+                logger.warning("communication_worker: appointment não encontrado id=%s", appointment_id)
+                return
+
+            customer = db.query(Customer).filter(Customer.id == appt.client_id).first()
+            if not customer or not customer.phone:
+                logger.debug("communication_worker: cliente sem phone appt_id=%s", appointment_id)
+                return
+
+            # Deriva event_type para template de lembrete (dormante)
+            template_event = event_type
+            if event_type == "appointment.reminder_due" and interval:
+                template_event = f"appointment.reminder_{interval}"
+
+            prof_name = appt.professional.name if appt.professional else "profissional"
+            svc_name = appt.services[0].service_name if appt.services else "serviço"
+
+            # Renderização idêntica ao caminho vivo (data por extenso + manage_url):
+            # os helpers de notifications.py são a fonte única. NÃO reintroduzir
+            # formatação própria aqui — foi assim que a task divergiu antes.
+            tz = notifications._get_company_tz(db, company_uuid)
+            data, hora = notifications._fmt_datetime(appt.start_at, tz)
+            manage_url = build_manage_url(manage_token) if manage_token else ""
+
+            context = {
+                "cliente_nome": customer.name,
+                "horario": hora,
+                "data": data,
+                "servico": svc_name,
+                "profissional": prof_name,
+                "empresa_nome": "",
+                "manage_url": manage_url,
+                "recipient_phone": customer.phone,
+            }
+
+            from app.modules.communication.service import communication_service
+            communication_service.dispatch(
+                event_type=template_event,
+                company_id=company_uuid,
+                context=context,
+                recipient_id=customer.id,
+                recipient_type="CLIENT",
+                db=db,
+            )
+
+            # Para no_show: notificar PROFESSIONAL e OWNER também.
+            #
+            # ⚠ DORMANTE E DEFEITUOSO — preservado byte-a-byte de propósito. O
+            # branch resolve o OWNER e depois despacha para o PROFESSIONAL, o
+            # que não é o que a intenção original descreve. Nada enfileira
+            # appointment.no_show hoje, então o defeito é inalcançável; corrigi-lo
+            # está na fila, em sprint próprio. Este sprint só move o envio de
+            # appointment.confirmed para fora do request.
+            if event_type == "appointment.no_show" and appt.professional:
+                from app.infrastructure.db.models import User
+                owner = db.query(User).filter(
+                    User.company_id == company_uuid,
+                    User.role == "OWNER",
+                    User.active == True,
+                ).first()
+                if owner and owner.id:
+                    communication_service.dispatch(
+                        event_type=template_event,
+                        company_id=company_uuid,
+                        context=context,
+                        recipient_id=appt.professional.user_id if hasattr(appt.professional, "user_id") else appt.professional.id,
+                        recipient_type="PROFESSIONAL",
+                        db=db,
+                    )
 
     except Exception as exc:
-        db.rollback()
+        # celery_db_session já fez rollback e fechou a sessão ao propagar.
         logger.exception(
             "communication_worker: erro event=%s appt=%s attempt=%d",
             event_type, appointment_id, self.request.retries,
@@ -166,8 +186,6 @@ def send_appointment_communication(
                 exc,
             )
         raise
-    finally:
-        db.close()
 
 
 @celery_app.task(

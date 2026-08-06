@@ -32,6 +32,10 @@ celery_app.conf.update(
         "app.workers.idempotency_cleanup",
         "app.workers.reminder_worker",
         "app.workers.session_cleanup_worker",
+        # app/workers/handlers/ — handler de EventBus que também hospeda task
+        # (notify_waitlist_slot_available, enfileirada por .delay/.apply_async
+        #  a partir do próprio handler; S2.1-A)
+        "app.workers.handlers.waitlist_handler",
         # app/workers/tasks/
         "app.workers.tasks.crm_recompute",
         "app.workers.tasks.customer_credit_expiry",
