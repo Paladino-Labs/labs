@@ -1,4 +1,4 @@
-﻿## RBAC — papéis
+## RBAC — papéis
 
 ### O recorte do papel OPERATOR: o dia
 
@@ -159,7 +159,7 @@ id; o que importa é `revision` e `down_revision`.
 Cadeia correta após este sprint:
 
 ```
-e0s30_intent_telemetry → e0s31_bot_inbound_messages → e0s32_bot_conversation_leases → e0s33_worker_heartbeats (a renumerar na branch do heartbeat)
+e0s30_intent_telemetry → e0s31_bot_inbound_messages → e0s32_bot_conversation_leases → e0s33_worker_heartbeats (renumerada para e0s33 no S-renumerar)
 ```
 
 ## Registro de tasks do Celery — `conf.imports` é obrigatório (S-registro)
@@ -545,6 +545,120 @@ conteúdo fora de escopo).
 acopla as duas no revert. Se um trabalho pode precisar voltar atrás sozinho, ele
 deve sair de `main`.
 
+## Bot S-bot-1 — telemetria ponta a ponta + reações (e0s34)
+
+### `bot_message_traces` — enxergar o bot de ponta a ponta
+
+Uma linha por evento recebido no webhook — **inclusive os que antes sumiam sem
+rastro**: instância desconhecida, grupo, duplicata, JSON inválido, evento não
+tratado.
+
+Existe para responder uma pergunta que o log não respondia:
+
+> **Quando o bot erra, onde ele erra?**
+
+Os três casos ficam distintos numa linha só:
+
+| Diagnóstico | Assinatura no trace |
+|---|---|
+| O regex **não casou** | `classifier.regex.matched = false` |
+| **Casou errado** | `matched = true`, `final.intent` ≠ o que o texto pedia, `routing.decision = ROUTED` |
+| Casou certo e **o handler não tratou** | `routing.decision = ROUTED`, `dispatch.handler` preenchido, `outbound` com menu genérico |
+
+#### ⚠️ ContextVar, não parâmetro
+
+O trace **não viaja pela assinatura de nenhuma função**. Vive num `ContextVar`
+aberto no webhook e lido nos pontos de instrumentação.
+
+Passar o objeto por ~40 handlers seria refatorar — e instrumentar não é
+refatorar. **Nenhuma assinatura mudou neste sprint.** Ao acrescentar ponto de
+instrumentação, leia o `ContextVar`; não propague parâmetro.
+
+#### ⚠️ Sessão de banco própria
+
+A gravação usa sessão **separada** da do request. Deliberado: **o trace de uma
+falha precisa sobreviver ao rollback dela.** Custa uma conexão a mais por evento,
+do mesmo pool — desprezível no volume do bot.
+
+#### Abandono é derivado, não gravado
+
+É a última linha de um `whatsapp_hash` sem nenhuma depois. Calcular inline
+exigiria um segundo write posterior; derivar por query é exato e não custa nada.
+
+#### Kill-switch e expurgo
+
+`BOT_TRACE_ENABLED=false` desliga toda a gravação sem tocar em código.
+
+Retenção **30 dias**, com expurgo **oportunista no próprio processo do webhook**
+(a cada 50 gravações, no máximo 1×/hora). Não usa beat nem worker:
+- o beat não existe em produção, e ligá-lo tem passivo próprio
+- enfileirar faria o webhook depender do worker — que é o desenho da Entrega B,
+  adiada porque worker caído deixa **o bot mudo** (incidente de 22/07)
+
+⚠️ **Revisitar em 2026-09-07** — quando a primeira linha atinge a retenção e o
+mecanismo fica observável pela primeira vez.
+
+#### Privacidade
+
+Mascarado ou removido: telefone (mascarado + hash para agrupar), `pushName`,
+miniaturas, chaves de mídia, `contextInfo` (que carrega o conteúdo da mensagem
+citada), metadados de aparelho; strings > 400 chars viram marcador de tamanho.
+
+**O texto do cliente é mantido** — decisão do Silva. Sem ele a telemetria não
+serve para ver formas de falar, e o mesmo texto já é gravado em
+`intent_classifications.raw_input` e `conversation_messages.content`.
+
+⚠️ **O alcance do trace é maior** que o dos dois: `raw_input` só grava texto livre
+nos estados de entrada, `conversation_messages` só grava conversas escaladas. O
+trace grava **toda mensagem, em todo estado**. Não há tela nem rota expondo —
+leitura é por SQL.
+
+⚠️ `ConsentRecord.DATA_PROCESSING` existe no enum e **não tem consumidor no
+código**. Formalmente nada autoriza nem proíbe esta gravação.
+
+### Reações do WhatsApp — e a classe de mensagens que reinicia o bot
+
+#### Como a reação chega
+
+**Não tem evento próprio.** Vem dentro de `messages.upsert`, como
+`message.reactionMessage = {key: {…mensagem reagida…}, text: "👍"}`.
+`MESSAGES_UPSERT` já está assinado, então ela sempre chegou.
+
+**Por que reiniciava o bot:** `helpers.extract_user_text` conhece 6 formatos e
+não conhecia esse — devolvia `""`. Texto vazio atravessa o pipeline inteiro: não
+casa comando universal, o classificador é pulado (exige texto não-vazio), e o
+handler do estado reexibe o menu.
+
+#### O comportamento: ignorar sempre
+
+`extract_reaction` detecta e o dispatcher retorna **antes do lock de sessão**.
+Reagir 👍 quando o bot pergunta "qual horário?" não confirma nada; ignorar nunca
+atrapalha fluxo em andamento.
+
+⚠️ **O `return` antes do lock é o que garante efeito colateral zero:** a reação
+não consome `last_message_id` (se consumisse, a mensagem seguinte pareceria
+duplicata), não renova TTL e não toca o estado. Coberto por teste.
+
+Retirar a reação usa o mesmo formato com `text` vazio — também é ignorada
+(`removed: true` no trace).
+
+#### Sem mapa de emoji, e por quê
+
+Com a decisão de ignorar sempre, um mapa emoji→significado **não teria
+consumidor** — seria código morto no dia em que nascesse (a A2 catalogou 12
+desses). O emoji **é registrado** na telemetria; o mapa nasce depois, se os dados
+justificarem — com consumidor.
+
+#### 🔴 A reação era um caso de uma classe maior
+
+Todo tipo que `extract_user_text` não conhece produz **exatamente o mesmo
+sintoma**: áudio, imagem, sticker, vídeo, documento, localização, contato e
+`protocolMessage` (mensagem apagada) chegam com texto vazio e reexibem o menu.
+
+**Não corrigido** — fora do escopo do sprint. A coluna `message_type` mede quais
+estão chegando; a **query 6** do relatório é o insumo para decidir entre
+tratamento genérico ("não entendi esse tipo de mensagem") e remendo por tipo.
+
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
   com o web) NÃO conhece turno — engine com ZERO mudanças.
@@ -681,6 +795,29 @@ deve sair de `main`.
     (source=LLM real no fluxo). Suíte 1183 passed (12 rbac pré-existentes) +
     17 novos (tests/test_bot_f5a_shadow_telemetry.py); test_sprint26 atualizado
     (deliberado): FALAR_COM_HUMANO via LLM agora exige LLM_MODE=live p/ rotear.
+
+#### ⚠️ `LLM_MODE` NÃO desliga a chamada da LLM
+
+`LLM_MODE` governa o **roteamento**, não a chamada. Ela é lida em
+`_classify_and_route`, **depois** de a LLM já ter sido chamada e paga. Mexer nela
+não economiza um milissegundo.
+
+Quem decide a chamada é **`LLM_API_KEY`** (`llm_classifier.py:90`): sem chave,
+retorno imediato, sem rede, sem latência.
+
+**Para desligar:**
+
+```
+LLM_API_KEY=          ← esvaziar
+LLM_MODE=shadow       ← MANTER; não mexer
+```
+
+Os dados acumulados (`intent_classifications`, `intent_outcomes`) não são
+tocados; a coleta apenas para.
+
+⚠️ **Ao ler os dados:** linhas `FALLBACK` têm `llm_provider` preenchido mesmo sem
+LLM real — o curto-circuito acontece depois de `llm_latency_ms` ser medido.
+**Filtre por `source`, nunca por `llm_provider`.**
 
 ## Telemetria de intenção — avisos de qualidade de dados
   - Filtrar por source (REGEX|LLM|FALLBACK), NÃO por llm_provider: linhas

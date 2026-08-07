@@ -134,6 +134,15 @@ class Settings(BaseSettings):
     # independente deste flag.
     LLM_MODE: str = "shadow"
 
+    # ── Telemetria ponta a ponta do bot (S-bot-1) ─────────────────────────────
+    # Instrumento DESCARTÁVEL: existe para o redesenho do catálogo de intenções
+    # ser feito com dados. BOT_TRACE_ENABLED=false desliga toda a gravação sem
+    # tocar em código (kill-switch); o processamento do bot é idêntico nos dois
+    # modos. Retenção via expurgo oportunista em whatsapp/trace.py — NÃO depende
+    # do beat (que não roda em produção) nem do worker Celery.
+    BOT_TRACE_ENABLED: bool = True
+    BOT_TRACE_RETENTION_DAYS: int = 30
+
     class Config:
         env_file = ".env"
         extra = "ignore"   # ignora vars no .env não declaradas aqui

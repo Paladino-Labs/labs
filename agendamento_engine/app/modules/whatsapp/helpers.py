@@ -103,6 +103,70 @@ def extract_user_text(data: dict) -> str:
     return msg.get("conversation", "") or msg.get("extendedTextMessage", {}).get("text", "")
 
 
+# Tipos de mensagem que a Evolution entrega dentro de messages.upsert.
+# A ordem importa: `conversation` e `extendedTextMessage` são texto; qualquer
+# outra chave é um tipo que o extract_user_text NÃO sabe ler — e todo tipo que
+# ele não sabe ler chega ao dispatcher como string vazia.
+_KNOWN_TEXT_KEYS = ("conversation", "extendedTextMessage")
+
+
+def extract_message_type(data: dict) -> str:
+    """Nome do tipo de mensagem — para a telemetria discriminar o que chegou.
+
+    Usa `messageType` quando a Evolution o envia; senão deriva da primeira
+    chave de `message`. "" quando não há mensagem (evento de conexão, etc.).
+    """
+    if not isinstance(data, dict):
+        return ""
+    declared = data.get("messageType")
+    if isinstance(declared, str) and declared:
+        return declared
+    msg = data.get("message") or {}
+    if not isinstance(msg, dict):
+        return ""
+    for k in msg:
+        if k not in ("messageContextInfo",):
+            return str(k)
+    return ""
+
+
+def extract_reaction(data: dict) -> Optional[dict]:
+    """Extrai a reação de emoji, se a mensagem for uma.
+
+    ⚠️ A reação NÃO tem evento próprio. Ela chega dentro de `messages.upsert`
+    (o mesmo evento das mensagens normais), como
+    `message.reactionMessage = {key: {…mensagem reagida…}, text: "👍"}`.
+    Por isso ela atravessava todo o pipeline: `extract_user_text` não conhece
+    `reactionMessage` e devolvia "", e texto vazio no MENU_PRINCIPAL reexibe o
+    menu — que é o "bot reiniciou" relatado pelo cliente.
+
+    `text` vazio = reação REMOVIDA (o WhatsApp usa o mesmo formato para tirar a
+    reação). Ambos os casos são reação, e ambos são ignorados.
+
+    Sem mapa semântico de emoji, deliberadamente: a decisão é ignorar sempre,
+    independentemente do estado — reagir 👍 a "qual horário?" não confirma nada.
+    Um mapa emoji→significado seria código morto. O emoji é REGISTRADO na
+    telemetria para que a decisão possa ser revista depois, com dados.
+
+    Retorna {"emoji", "target_message_id", "removed"} ou None.
+    """
+    if not isinstance(data, dict):
+        return None
+    msg = data.get("message")
+    if not isinstance(msg, dict):
+        return None
+    reaction = msg.get("reactionMessage")
+    if not isinstance(reaction, dict):
+        return None
+    emoji = reaction.get("text") or ""
+    target = reaction.get("key") or {}
+    return {
+        "emoji": emoji,
+        "target_message_id": (target.get("id") or "") if isinstance(target, dict) else "",
+        "removed": not bool(emoji),
+    }
+
+
 def is_universal_command(text: str) -> Optional[str]:
     """Detecta comandos globais independente do estado atual.
 

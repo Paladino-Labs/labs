@@ -12,16 +12,22 @@ Hierarquia de tentativas:
 import logging
 
 from app.modules.whatsapp import evolution_client
+from app.modules.whatsapp import trace
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 def send_text(instance: str, to: str, text: str) -> None:
+    # Telemetria S-bot-1: a saída é capturada aqui, no ponto único por onde
+    # TODO envio do bot passa. É o que responde "o que o bot respondeu" — e,
+    # cruzado com o silêncio do cliente depois, é o sinal de abandono.
     try:
         evolution_client.send_text(instance, to, text)
+        trace.note_outbound("text", text, ok=True)
     except Exception as e:
         logger.error("send_text failed to=%s: %s", to, e)
+        trace.note_outbound("text", text, ok=False)
 
 
 def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None:
@@ -39,6 +45,7 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
         ]
         try:
             evolution_client.send_poll(instance, to, name=text, values=values)
+            trace.note_outbound("poll", f"{text} :: {' | '.join(values)}")
             return
         except Exception as e:
             logger.warning("send_poll (buttons) falhou, fallback texto. to=%s: %s", to, e)
@@ -46,6 +53,7 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
     if settings.BOT_USE_BUTTONS:
         try:
             evolution_client.send_buttons(instance, to, text, buttons)
+            trace.note_outbound("buttons", text)
             return
         except Exception as e:
             logger.warning("send_buttons falhou, fallback texto. to=%s: %s", to, e)
@@ -78,6 +86,7 @@ def send_list(
         poll_name = title[:255]
         try:
             evolution_client.send_poll(instance, to, name=poll_name, values=values)
+            trace.note_outbound("poll", f"{poll_name} :: {' | '.join(values)}")
             return
         except Exception as e:
             logger.warning("send_poll (list) falhou, fallback texto. to=%s: %s", to, e)
@@ -85,6 +94,9 @@ def send_list(
     try:
         evolution_client.send_list(
             instance, to, title, description, "Ver opções", rows, section_title
+        )
+        trace.note_outbound(
+            "list", f"{title} :: {' | '.join(r.get('title', '') for r in rows)}",
         )
         return
     except Exception as e:

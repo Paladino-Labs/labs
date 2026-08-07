@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from app.infrastructure.db.models.intent_classification import IntentClassification
 from app.infrastructure.db.models.module_activation import ModuleActivation
+from app.modules.whatsapp import trace
 from app.modules.whatsapp.intent.catalog import ALL_INTENTS, get_active_intents
 from app.modules.whatsapp.intent.llm_classifier import LLMClassifier
 from app.modules.whatsapp.intent.regex_classifier import RegexClassifier
@@ -59,12 +60,21 @@ class ChainClassifier:
         active_intents = get_active_intents(module_activations)
 
         result = self.regex.classify(text, active_intents)
+        # Telemetria S-bot-1: confidence 0.0 = NENHUM padrão casou. É a resposta
+        # a "se não casou, o que impediu" no caso mais frequente. Registrar aqui
+        # (e não só o resultado final) é o que distingue "o regex não casou" de
+        # "casou errado" — dois problemas com correções diferentes.
+        trace.note_regex(result.intent, result.confidence, active_intents)
 
         llm_latency_ms = None
         if result.confidence < CONFIDENCE_THRESHOLD:
             start = time.monotonic()
             result = self.llm.classify(text, active_intents)
             llm_latency_ms = int((time.monotonic() - start) * 1000)
+            trace.note_llm(
+                result.intent, result.confidence,
+                latency_ms=llm_latency_ms, source=result.source,
+            )
 
         if result.intent != FALLBACK_INTENT and result.intent not in active_intents:
             logger.info(
@@ -79,6 +89,7 @@ class ChainClassifier:
         result.classification_id = self._persist(
             company_id, session_id, result, llm_latency_ms, fsm_state,
         )
+        trace.note_classification(result, threshold=CONFIDENCE_THRESHOLD)
         return result
 
     def _persist(
