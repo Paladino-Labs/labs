@@ -35,7 +35,10 @@ from app.core.config import settings
 from app.infrastructure.db.models import BotSession, WhatsAppConnection, Company, CompanySettings
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import trace
 from app.modules.whatsapp.helpers import (
+    extract_message_type,
+    extract_reaction,
     extract_user_text,
     is_back_command,
     is_universal_command,
@@ -1069,6 +1072,33 @@ def _route_remarcar(
     return True
 
 
+# Nome do handler por estado — usado SÓ pela telemetria (S-bot-1), para
+# registrar o branch do dispatcher sem duplicar a cadeia de if/elif.
+# Estados do BookingEngine FSM não entram aqui: caem em "booking_fsm".
+_HANDLER_BY_STATE = {
+    STATE_INICIO:                         "inicio.handle",
+    STATE_AGUARDANDO_NOME:                "aguardando_nome.handle_aguardando_nome",
+    STATE_CONFIRMAR_NOME:                 "aguardando_nome.handle_confirmando_nome",
+    STATE_OFERTA_RECORRENTE:              "oferta_recorrente.handle",
+    STATE_MENU_PRINCIPAL:                 "menu_principal.handle",
+    STATE_ESCOLHENDO_SERVICO:             "escolhendo_servico.handle",
+    STATE_ESCOLHENDO_PROFISSIONAL:        "escolhendo_profissional.handle",
+    STATE_ESCOLHENDO_DATA:                "escolhendo_data.handle",
+    STATE_ESCOLHENDO_TURNO:               "escolhendo_turno.handle",
+    STATE_ESCOLHENDO_HORARIO:             "escolhendo_horario.handle",
+    STATE_CONFIRMANDO:                    "confirmando.handle",
+    STATE_VER_AGENDAMENTOS:               "ver_agendamentos.handle_input",
+    STATE_GERENCIANDO_AGENDAMENTO:        "gerenciando_agendamento.handle",
+    STATE_CANCELANDO:                     "cancelando.handle",
+    STATE_ESCOLHENDO_PRODUTO:             "comprando_produto.handle_escolhendo_produto",
+    STATE_CONFIRMANDO_QUANTIDADE_PRODUTO: "comprando_produto.handle_confirmando_quantidade",
+    STATE_CONFIRMANDO_PRODUTO:            "comprando_produto.handle_confirmando_produto",
+    STATE_ESCOLHENDO_PACOTE:              "comprando_pacote.handle_escolhendo_pacote",
+    STATE_CONFIRMANDO_PACOTE:             "comprando_pacote.handle_confirmando_pacote",
+    STATE_HUMANO:                         "humano_silencia_persiste",
+}
+
+
 # ─── Entry point — webhook messages.upsert ────────────────────────────────────
 
 async def handle_inbound_message(db: Session, instance_name: str, data: dict) -> None:
@@ -1084,15 +1114,20 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         messages_list = data.get("messages") or []
         if not messages_list:
             logger.debug("handle_inbound: messages array vazio, ignorando. instance=%s", instance_name)
+            trace.set_outcome(trace.OUTCOME_EMPTY_BATCH)
             return
         data = messages_list[0]
 
     key = data.get("key", {})
     if key.get("fromMe"):
         logger.debug("handle_inbound: fromMe=True, ignorando. instance=%s", instance_name)
+        trace.set_outcome(trace.OUTCOME_FROM_ME)
         return
 
     message_id = key.get("id", "")
+    trace.note_envelope(
+        message_id=message_id, message_type=extract_message_type(data), payload=data,
+    )
 
     # LID addressing mode (WhatsApp novo formato)
     addressing_mode = key.get("addressingMode", "")
@@ -1103,9 +1138,44 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     if not remote_jid:
         logger.warning("handle_inbound: sem remoteJid. instance=%s data_keys=%s",
                        instance_name, list(data.keys()))
+        trace.set_outcome(trace.OUTCOME_NO_JID)
         return
     if remote_jid.endswith("@g.us"):
         logger.debug("handle_inbound: grupo ignorado. jid=%s", remote_jid)
+        trace.set_outcome(trace.OUTCOME_GROUP)
+        return
+
+    trace.note_envelope(whatsapp_id=remote_jid)
+
+    # ── Reação de emoji: ignorar SEMPRE (S-bot-1) ─────────────────────────────
+    # A reação vem dentro de messages.upsert, como qualquer mensagem. Como
+    # extract_user_text não conhece reactionMessage, ela chegava ao dispatcher
+    # como texto vazio — e texto vazio no MENU_PRINCIPAL reexibe o menu. Era o
+    # "o bot reiniciou depois que eu reagi à confirmação" relatado pelo cliente.
+    #
+    # Ignorar = NÃO tratar como mensagem. O retorno acontece ANTES do lock de
+    # sessão, então a reação não consome last_message_id (o que faria a
+    # mensagem SEGUINTE parecer duplicata), não renova o TTL e não toca o
+    # estado. Efeito colateral zero, por construção.
+    #
+    # Independe do estado da conversa: reagir 👍 quando o bot pergunta "qual
+    # horário?" não confirma nada. Ignorar nunca atrapalha fluxo em andamento.
+    #
+    # A reação ENTRA na telemetria (emoji incluído) — para decidir depois, com
+    # dados, se vale responder a alguma.
+    reaction = extract_reaction(data)
+    if reaction is not None:
+        logger.info(
+            "handle_inbound: reação ignorada. jid=%s emoji=%r removed=%s",
+            remote_jid, reaction.get("emoji"), reaction.get("removed"),
+        )
+        trace.set_outcome(trace.OUTCOME_REACTION)
+        trace.note_dispatch(
+            "ignored_reaction",
+            emoji=reaction.get("emoji"),
+            target_message_id=reaction.get("target_message_id"),
+            removed=reaction.get("removed"),
+        )
         return
 
     # Usa o JID completo como identificador — _normalize_number retorna como está
@@ -1119,9 +1189,11 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     ).first()
     if not conn:
         logger.warning("handle_inbound: instance_name=%s não encontrado no DB", instance_name)
+        trace.set_outcome(trace.OUTCOME_UNKNOWN_INSTANCE)
         return
 
     company_id = conn.company_id
+    trace.note_context(company_id=company_id)
 
     # Verifica se bot está ativo
     company_settings = db.query(CompanySettings).filter(
@@ -1129,9 +1201,11 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     ).first()
     if not company_settings:
         logger.warning("handle_inbound: company_settings não encontrado. company_id=%s", company_id)
+        trace.set_outcome(trace.OUTCOME_NO_SETTINGS)
         return
     if not company_settings.bot_enabled:
         logger.info("handle_inbound: bot desativado. company_id=%s", company_id)
+        trace.set_outcome(trace.OUTCOME_BOT_DISABLED)
         return
 
     company          = db.query(Company).filter(Company.id == company_id).first()
@@ -1146,11 +1220,15 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         session = get_session_locked(db, company_id, whatsapp_id)
     except OperationalError:
         logger.debug("session locked, descartando message_id=%s", message_id)
+        trace.set_outcome(trace.OUTCOME_SESSION_LOCKED)
         return
+
+    trace.note_context(session_id=getattr(session, "id", None))
 
     # Idempotência — descarta re-entrega da mesma mensagem
     if message_id and session.last_message_id == message_id:
         logger.debug("mensagem duplicada message_id=%s, ignorando", message_id)
+        trace.set_outcome(trace.OUTCOME_DUPLICATE)
         save_session(db, session)
         return
     session.last_message_id = message_id
@@ -1173,11 +1251,16 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     state = session.state
     logger.info("dispatcher: state=%s whatsapp_id=%s input=%r", state, whatsapp_id, user_input[:60])
 
+    # Estado da FSM NA CHEGADA da mensagem — sem isto não se distingue
+    # "o handler não soube tratar" de "a mensagem chegou no estado errado".
+    trace.note_context(fsm_state=state, user_input=user_input)
+
     # ── Atendimento humano encerrado (Sprint 2.7) ─────────────────────────────
     # Sessão em RESOLVIDA → o bot reassume no MENU_PRINCIPAL na primeira mensagem
     # seguinte (não silencia). RESOLVIDA é apenas um marcador terminal para
     # listagem no inbox; aqui ele é consumido e a conversa volta ao fluxo normal.
     if state == STATE_RESOLVIDA:
+        trace.note_dispatch("resolvida_reassume_menu")
         reset_session(session, keep_customer=True)
         session.state = STATE_MENU_PRINCIPAL
         ctx = session.context or {}
@@ -1191,6 +1274,8 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     # ── Comandos universais (exceto AGUARDANDO_NOME, CONFIRMAR_NOME e HUMANO) ──
     if state not in (STATE_AGUARDANDO_NOME, STATE_CONFIRMAR_NOME, STATE_HUMANO):
         cmd = is_universal_command(user_input)
+        if cmd:
+            trace.note_dispatch("universal_command", command=cmd)
         if cmd == "menu":
             reset_session(session)
             ctx = session.context or {}
@@ -1218,6 +1303,7 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
         # (_handle_legacy_back) — interceptado ANTES do classificador para
         # "voltar" não virar linha de telemetria FALLBACK.
         if state not in BOOKING_STATES and is_back_command(user_input):
+            trace.note_dispatch("legacy_back")
             _handle_legacy_back(
                 db, session, company_id, instance_name, whatsapp_id, company_name,
             )
@@ -1230,20 +1316,27 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     # cliente já identificado e input que não é uma opção do menu atual.
     if state in (STATE_INICIO, STATE_MENU_PRINCIPAL):
         _ctx = session.context or {}
-        if (
-            _ctx.get("customer_id")
-            and (user_input or "").strip()
-            and resolve_input(user_input, _ctx.get("last_list", [])) is None
-        ):
+        # Por que o classificador NÃO foi chamado é tão informativo quanto o que
+        # ele responde — sem isto, "bot mostrou o menu" fica indistinguível de
+        # "o classificador nem rodou".
+        if not _ctx.get("customer_id"):
+            trace.note_dispatch("classifier_skipped", reason="no_customer_id")
+        elif not (user_input or "").strip():
+            trace.note_dispatch("classifier_skipped", reason="empty_input")
+        elif resolve_input(user_input, _ctx.get("last_list", [])) is not None:
+            trace.note_dispatch("classifier_skipped", reason="matched_menu_option")
+        else:
             try:
                 if _classify_and_route(
                     db, session, company_id, instance_name, whatsapp_id,
                     user_input, company_name,
                 ):
+                    trace.note_state_after(session.state)
                     save_session(db, session)
                     return
             except Exception:
                 logger.exception("classify_and_route error whatsapp_id=%s", whatsapp_id)
+                trace.note_dispatch("classifier_error")
 
     # ── Write-back 3a (F5a): clique de menu após fallback/shadow ──────────────
     # Se a mensagem anterior caiu em fallback (ou LLM contida em shadow) e o
@@ -1257,6 +1350,12 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
                 intent_telemetry.consume_menu_click(db, session, company_id, _clicked)
 
     # ── Dispatcher principal ──────────────────────────────────────────────────
+    # O branch é função exclusiva de `state`, então o nome do handler é
+    # derivado dele — instrumentar sem duplicar a cadeia de if/elif.
+    trace.note_dispatch(_HANDLER_BY_STATE.get(
+        state, "booking_fsm" if state in BOOKING_STATES else "unknown_state",
+    ))
+
     try:
         if state == STATE_INICIO:
             h_inicio.handle(
@@ -1415,7 +1514,10 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
 
     except Exception:
         logger.exception("bot error state=%s whatsapp_id=%s", state, whatsapp_id)
+        trace.set_outcome(trace.OUTCOME_ERROR)
         sender.send_text(instance_name, whatsapp_id, messages.ERRO_GENERICO)
+
+    trace.note_state_after(session.state)
 
     try:
         save_session(db, session)

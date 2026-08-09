@@ -21,6 +21,7 @@ from app.infrastructure.db.session import get_db
 from app.core.config import settings
 from app.core.deps import get_current_company_id, require_role
 from app.modules.whatsapp import connection_service
+from app.modules.whatsapp import trace
 from app.modules.whatsapp.schemas import ConnectionResponse, QRCodeResponse
 
 logger = logging.getLogger(__name__)
@@ -99,11 +100,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         )
         if incoming_key != settings.EVOLUTION_WEBHOOK_SECRET:
             logger.warning("webhook: segredo inválido, request rejeitado")
+            trace.start("", "", None)
+            trace.set_outcome(trace.OUTCOME_UNAUTHORIZED)
+            trace.finish()
             return JSONResponse(status_code=401, content={"status": "rejected"})
 
     try:
         payload = await request.json()
     except Exception:
+        trace.start("", "", None)
+        trace.set_outcome(trace.OUTCOME_INVALID_JSON)
+        trace.finish()
         return {"status": "ignored", "reason": "invalid json"}
 
     event = payload.get("event", "")
@@ -113,11 +120,19 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     # Normaliza evento para lowercase com ponto (ex: MESSAGES_UPSERT → messages.upsert)
     event_normalized = event.lower().replace("_", ".")
 
+    # ── Telemetria ponta a ponta (S-bot-1) ────────────────────────────────────
+    # Aberta ANTES de qualquer decisão: o payload cru é o que responde "como
+    # cada tipo de evento chega de fato" — inclusive os que não são tratados.
+    # O `finally` garante gravação em TODO caminho de saída, inclusive exceção.
+    trace.start(event_normalized, instance_name, payload)
+
     try:
         if event_normalized == "connection.update":
+            trace.note_dispatch("connection_service.handle_connection_update")
             connection_service.handle_connection_update(db, instance_name, data)
 
         elif event_normalized == "qrcode.updated":
+            trace.note_dispatch("connection_service.handle_qr_update")
             connection_service.handle_qr_update(db, instance_name, data)
 
         elif event_normalized == "messages.upsert":
@@ -154,6 +169,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     logger.info(
                         "POLL VOTE: jid=%s option=%r", remote_jid, option_name
                     )
+                    trace.note_dispatch("poll_vote", option=option_name)
                     # Cria mensagem sintética e roteia pelo dispatcher normal
                     msg_id = key.get("id", "")
                     synthetic = {
@@ -167,8 +183,16 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     await handle_inbound_message(db, instance_name, synthetic)
                     break  # um voto por update
 
+        else:
+            # Evento fora dos 4 assinados/tratados. Registrado — é assim que se
+            # descobre um tipo novo chegando sem tratamento.
+            trace.set_outcome(trace.OUTCOME_EVENT_IGNORED)
+
     except Exception:
         logger.exception("webhook processing error event=%s instance=%s", event, instance_name)
+        trace.set_outcome(trace.OUTCOME_ERROR)
         # NÃO re-levanta — retorna 200 para Evolution API não desabilitar o webhook
+    finally:
+        trace.finish()
 
     return {"status": "ok"}

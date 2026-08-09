@@ -61,6 +61,7 @@ from .crm import CrmConfig, CustomerClassification
 from .intent_classification import IntentClassification, IntentOutcome
 from .product_sale import ProductSale
 from .worker_heartbeat import WorkerHeartbeat
+from .bot_message_trace import BotMessageTrace
 
 __all__ = [
     "Company",
@@ -156,4 +157,5 @@ __all__ = [
     "IntentOutcome",
     "ProductSale",
     "WorkerHeartbeat",
+    "BotMessageTrace",
 ]

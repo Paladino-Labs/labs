@@ -59,6 +59,11 @@ def record_routing(db, session, company_id, result, decision, track=None) -> Non
     dada). Um marker anterior ainda pendente é fechado como ABANDONED
     (superseded) antes de ser substituído.
     """
+    # Espelha a decisão no trace ponta a ponta (S-bot-1). Ponto único: todas as
+    # decisões de roteamento passam por aqui, inclusive a contida em shadow.
+    from app.modules.whatsapp import trace as _trace
+    _trace.note_routing(decision, routed=(decision == ROUTING_ROUTED))
+
     try:
         cid = getattr(result, "classification_id", None)
         if cid is None:
