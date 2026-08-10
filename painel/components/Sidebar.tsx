@@ -90,8 +90,9 @@ const NAV: NavGroup[] = [
       {
         title: "Comunicação", url: "/comunicacao", icon: Send, roles: ["OWNER", "ADMIN"],
         submenu: [
-          { title: "Modelos",   url: "/comunicacao",      icon: FileText },
-          { title: "Histórico", url: "/comunicacao/logs", icon: ScrollText },
+          { title: "Modelos",   url: "/comunicacao",           icon: FileText },
+          { title: "Canais",    url: "/settings/comunicacao",  icon: Send },
+          { title: "Histórico", url: "/comunicacao/logs",      icon: ScrollText },
         ],
       },
       {

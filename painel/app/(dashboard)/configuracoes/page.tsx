@@ -8,6 +8,7 @@ import {
   UserCog,
   Link2,
   MessageSquare,
+  Send,
   Percent,
   Blocks,
   Palette,
@@ -38,7 +39,12 @@ const SECTIONS: Section[] = [
   { href: "/settings/security",    icon: KeyRound,   title: "Segurança",         description: "Alterar senha e acesso.",                roles: "ALL" },
   { href: "/settings/usuarios",    icon: UserCog,    title: "Usuários",          description: "Membros da equipe e convites.",          roles: OWNER_ADMIN },
   { href: "/settings/integracoes", icon: Link2,      title: "Integrações",       description: "WhatsApp, Asaas e pagamentos.",          roles: OWNER_ADMIN },
-  { href: "/comunicacao",          icon: MessageSquare, title: "Comunicação",    description: "Templates e canais de envio.",           roles: OWNER_ADMIN },
+  // Duas telas distintas, antes descritas por um card só ("Templates e canais de
+  // envio") que levava apenas aos modelos: /settings/comunicacao — o liga/desliga
+  // do canal, ligado a GET/PUT /communication/settings — não era alcançável por
+  // nenhum menu, e é ela que o dono de um tenant novo precisa para poder enviar.
+  { href: "/comunicacao",            icon: MessageSquare, title: "Modelos de mensagem", description: "Textos automáticos por evento e canal.", roles: OWNER_ADMIN },
+  { href: "/settings/comunicacao",   icon: Send,          title: "Canais de envio",     description: "Ligue o WhatsApp e o e-mail do envio.",  roles: OWNER_ADMIN },
   { href: "/financeiro/taxas",     icon: Percent,    title: "Taxas",             description: "Taxas de maquininha por método.",        roles: ["OWNER", "ADMIN", "PROFESSIONAL"] },
   { href: "/settings/modulos",     icon: Blocks,     title: "Módulos",           description: "Ative ou desative funcionalidades.",     roles: OWNER_ADMIN },
   { href: "/settings/branding",    icon: Palette,    title: "Branding",          description: "Cores, logo e identidade.",              roles: OWNER_ADMIN },

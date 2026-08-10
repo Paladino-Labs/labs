@@ -310,9 +310,23 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
             ))
 
     # CommunicationSettings com defaults
+    #
+    # whatsapp_enabled=True: com os dois canais desligados o `dispatch` sai no
+    # primeiro passo (SKIPPED_CHANNEL_DISABLED) e o tenant nasce MUDO — os 14
+    # templates WHATSAPP semeados logo abaixo ficariam inalcançáveis. O WhatsApp
+    # é o canal que de fato entrega (Evolution é global no Estágio 0).
+    #
+    # email_enabled=False, deliberado: EMAIL é o primeiro da preferência de canal
+    # do `dispatch`, e a queda para WHATSAPP só acontece quando FALTA template —
+    # nunca quando o ENVIO falha (falha vira log FAILED, sem fallback). Como há
+    # template EMAIL semeado para `auth.password_reset_requested`, ligar o e-mail
+    # roteia o reset de senha para um canal que este ambiente não entrega
+    # (sem MAILTRAP_API_TOKEN/SENDGRID_API_KEY/SMTP_HOST configurados), quebrando
+    # justamente o fluxo de recuperação. Com EMAIL desligado o reset cai no
+    # template WHATSAPP e funciona. Ligar quando houver provedor de e-mail real.
     db.add(CommunicationSetting(
         company_id=company.id,
-        whatsapp_enabled=False,
+        whatsapp_enabled=True,
         email_enabled=False,
         quiet_hours_enabled=True,
     ))
