@@ -42,13 +42,16 @@ def test_new_tenant_is_born_with_whatsapp_enabled():
     assert cs.whatsapp_enabled is True
 
 
-def test_new_tenant_is_born_with_email_disabled():
-    """Decisão registrada do sprint: EMAIL é o primeiro da preferência de canal, e a
-    queda para WHATSAPP só cobre template ausente — nunca falha de envio. Ligar o
-    e-mail sem provedor configurado roteia o reset de senha para um canal que não
-    entrega. Se um provedor real for configurado, este teste deve ser revisto junto."""
+def test_new_tenant_is_born_with_email_enabled():
+    """Decisão revisada do sprint: cada canal onde ele funciona.
+
+    O e-mail é o ÚNICO canal com template para `user.invitation_sent` — é por ele
+    que o dono de cada barbearia recebe acesso — e o provedor está configurado no
+    Railway (SMTP_* + MAILTRAP_*). A leitura anterior, de que não havia provedor,
+    veio do `.env` local, que não reflete o ambiente de produção.
+    """
     cs = _only_communication_setting(_create_company_added_objects())
-    assert cs.email_enabled is False
+    assert cs.email_enabled is True
 
 
 def test_new_tenant_seeds_whatsapp_templates_reachable_by_the_enabled_channel():
@@ -65,20 +68,28 @@ def test_new_tenant_seeds_whatsapp_templates_reachable_by_the_enabled_channel():
     )
 
 
-def test_dispatch_for_new_tenant_does_not_skip_channel_disabled():
-    """O teste que amarra o item 1 ao efeito: com o CommunicationSetting que o
-    create_company produz, o dispatch NÃO sai no primeiro passo."""
+def test_dispatch_for_new_tenant_falls_back_to_whatsapp_for_client_events():
+    """O teste que amarra o item 1 ao efeito.
+
+    Com o CommunicationSetting que o create_company produz, o dispatch não sai em
+    SKIPPED_CHANNEL_DISABLED. E prova o custo aceito na decisão revisada: como
+    `channel_preference` é ["EMAIL", "WHATSAPP"] e `appointment.confirmed` não tem
+    template EMAIL, há DUAS buscas de template por mensagem — a primeira sempre
+    falha — antes de cair no WhatsApp, que entrega.
+    """
     from app.modules.communication.service import communication_service
 
     cs = _only_communication_setting(_create_company_added_objects())
     company_id = uuid.uuid4()
 
-    template = MagicMock()
-    template.template_id = uuid.uuid4()
-    template.body_template = "Olá, {{customer_name}}!"
-    template.channel = "WHATSAPP"
+    whatsapp_template = MagicMock()
+    whatsapp_template.template_id = uuid.uuid4()
+    whatsapp_template.body_template = "Olá, {{customer_name}}!"
+    whatsapp_template.channel = "WHATSAPP"
 
-    logged: list = []
+    # O dispatch percorre channel_preference em ordem; espelhamos a realidade do
+    # tenant novo: sem template EMAIL para este evento, com template WHATSAPP.
+    template_lookups: list = []
 
     def query_side_effect(model_class):
         q = MagicMock()
@@ -86,7 +97,11 @@ def test_dispatch_for_new_tenant_does_not_skip_channel_disabled():
         if name == "CommunicationSetting":
             q.filter.return_value.first.return_value = cs
         elif name == "CommunicationTemplate":
-            q.filter.return_value.first.return_value = template
+            def first():
+                template_lookups.append(len(template_lookups))
+                # 1ª busca = EMAIL → não existe; 2ª = WHATSAPP → existe
+                return None if len(template_lookups) == 1 else whatsapp_template
+            q.filter.return_value.first.side_effect = first
         else:
             q.filter.return_value.first.return_value = None
             q.filter.return_value.all.return_value = []
@@ -94,9 +109,9 @@ def test_dispatch_for_new_tenant_does_not_skip_channel_disabled():
 
     mock_db = MagicMock()
     mock_db.query.side_effect = query_side_effect
-    mock_db.add.side_effect = lambda obj: logged.append(obj)
 
-    with patch.object(communication_service, "_send_whatsapp"):
+    with patch.object(communication_service, "_send_whatsapp") as send_wpp, \
+         patch.object(communication_service, "_send_email") as send_email:
         entry = communication_service.dispatch(
             event_type="appointment.confirmed",
             company_id=company_id,
@@ -108,7 +123,66 @@ def test_dispatch_for_new_tenant_does_not_skip_channel_disabled():
 
     assert entry.status != "SKIPPED_CHANNEL_DISABLED"
     assert entry.status == "SENT"
-    assert entry.channel == "WHATSAPP"
+    assert entry.channel == "WHATSAPP", "o cliente final tem de sair pelo WhatsApp"
+    send_wpp.assert_called_once()
+    send_email.assert_not_called()
+    assert len(template_lookups) == 2, (
+        "esperava a busca EMAIL falha antes do fallback WHATSAPP — se virou 1, a "
+        "ordem de canal mudou e o custo descrito na decisão do item 1 sumiu"
+    )
+
+
+# ── Item 5 — por que o template WHATSAPP de convite NÃO foi criado ────────────
+
+def test_invitation_dispatch_context_has_no_phone():
+    """⚠️ Documenta o bloqueio do item 5, não um comportamento desejado.
+
+    Um template WHATSAPP para `user.invitation_sent` só pode existir se o contexto
+    do dispatch carregar `recipient_phone` — `_send_whatsapp` levanta
+    `ValueError` sem ele (communication/service.py). Não carrega, e não há de onde:
+    `User` e `UserInvitation` não têm coluna de telefone, e `InviteUserRequest`
+    não tem campo. Criar o template trocaria SKIPPED_NO_TEMPLATE por FAILED —
+    pior, porque parece que tentou.
+
+    Se este teste quebrar porque o contexto passou a ter telefone, o item 5 está
+    destravado: crie o template.
+    """
+    from app.modules.users import service as users_service
+    from app.infrastructure.db.models.user_invitation import UserInvitation
+    from app.infrastructure.db.models.user import User
+
+    assert not hasattr(UserInvitation, "phone")
+    assert not hasattr(User, "phone")
+
+    captured: dict = {}
+
+    def fake_dispatch(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    actor = MagicMock()
+    actor.id = uuid.uuid4()
+    actor.company_id = uuid.uuid4()
+    actor.role = "OWNER"
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    with patch("app.modules.communication.service.communication_service.dispatch",
+               side_effect=fake_dispatch), \
+         patch.object(users_service, "record_sensitive_action"):
+        users_service.invite_user(
+            db=mock_db,
+            actor=actor,
+            email="dono@barbearianova.com",
+            role="OWNER",
+        )
+
+    assert captured, "invite_user não chegou a chamar o dispatch"
+    assert captured["event_type"] == "user.invitation_sent"
+    assert "recipient_phone" not in captured["context"], (
+        "há telefone no contexto — o item 5 está destravado"
+    )
 
 
 # ── Item 3 — o fuso vem do TenantConfig, não de uma constante ─────────────────
