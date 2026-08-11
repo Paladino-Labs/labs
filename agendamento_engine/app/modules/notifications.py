@@ -26,12 +26,11 @@ Sprint I:
 """
 import logging
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import Appointment
-from app.infrastructure.db.models.company_settings import CompanySettings
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +54,28 @@ MONTHS_PT = [
 
 
 def _get_company_tz(db: Session, company_id) -> ZoneInfo:
+    """Fuso do tenant para renderizar data/hora das mensagens.
+
+    Delega ao resolvedor **canônico** (`tenant/service.get_tenant_timezone`,
+    que lê `TenantConfig.timezone`). Até o S-onboarding esta função consultava
+    `CompanySettings.timezone` — coluna que **não existe** —, e o
+    `AttributeError` resultante era engolido pelo `except`, então ela sempre
+    devolvia America/Sao_Paulo, sem log: uma constante disfarçada de resolvedor.
+    Inofensivo enquanto todo tenant era de SP; hora errada, em silêncio, no
+    primeiro que não fosse.
+
+    O `except` amplo é mantido de propósito: resolver fuso não é caminho de erro
+    de negócio, e o caller é o envio de notificação. Mas agora ele é rede de
+    segurança, não o caminho normal — e registra o motivo.
+    """
     try:
-        row = (
-            db.query(CompanySettings.timezone)
-            .filter(CompanySettings.company_id == company_id)
-            .first()
+        from app.modules.tenant.service import get_tenant_timezone
+        return get_tenant_timezone(db, company_id)
+    except Exception:
+        logger.warning(
+            "_get_company_tz: falha ao resolver fuso de company_id=%s — usando %s",
+            company_id, _DEFAULT_TZ, exc_info=True,
         )
-        tz_name = (row.timezone if row and row.timezone else _DEFAULT_TZ)
-        return ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, Exception):
         return ZoneInfo(_DEFAULT_TZ)
 
 

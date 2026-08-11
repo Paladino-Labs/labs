@@ -309,11 +309,27 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
                 sort_order=sort_order,
             ))
 
-    # CommunicationSettings com defaults
+    # CommunicationSettings — os DOIS canais ligados.
+    #
+    # Com ambos desligados o `dispatch` saía no primeiro passo
+    # (SKIPPED_CHANNEL_DISABLED) e o tenant nascia MUDO: os 18 templates semeados
+    # logo abaixo ficavam inalcançáveis.
+    #
+    # Cada canal onde ele funciona: o dono recebe o convite por E-MAIL (é o único
+    # canal com template para `user.invitation_sent`, e o provedor está
+    # configurado no Railway); o cliente final recebe confirmação por WHATSAPP
+    # (template + conexão Evolution).
+    #
+    # ⚠️ `channel_preference` fica ["EMAIL", "WHATSAPP"] — EMAIL primeiro, ordem
+    # hardcoded em communication/service.py. Para os eventos do cliente final
+    # (appointment.confirmed e afins) não existe template EMAIL, então o dispatch
+    # busca, não acha e cai para WHATSAPP pelo fallback — que funciona. Custo:
+    # uma busca de template por mensagem. Rever quando a ordem de canal for
+    # revista (produto é WhatsApp-first; está na fila como item próprio).
     db.add(CommunicationSetting(
         company_id=company.id,
-        whatsapp_enabled=False,
-        email_enabled=False,
+        whatsapp_enabled=True,
+        email_enabled=True,
         quiet_hours_enabled=True,
     ))
 

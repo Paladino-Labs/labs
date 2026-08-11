@@ -3,9 +3,10 @@
 import { useState } from "react"
 import Link from "next/link"
 import { api } from "@/lib/api"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
@@ -38,8 +39,19 @@ export default function ForgotPasswordPage() {
         {submitted ? (
           <div className="space-y-4">
             <p className="text-sm rounded-md border border-border bg-card px-4 py-3">
-              Se esse e-mail estiver cadastrado, você receberá um link de recuperação em instantes.
+              Se esse e-mail estiver cadastrado, você receberá um{" "}
+              <strong>código de 6 dígitos</strong> em instantes. Ele vale por 15
+              minutos.
             </p>
+            {/* O backend envia um CÓDIGO, não um link — sem este CTA o fluxo
+                terminava aqui, anunciando sucesso para algo que não concluía:
+                /reset-password existia e não era alcançável por nenhum caminho. */}
+            <Link
+              href="/reset-password"
+              className={cn(buttonVariants(), "w-full")}
+            >
+              Já tenho o código
+            </Link>
             <p className="text-center">
               <Link
                 href="/"
@@ -64,7 +76,7 @@ export default function ForgotPasswordPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Enviando…" : "Enviar link de recuperação"}
+              {loading ? "Enviando…" : "Enviar código de recuperação"}
             </Button>
             <p className="text-center">
               <Link
