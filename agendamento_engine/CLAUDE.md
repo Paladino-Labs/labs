@@ -116,6 +116,27 @@ Anteriores ao princípio do recorte por dia. **Não corrigidas** — pendência.
 Nenhuma das duas foi decisão explícita: vieram por herança quando o papel foi
 desenhado, antes de existir o critério atual.
 
+## ⚠️ O `.env` local NÃO reflete produção
+
+Variáveis de ambiente de produção vivem no **Railway**, não no `.env` do
+repositório. Ler o `.env` e concluir algo sobre o ambiente é **fato sobre um
+arquivo**, não sobre o sistema.
+
+**Já causou dois diagnósticos errados:**
+
+1. A investigação de comunicação concluiu *"sem provedor de e-mail desde 20/06"*
+   a partir de `MAILTRAP_API_TOKEN` vazio. O provedor estava configurado no
+   Railway e funcionava.
+2. O sprint de onboarding decidiu manter `email_enabled=False` em tenant novo
+   pelo mesmo motivo — e a decisão precisou ser revertida.
+
+⚠️ **Agravante:** o `.env` versionado tem o `DATABASE_URL` apontando para
+**produção**. Ele é perigoso de duas formas opostas: não serve como evidência do
+que existe, e serve demais como caminho para o que não deveria ser tocado.
+
+**Para saber o que está configurado, pergunte ao Silva** ou consulte o painel do
+Railway. Não infira do repositório.
+
 ## Migrations / Alembic (S-cadeia)
 
 ### ⚠️ Migration aplicada em produção não se apaga revertendo código
@@ -412,26 +433,26 @@ gravação não é manutenção. **Está na fila.** Se você for mexer em
 código que divergiram em silêncio. A diferença aqui é que as duas unificadas eram
 byte-a-byte idênticas — a delegação era segura por construção; esta não é.
 
-#### 🔴 `_get_company_tz` é uma constante disfarçada de resolvedor
+#### ✅ `_get_company_tz` era uma constante disfarçada de resolvedor — corrigida no S-onboarding
 
-`notifications.py::_get_company_tz` consulta `CompanySettings.timezone` — e o
-modelo **não tem essa coluna**. O `AttributeError` é engolido pelo
-`except (ZoneInfoNotFoundError, Exception)`, então a função **sempre** devolve
+`notifications.py::_get_company_tz` consultava `CompanySettings.timezone` — e o
+modelo **não tem essa coluna**. O `AttributeError` era engolido pelo
+`except (ZoneInfoNotFoundError, Exception)`, então a função **sempre** devolvia
 `America/Sao_Paulo`, **sem log**.
 
-É a quarta fonte de fuso do sistema, e a única que nem consulta a fonte certa
-(`TenantConfig.timezone`, que o canônico lê).
+⚠️ Confirmado que `CompanySettings.timezone` **não existe** (`hasattr` → `False`):
+o `AttributeError` ocorria na avaliação do argumento e o código **sempre** caía no
+fallback `America/Sao_Paulo`, sem log. Inofensivo enquanto os dois tenants eram de
+SP; passou a importar com barbearias novas.
 
-⚠️ **Inofensiva hoje só por coincidência:** os dois tenants são de São Paulo. Num
-tenant com outro fuso, **toda mensagem de confirmação sai com hora errada,
-silenciosamente** — mesma classe do bug que o F0 corrigiu, ressurgindo por outro
-caminho.
+**Agora delega ao canônico** (`get_tenant_timezone`) e registra o fallback em log.
+O `except` amplo permanece — resolver fuso não é caminho de erro de negócio, e o
+caller é envio de notificação —, mas é rede de segurança, não o caminho normal.
 
-Está no caminho vivo de renderização (a task de envio a usa). Não foi corrigida na
-reentrega porque apontá-la ao canônico **muda a renderização** — é comportamento,
-não manutenção.
-
-⚠️ **Resolver antes de cadastrar tenant fora de São Paulo.**
+⚠️ **Mudou a renderização das mensagens.** Quem for ler os traces do S-bot-1: o
+`outbound[]` passa a mostrar hora no fuso do tenant a partir deste deploy, então os
+textos capturados mudam de formato no meio da coleta. Não invalida a análise — o
+alvo é o que o **cliente** diz.
 
 **Inventário das quatro:**
 
@@ -440,7 +461,84 @@ não manutenção.
 | `get_tenant_timezone` (`tenant/service.py`) | ✅ canônico |
 | `_resolve_tenant_tz` (`appointments/service.py`) | ✅ delega ao canônico |
 | inline em `_assert_slot_available` | 🔴 diverge (`or` em vez de `isinstance`; não captura `ValueError`) |
-| `_get_company_tz` (`notifications.py`) | 🔴 **quebrada** — lê coluna inexistente, sempre fallback |
+| `_get_company_tz` (`notifications.py`) | ✅ delega ao canônico (S-onboarding) |
+
+## S-onboarding — destravar o cadastro de tenant novo
+
+### `create_company` — tenant novo nasce falando
+
+`whatsapp_enabled=True` **e** `email_enabled=True`
+(`companies/service.py:313`).
+
+Antes, ambos nasciam `False`: o `dispatch` saía no primeiro passo com
+`SKIPPED_CHANNEL_DISABLED`, **nenhuma mensagem era enviada**, e os 18 templates
+que o próprio `create_company` semeia na mesma transação (14 WHATSAPP + 4 EMAIL)
+ficavam inalcançáveis.
+
+Cada canal onde ele funciona: o **dono** recebe convite e reset por e-mail (que
+tem template e provedor); o **cliente final** recebe confirmação por WhatsApp
+(que tem template e conexão).
+
+⚠️ **Custo conhecido:** `channel_preference` fica `["EMAIL", "WHATSAPP"]` — EMAIL
+primeiro, hardcoded em `communication/service.py:159-163`. Para os eventos do
+cliente final, que só têm template WHATSAPP, cada mensagem faz **duas** buscas de
+template antes de entregar. Funciona pelo fallback; é ineficiência num produto
+WhatsApp-first, e a reordenação está na fila.
+
+⚠️ **O fallback cobre template ausente, nunca falha de envio.** Se o e-mail parar
+de entregar, o reset de senha **não** cai para o WhatsApp sozinho — vira `FAILED`.
+
+### 🔴 `Company.owner_mobile_phone` NÃO serve para roteamento de convite
+
+Quem for ligar o convite por WhatsApp vai encontrar esse campo e ele parece
+resolver. **Não resolve — e usá-lo é pior que a ausência.**
+
+É o telefone do **dono da empresa** (campo do Asaas, Ajuste 9). Mas `invite_user`
+convida também **ADMIN, OPERATOR e PROFESSIONAL**. Usá-lo mandaria **todo
+convite para o WhatsApp do dono**, incluindo o link de ativação da conta de outra
+pessoa.
+
+**É caminho de tomada de conta, não imprecisão de roteamento.**
+
+**O telefone não existe em nenhum ponto da cadeia do convite:**
+
+| Onde | Estado |
+|---|---|
+| `User` | sem coluna `phone` |
+| `UserInvitation` | só `email` |
+| `InviteUserRequest` | `email`, `role`, `name`, `professional_id` |
+| contexto do `dispatch` (`users/service.py:175`) | sem `recipient_phone` |
+| `_send_whatsapp` (`communication/service.py:281`) | `raise ValueError` sem telefone |
+
+Criar o template WHATSAPP de `user.invitation_sent` sem isso trocaria um
+`SKIPPED_NO_TEMPLATE` por um `FAILED` — pior, porque parece que tentou.
+
+`test_invitation_dispatch_context_has_no_phone` documenta o bloqueio e **quebra
+quando ele for destravado**, apontando para criar o template.
+
+### Reset de senha e canais de comunicação — o padrão da tela órfã
+
+Dois dos quatro itens deste sprint eram a **mesma coisa**: tela pronta, backend
+pronto, **caminho ausente**.
+
+**Reset de senha:** `app/reset-password/page.tsx` já existia completa — código de
+6 dígitos, `?token=`, validação. Nada no repositório apontava para ela, e a tela
+de "esqueci a senha" anunciava sucesso prometendo um **link** quando o backend
+envia um **código**. A correção foi ligar o CTA e corrigir o texto.
+
+**Canais de comunicação:** `settings/comunicacao/page.tsx` — o liga/desliga do
+canal — estava órfã. O hub `/configuracoes` **tinha** card "Comunicação", mas
+apontava para `/comunicacao` (Modelos); o card dizia "Templates e canais de
+envio", descrevendo duas telas e entregando uma. Separado em dois cards, com
+"Canais" acrescentado ao submenu.
+
+⚠️ **`/settings/page.tsx` é um hub inteiro sem nenhum link de entrada** — 6
+cards, resíduo do `df30218`. Enquanto os dois hubs existirem, cada tela nova
+precisa ser cadastrada em dois lugares, e a que ficar só no `/settings` **nasce
+órfã**. Unificar está na fila.
+
+**É a terceira ocorrência do padrão neste projeto.** Ao entregar tela nova,
+verifique o caminho de navegação — nos dois modos da barra lateral.
 
 ## Isolamento multi-tenant no módulo `users` (S0.2)
 
