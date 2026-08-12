@@ -441,39 +441,16 @@ def test_escalation_without_owner_no_longer_exits_in_silence():
     warn.assert_called_once()
 
 
-def test_the_menu_path_to_HUMANO_never_publishes_the_event():
-    """⚠️ ACHADO DA PARTE 6 — documenta a causa, não um comportamento desejado.
-
-    3 escaladas reais, zero linhas em `communication_logs`. O candidato do
-    enunciado (o guard `if owner is None`) NÃO é a causa: o dispatch grava log em
-    qualquer desfecho, então zero linhas significa que ele nunca foi chamado.
-
-    A causa está antes. O Sprint 2.7 centralizou a escalada em
-    `bot_service._escalate_to_human`, que publica `conversation.escalated` — mas
-    só o comando universal ("humano"/"atendente") e a intenção FALAR_COM_HUMANO
-    passam por lá. Quem CLICA na opção do menu cai em
-    `handlers/menu_principal.py` ou `handlers/inicio.py`, que setam
-    `session.state = "HUMANO"` na mão, respondem HUMANO_CHAMADO e retornam:
-    sem publicar evento, sem persistir a mensagem no inbox.
-
-    Sessão em HUMANO, dono sem aviso — exatamente a evidência.
-
-    ⚠️ NÃO CORRIGIDO NESTE SPRINT: `whatsapp/` está fora do escopo (a telemetria
-    do S-bot-1 está coletando e uma mudança de comportamento do bot perturbaria a
-    coleta). A correção é rotear os dois `opt_humano` por `_escalate_to_human`,
-    passando trigger="MENU". Este teste quebra quando isso for feito — é o sinal
-    de que a Parte 6 fechou.
-    """
-    import inspect
-    from app.modules.whatsapp.handlers import menu_principal, inicio
-
-    for module in (menu_principal, inicio):
-        source = inspect.getsource(module)
-        assert 'STATE_HUMANO' in source
-        assert "_escalate_to_human" not in source, (
-            f"{module.__name__} passou a escalar pelo caminho central — "
-            "a causa da Parte 6 foi corrigida; remova este teste"
-        )
+# ⚠️ `test_the_menu_path_to_HUMANO_never_publishes_the_event` vivia aqui.
+#
+# Ele documentava a causa da Parte 6 — o clique em "Falar com atendente" setava
+# `session.state = "HUMANO"` na mão, sem publicar `conversation.escalated` — e
+# foi escrito para QUEBRAR quando a causa fosse corrigida, porque `whatsapp/`
+# estava fora do escopo daquele sprint.
+#
+# Corrigido no S-escalada-menu. A cobertura do comportamento novo está em
+# `tests/test_sprint27_inbox.py`, incluindo um invariante mais forte que este
+# sentinela: NENHUM handler transiciona para HUMANO fora do caminho central.
 
 
 # ── Templates: os três eventos de plataforma, sem emoji ───────────────────────

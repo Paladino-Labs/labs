@@ -328,6 +328,158 @@ def test_escalate_to_human_publishes_and_persists(_silence_sender, captured_even
     assert escalated[0].payload["trigger"] == "INTENT"
 
 
+# ─── Escalada pelo CLIQUE no menu (S-escalada-menu) ───────────────────────────
+#
+# O Sprint 2.7 centralizou a escalada em `_escalate_to_human`, mas só o comando
+# universal e a intenção FALAR_COM_HUMANO passavam por lá. O clique em "Falar
+# com atendente" — o caminho que o bot OFERECE — setava o estado na mão e
+# retornava: sessão em HUMANO, cliente respondido, **dono nunca avisado**.
+# 3 escaladas reais, zero notificação.
+
+def _click_humano(db, session, company_id, handler, **extra):
+    """Simula o clique na opção de atendente, no handler indicado."""
+    ctx = dict(session.context or {})
+    # Mesmo shape que `show_menu_principal` grava (row_id + payload + title).
+    ctx["last_list"] = [{
+        "row_id": "opt_humano",
+        "payload": "opt_humano",
+        "title": "Falar com seu barbeiro",
+    }]
+    session.context = ctx
+
+    from app.modules.whatsapp.helpers import resolve_input
+
+    kwargs = dict(
+        db=db, session=session, company_id=company_id,
+        whatsapp_id=session.whatsapp_id, instance="inst-x",
+        user_input="opt_humano",
+        start_escolhendo_servico=lambda *a, **k: None,
+        handle_ver_agendamentos=lambda *a, **k: None,
+    )
+    kwargs.update(extra)
+    if handler.__name__.endswith("inicio"):
+        kwargs.update(company_name="Barbearia", resolve_input=resolve_input)
+    handler.handle(**kwargs)
+
+
+@pytest.mark.parametrize("handler_name", ["inicio", "menu_principal"])
+def test_menu_click_publishes_conversation_escalated(
+    handler_name, _silence_sender, captured_events,
+):
+    """⚠️ Sucessor de `test_the_menu_path_to_HUMANO_never_publishes_the_event`.
+
+    Aquele teste (deixado pelo S-plataforma-whatsapp) afirmava a AUSÊNCIA da
+    publicação, para quebrar quando a causa fosse corrigida. Foi.
+    """
+    import importlib
+    handler = importlib.import_module(f"app.modules.whatsapp.handlers.{handler_name}")
+
+    db = FakeDB()
+    cid = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    session = _make_session(db, cid, state="MENU_PRINCIPAL", customer_id=customer_id)
+
+    _click_humano(db, session, cid, handler)
+
+    escalated = [e for e in captured_events if e.event_type == "conversation.escalated"]
+    assert len(escalated) == 1, "o clique no menu não publicou a escalada"
+    assert escalated[0].payload["trigger"] == "MENU"
+    assert escalated[0].payload["customer_id"] == str(customer_id)
+    assert session.state == "HUMANO"
+
+
+@pytest.mark.parametrize("handler_name", ["inicio", "menu_principal"])
+def test_menu_click_persists_the_conversation_in_the_inbox(
+    handler_name, _silence_sender, captured_events,
+):
+    """Sem isto o atendente abre a conversa e não vê o que o cliente pediu."""
+    import importlib
+    handler = importlib.import_module(f"app.modules.whatsapp.handlers.{handler_name}")
+
+    db = FakeDB()
+    cid = uuid.uuid4()
+    session = _make_session(db, cid, state="MENU_PRINCIPAL", customer_id=uuid.uuid4())
+
+    _click_humano(db, session, cid, handler)
+
+    msgs = db._store(ConversationMessage)
+    assert any(m.direction == "INBOUND" and m.sender_type == "CLIENT" for m in msgs)
+    assert any(m.direction == "OUTBOUND" and m.sender_type == "BOT" for m in msgs)
+
+
+@pytest.mark.parametrize("handler_name", ["inicio", "menu_principal"])
+def test_menu_click_sends_humano_chamado_exactly_once(
+    handler_name, _silence_sender, captured_events,
+):
+    """⚠️ O `send_text` do handler foi REMOVIDO porque `_escalate_to_human` já
+    envia — e envia exatamente `messages.HUMANO_CHAMADO`, o mesmo texto de antes.
+    Se os dois enviassem, o cliente veria a mensagem duplicada."""
+    import importlib
+    handler = importlib.import_module(f"app.modules.whatsapp.handlers.{handler_name}")
+
+    db = FakeDB()
+    cid = uuid.uuid4()
+    session = _make_session(db, cid, state="MENU_PRINCIPAL", customer_id=uuid.uuid4())
+
+    _click_humano(db, session, cid, handler)
+
+    chamados = [
+        t for t in _silence_sender
+        if isinstance(t, tuple) and len(t) == 3 and t[2] == bot_service.messages.HUMANO_CHAMADO
+    ]
+    assert len(chamados) == 1, f"esperava 1 HUMANO_CHAMADO, veio {len(chamados)}"
+
+
+def test_universal_command_and_intent_paths_do_not_regress(
+    _silence_sender, captured_events,
+):
+    """Os dois caminhos que JÁ funcionavam continuam idênticos — a correção do
+    clique não podia mexer no que o Sprint 2.7 entregou certo."""
+    db = FakeDB()
+    cid = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    session = _make_session(db, cid, state="MENU_PRINCIPAL", customer_id=customer_id)
+
+    bot_service._escalate_to_human(
+        db, session, cid, "inst-x", session.whatsapp_id,
+        text="quero falar com atendente", trigger="INTENT",
+    )
+
+    escalated = [e for e in captured_events if e.event_type == "conversation.escalated"]
+    assert len(escalated) == 1
+    assert escalated[0].payload["trigger"] == "INTENT"
+    assert session.state == "HUMANO"
+    msgs = db._store(ConversationMessage)
+    assert len([m for m in msgs if m.direction == "INBOUND"]) == 1
+    assert len([m for m in msgs if m.direction == "OUTBOUND"]) == 1
+
+
+def test_no_handler_transitions_to_HUMANO_by_hand():
+    """⚠️ INVARIANTE — o que deixou a escalada muda por meses.
+
+    `_escalate_to_human` é o único dono da transição para HUMANO: é ele que
+    persiste no inbox e publica o evento que notifica o dono. Um handler que
+    sete `session.state = "HUMANO"` na mão volta a escalar em silêncio.
+
+    Este teste substitui o sentinela do S-plataforma-whatsapp, e é mais forte:
+    cobre os handlers TODOS, não só os dois que estavam errados.
+    """
+    import pathlib
+    import re
+
+    handlers_dir = pathlib.Path(bot_service.__file__).parent / "handlers"
+    offenders = []
+    for path in handlers_dir.glob("*.py"):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r'\.state\s*=\s*(STATE_HUMANO|["\']HUMANO["\'])', line):
+                offenders.append(f"{path.name}:{lineno}")
+
+    assert not offenders, (
+        "handler transicionando para HUMANO fora do caminho central "
+        f"(use escalate_from_menu / _escalate_to_human): {offenders}"
+    )
+
+
 # ─── Dispatcher: silêncio em HUMANO, reassume em RESOLVIDA ─────────────────────
 
 def _inbound_data(text, msg_id="MSG1"):

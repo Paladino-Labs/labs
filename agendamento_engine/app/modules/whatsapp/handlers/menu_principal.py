@@ -4,14 +4,13 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import BotSession
-from app.modules.whatsapp import messages
-from app.modules.whatsapp import sender
 from app.modules.whatsapp.helpers import resolve_input as _resolve_input
-from app.modules.whatsapp.handlers.inicio import show_menu_principal
+from app.modules.whatsapp.handlers.inicio import escalate_from_menu, show_menu_principal
 
 STATE_ESCOLHENDO_SERVICO  = "ESCOLHENDO_SERVICO"
 STATE_VER_AGENDAMENTOS    = "VER_AGENDAMENTOS"
-STATE_HUMANO              = "HUMANO"
+# STATE_HUMANO saiu junto com o `session.state = ...` na mão: quem transiciona
+# para HUMANO agora é o `_escalate_to_human`, dono do estado e do evento.
 
 
 def handle(
@@ -39,9 +38,8 @@ def handle(
         return
 
     if payload == "opt_humano":
-        session.state   = STATE_HUMANO
         session.context = ctx
-        sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+        escalate_from_menu(db, session, company_id, instance, whatsapp_id, user_input)
         return
 
     # Nenhuma opção reconhecida — reapresenta o menu

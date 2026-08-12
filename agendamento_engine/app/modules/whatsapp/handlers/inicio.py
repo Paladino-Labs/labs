@@ -19,8 +19,38 @@ booking_engine = BookingEngine()
 
 STATE_AGUARDANDO_NOME   = "AGUARDANDO_NOME"
 STATE_OFERTA_RECORRENTE = "OFERTA_RECORRENTE"
-STATE_HUMANO            = "HUMANO"
+# STATE_HUMANO saiu junto com o `session.state = ...` na mão — ver
+# escalate_from_menu logo abaixo.
 STATE_MENU_PRINCIPAL    = "MENU_PRINCIPAL"
+
+
+def escalate_from_menu(
+    db: Session, session: BotSession, company_id: UUID,
+    instance: str, whatsapp_id: str, user_input: str,
+) -> None:
+    """Escalada disparada por CLIQUE na opção de menu ("Falar com atendente").
+
+    Delega ao caminho central do Sprint 2.7 (`bot_service._escalate_to_human`),
+    que persiste a mensagem no inbox, envia `HUMANO_CHAMADO` e **publica
+    `conversation.escalated`** — o evento que notifica o dono.
+
+    ⚠️ Antes deste sprint os dois pontos de `opt_humano` setavam o estado na mão
+    e retornavam. A sessão ia para HUMANO, o cliente recebia a resposta, e o
+    dono **nunca era avisado**: 3 escaladas reais, zero notificação. O comando
+    universal e a intenção FALAR_COM_HUMANO já passavam pelo caminho central —
+    só o clique no menu, que é o caminho que o bot oferece, ficava de fora.
+
+    Import tardio: `bot_service` importa este módulo no topo.
+
+    Usada também por `menu_principal.handle` — os dois pontos escalam idêntico.
+    """
+    from app.modules.whatsapp.bot_service import _escalate_to_human
+
+    _escalate_to_human(
+        db, session, company_id, instance, whatsapp_id,
+        text=user_input,
+        trigger="MENU",
+    )
 
 
 def handle(
@@ -62,8 +92,9 @@ def handle(
             return
 
         if payload == "opt_humano":
-            session.state = STATE_HUMANO
-            sender.send_text(instance, whatsapp_id, messages.HUMANO_CHAMADO)
+            escalate_from_menu(
+                db, session, company_id, instance, whatsapp_id, user_input,
+            )
             return
 
         # fallback seguro
