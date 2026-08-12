@@ -463,7 +463,131 @@ alvo é o que o **cliente** diz.
 | inline em `_assert_slot_available` | 🔴 diverge (`or` em vez de `isinstance`; não captura `ValueError`) |
 | `_get_company_tz` (`notifications.py`) | ✅ delega ao canônico (S-onboarding) |
 
+## S-plataforma-whatsapp + escalada + status de log (deploy 2026-08-12)
+
+Três sprints no mesmo deploy. Migration única: `e0s35_user_phone`.
+
+### Convite, reset e escalada vão por WhatsApp
+
+**O WhatsApp é o canal de identidade do usuário do Paladino.** E-mail é
+formalidade preenchida no cadastro e esquecida.
+
+Motivo concreto: um barbeiro da Le Duc recebeu convite por e-mail, **não abriu**,
+e ficou sem acesso. Com 10 barbearias sendo cadastradas porta a porta, o convite
+é o caminho pelo qual cada dono ganha acesso.
+
+`User.phone` existe desde `e0s35`. **Telefone é obrigatório no convite** — quem
+convida conhece a pessoa e tem o número; opcional criaria o caso "usuário sem
+canal" para tratar para sempre. O telefone do convite passa para o `User` na
+ativação.
+
+**Normalização:** `identity/resolver.validate_user_phone_input` (gate de
+formulário — whitelist ANATEL de DDD, rejeita DDI, mensagem legível) seguido de
+`normalize_phone_e164` (canônica-estrita — insere o 9º dígito). Armazenado como
+E.164 **sem o `+`** (`5562988887777`), a convenção de `customers.phone`, que é o
+valor entregue ao `evolution_client.send_text`.
+
+⚠️ **NÃO use** `public/service._normalize_phone` (não insere o 9º dígito) nem
+`customers/service.normalize_phone` (não exige DDD).
+
+#### ⚠️ A ordem de canal agora depende do destinatário, não só do tenant
+
+`channel_preference` era `["EMAIL", "WHATSAPP"]` hardcoded. Inverter cruamente
+**quebraria os tenants existentes**: o template WHATSAPP de reset já existe nos
+dois, então o dispatch escolheria WhatsApp, `_send_whatsapp` levantaria
+`ValueError` por falta de telefone, e viraria `FAILED` — **sem cair no e-mail**.
+
+Um canal só entra na preferência quando **há endereço para ele no context**:
+
+```python
+if whatsapp_enabled and has_phone:  channel_preference.append("WHATSAPP")
+if email_enabled  and has_email:    channel_preference.append("EMAIL")
+```
+
+| Situação | Resultado |
+|---|---|
+| Usuário com telefone | WHATSAPP, uma busca de template |
+| Usuário **sem** telefone | EMAIL — comportamento anterior, byte a byte |
+| Sem telefone **e** sem e-mail | `SKIPPED_NO_RECIPIENT` (status novo) |
+| Sem template WHATSAPP | fallback para EMAIL |
+
+⚠️ **O fallback cobre template ausente, nunca falha de envio.** Com WhatsApp
+primeiro, se a Evolution estiver fora, o reset de usuário **com** telefone vira
+`FAILED` — não cai para e-mail. É o mesmo risco que o e-mail tinha; muda o canal
+exposto.
+
+⚠️ **`Company.owner_mobile_phone` continua não servindo** para roteamento de
+convite — é o telefone do dono da empresa, e `invite_user` convida também ADMIN,
+OPERATOR e PROFESSIONAL. Caminho de tomada de conta.
+
+### Escalada para humano — só `_escalate_to_human` transiciona para `HUMANO`
+
+**3 escaladas reais tiveram zero notificação ao dono.** A causa **não** era o
+guard `owner is None`: o `dispatch` grava `CommunicationLog` em todos os
+desfechos, inclusive `SKIPPED_*`. Zero linhas significava que ele **nunca foi
+chamado**.
+
+O Sprint 2.7 centralizou a escalada em `bot_service._escalate_to_human`, que faz
+quatro coisas em ordem: persiste a INBOUND que disparou (contexto para o
+atendente), seta `HUMANO`, envia+persiste a OUTBOUND, e publica o evento.
+
+Mas **só o comando universal** ("humano"/"atendente") e a **intenção
+`FALAR_COM_HUMANO`** passavam por lá. Quem **clicava na opção do menu** — o
+caminho natural, o que o bot oferece — caía em handlers que setavam o estado na
+mão e retornavam, fazendo só duas das quatro coisas.
+
+⚠️ **Nenhum handler deve transicionar para `HUMANO` por conta própria.** Um teste
+varre `handlers/*.py` inteiro afirmando isso — não os dois pontos que estavam
+errados, mas a **classe** do defeito.
+
+⚠️ Ao rotear pelo helper, **remova o `send_text` do handler** — o helper já envia
+a mesma constante (`HUMANO_CHAMADO`), e manter os dois faz a mensagem sair
+duplicada.
+
+**Corte na telemetria: 2026-08-12.** Antes dessa data, `opt_humano` nos traces do
+S-bot-1 não tem inbox nem notificação. Não é dado faltando — é o defeito.
+
+### `SKIPPED_CONSENT_REVOKED` nunca existiu no enum
+
+O `communication/service.py` gravava esse status em **dois** pontos; o enum
+`communicationlogstatus` tem **`SKIPPED_NO_CONSENT`**. Em PostgreSQL isso levanta
+`InvalidTextRepresentation` no commit — **o dispatch quebrava quando um cliente
+revogava consentimento.**
+
+Nenhum teste pegou porque todos usam FakeDB, que aceita qualquer string.
+
+**Corrigido usando `SKIPPED_NO_CONSENT`**, não criando o valor: `check_consent`
+devolve um `bool` e colapsa "nunca concedeu" e "revogou" antes de o `dispatch` ver
+qualquer coisa — os dois estados não são distinguíveis sem mudar a assinatura do
+consent_service. E no ramo `MARKETING` sem identity **nada foi revogado**; o nome
+antigo não era impreciso, era falso.
+
+⚠️ **Consumidor corrigido junto:** `nps/service.py:180` lia o status errado —
+ramo duplamente inalcançável. Com o certo, a pesquisa vira `EXPIRED` em vez de
+retentar a cada 15 min para sempre.
+
+**O guarda:** `test_consent_log_status.py` extrai todo literal passado a `_log(...)`
+e compara com `CommunicationLog.__table__.c.status.type.enums`. Não precisa de
+PostgreSQL e **generaliza** — já validou o `SKIPPED_NO_RECIPIENT` do sprint de
+WhatsApp sem ninguém ter ligado as duas coisas.
+
+### ⚠️ `ALTER TYPE ... ADD VALUE` precisa de AUTOCOMMIT
+
+O `env.py:112` envolve a execução inteira em `context.begin_transaction()`. E
+`ALTER TYPE ... ADD VALUE` dentro de bloco de transação **só é aceito a partir do
+PostgreSQL 12** — antes disso o pre-deploy morre no boot.
+
+O Supabase é PG 15, então funcionaria. Mas a migration passou a rodar numa
+conexão em **AUTOCOMMIT** de qualquer forma: uma linha, e a dependência de versão
+do ambiente some.
+
+⚠️ **O valor novo não pode ser usado dentro da mesma migration** — o PostgreSQL
+só o libera depois que a transação que o criou committa.
+
 ## S-onboarding — destravar o cadastro de tenant novo
+
+⚠️ **Leia junto com a seção acima** (S-plataforma-whatsapp), que supersede as
+decisões de canal registradas aqui.
 
 ### `create_company` — tenant novo nasce falando
 
@@ -479,14 +603,10 @@ Cada canal onde ele funciona: o **dono** recebe convite e reset por e-mail (que
 tem template e provedor); o **cliente final** recebe confirmação por WhatsApp
 (que tem template e conexão).
 
-⚠️ **Custo conhecido:** `channel_preference` fica `["EMAIL", "WHATSAPP"]` — EMAIL
-primeiro, hardcoded em `communication/service.py:159-163`. Para os eventos do
-cliente final, que só têm template WHATSAPP, cada mensagem faz **duas** buscas de
-template antes de entregar. Funciona pelo fallback; é ineficiência num produto
-WhatsApp-first, e a reordenação está na fila.
-
-⚠️ **O fallback cobre template ausente, nunca falha de envio.** Se o e-mail parar
-de entregar, o reset de senha **não** cai para o WhatsApp sozinho — vira `FAILED`.
+~~⚠️ **Custo conhecido:** `channel_preference` fica `["EMAIL", "WHATSAPP"]`~~ →
+**resolvido no S-plataforma-whatsapp.** A ordem foi invertida e passou a depender
+do destinatário; ver a seção acima. O custo era uma busca de template inútil por
+mensagem ao cliente final.
 
 ### 🔴 `Company.owner_mobile_phone` NÃO serve para roteamento de convite
 
@@ -498,23 +618,18 @@ convida também **ADMIN, OPERATOR e PROFESSIONAL**. Usá-lo mandaria **todo
 convite para o WhatsApp do dono**, incluindo o link de ativação da conta de outra
 pessoa.
 
-**É caminho de tomada de conta, não imprecisão de roteamento.**
+**É caminho de tomada de conta, não imprecisão de roteamento.** Continua valendo
+— o telefone tem de ser o do CONVIDADO.
 
-**O telefone não existe em nenhum ponto da cadeia do convite:**
+~~**O telefone não existe em nenhum ponto da cadeia do convite**~~ →
+**destravado no S-plataforma-whatsapp** (`e0s35`): `User.phone`,
+`UserInvitation.phone` e `InviteUserRequest.phone` existem, e o contexto do
+`dispatch` carrega `recipient_phone`. O `test_invitation_dispatch_context_has_no_phone`
+que documentava o bloqueio cumpriu o papel e foi removido.
 
-| Onde | Estado |
-|---|---|
-| `User` | sem coluna `phone` |
-| `UserInvitation` | só `email` |
-| `InviteUserRequest` | `email`, `role`, `name`, `professional_id` |
-| contexto do `dispatch` (`users/service.py:175`) | sem `recipient_phone` |
-| `_send_whatsapp` (`communication/service.py:281`) | `raise ValueError` sem telefone |
-
-Criar o template WHATSAPP de `user.invitation_sent` sem isso trocaria um
-`SKIPPED_NO_TEMPLATE` por um `FAILED` — pior, porque parece que tentou.
-
-`test_invitation_dispatch_context_has_no_phone` documenta o bloqueio e **quebra
-quando ele for destravado**, apontando para criar o template.
+⚠️ `_send_whatsapp` (`communication/service.py`) segue levantando `ValueError`
+sem telefone — e **não valida formato**. É por onde um número preenchido à mão
+por SQL entra torto.
 
 ### Reset de senha e canais de comunicação — o padrão da tela órfã
 
@@ -1489,8 +1604,10 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
   expire (48h), record_response (público — survey_id é o token; só SENT → 422
   caso contrário), add_tenant_response (nunca edita score — só adiciona)
 - Nota baixa (score <= low_score_threshold): publica nps.low_score_alert +
-  dispatch best-effort ao OWNER (User role=OWNER ativo; sem phone em User →
-  template EMAIL audience OWNER cobre; WHATSAPP existe mas falha sem phone)
+  dispatch best-effort ao OWNER (User role=OWNER ativo). ⚠️ A ressalva original
+  ("sem phone em User → só o template EMAIL cobre") caiu com o `e0s35`: o OWNER
+  com telefone recebe por WhatsApp; sem telefone, o e-mail segue cobrindo —
+  agora por construção, não por acidente (ver S-plataforma-whatsapp)
 - **Slot liberado é implícito no domínio** — Sprint G adicionou
   `_publish_slot_released` em appointments/service.py: cancel_appointment →
   appointment.cancelled, reschedule_appointment → appointment.rescheduled
@@ -1994,7 +2111,8 @@ pagamento. Está na fila.
 - Visual das novas seções: genérico, não compatível com projeto de referência
   Deferido para após implementações prioritárias
 - settings/financial/page.tsx: orphan (sem link no hub) — manter ou redirect
-- Campo phone em User: não existe no modelo — requer migration separada
+- ~~Campo phone em User: não existe no modelo — requer migration separada~~ →
+  **resolvido** no S-plataforma-whatsapp (`e0s35`)
 
 ## Transfer + Reconciliação + CashCount (Sprint 7 concluído)
 - Transfer: 2 Movements atômicos; sem Entry
