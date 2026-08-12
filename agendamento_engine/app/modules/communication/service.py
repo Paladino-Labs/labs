@@ -217,20 +217,31 @@ class CommunicationService:
                 if event_type.startswith("marketing.")
                 else ConsentType.COMMUNICATION
             )
+            # ⚠️ O status é SKIPPED_NO_CONSENT — o valor que EXISTE no enum
+            # `communicationlogstatus`. Até este sprint gravava-se
+            # "SKIPPED_CONSENT_REVOKED", que nunca esteve no enum: em PostgreSQL
+            # o commit levantava InvalidTextRepresentation e o dispatch QUEBRAVA
+            # justamente quando um cliente revogava consentimento.
+            #
+            # E o nome antigo prometia uma distinção que o código não produz:
+            # `check_consent` devolve um bool só, colapsando "nunca concedeu" e
+            # "revogou". No segundo ramo aqui embaixo (MARKETING sem identity)
+            # nada foi revogado — não há sequer identidade. "Sem consentimento"
+            # descreve os dois casos com precisão; "revogado" mente num deles.
             identity_id = self._resolve_identity_id(db, recipient_id)
             if identity_id is not None:
                 if not consent_service.check_consent(
                     db, identity_id, company_id, consent_type, channel
                 ):
                     return _log(
-                        "SKIPPED_CONSENT_REVOKED",
+                        "SKIPPED_NO_CONSENT",
                         channel=channel,
                         template_id=template.template_id,
                     )
             elif consent_type == ConsentType.MARKETING:
                 # MARKETING sem identity → impossível provar GRANTED → bloqueia
                 return _log(
-                    "SKIPPED_CONSENT_REVOKED",
+                    "SKIPPED_NO_CONSENT",
                     channel=channel,
                     template_id=template.template_id,
                 )

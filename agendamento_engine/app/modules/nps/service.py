@@ -177,8 +177,13 @@ def send_pending_surveys(db: Session) -> int:
             survey.expires_at = survey.sent_at + timedelta(hours=SURVEY_EXPIRY_HOURS)
             survey.communication_log_id = getattr(log, "log_id", None) or getattr(log, "id", None)
             sent += 1
-        elif log is not None and log.status == "SKIPPED_CONSENT_REVOKED":
-            # Consent revogado → não insiste; encerra a pesquisa
+        elif log is not None and log.status == "SKIPPED_NO_CONSENT":
+            # Sem consentimento → não insiste; encerra a pesquisa.
+            # ⚠️ Este ramo era INALCANÇÁVEL: o dispatch gravava
+            # "SKIPPED_CONSENT_REVOKED", valor que não existe no enum
+            # `communicationlogstatus`, então o commit levantava antes de chegar
+            # aqui. Com o status correto, a pesquisa passa de fato a EXPIRED em
+            # vez de retentar a cada 15 min para sempre.
             survey.status = "EXPIRED"
         # Demais SKIPPED_*/FAILED: permanece PENDING — retry no próximo scan
 

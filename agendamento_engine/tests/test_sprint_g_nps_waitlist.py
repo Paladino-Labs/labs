@@ -321,7 +321,7 @@ class TestNpsSend:
         assert dispatch.calls[0]["recipient_type"] == "CLIENT"
 
     def test_consent_revogado_expira_survey(self, dispatch, events):
-        dispatch.statuses.append("SKIPPED_CONSENT_REVOKED")
+        dispatch.statuses.append("SKIPPED_NO_CONSENT")
         survey = _survey(status="PENDING", scheduled_for=_now() - timedelta(minutes=5))
         db = FakeDB(
             first={Customer: [_customer()]},
@@ -528,7 +528,7 @@ class TestWaitlistNotify:
         assert e2.status == "NOTIFIED"
 
     def test_consent_revogado_passa_ao_proximo(self, dispatch, events):
-        dispatch.statuses.append("SKIPPED_CONSENT_REVOKED")
+        dispatch.statuses.append("SKIPPED_NO_CONSENT")
         company_id = uuid.uuid4()
         service_id = uuid.uuid4()
         e1 = _entry(company_id=company_id, service_id=service_id)

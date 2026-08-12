@@ -511,7 +511,7 @@ class TestDispatchConsent:
             ConsentType.COMMUNICATION, "WHATSAPP", SourceChannel.PAINEL,
         )
         log, send = self._dispatch(db, company_id, customer)
-        assert log.status == "SKIPPED_CONSENT_REVOKED"
+        assert log.status == "SKIPPED_NO_CONSENT"
         send.assert_not_called()
 
     def test_communication_sem_registro_envia(self):
@@ -530,7 +530,7 @@ class TestDispatchConsent:
         log, send = self._dispatch(
             db, company_id, customer, event_type="marketing.promo"
         )
-        assert log.status == "SKIPPED_CONSENT_REVOKED"
+        assert log.status == "SKIPPED_NO_CONSENT"
         send.assert_not_called()
 
     def test_marketing_com_granted_explicito_envia(self):
