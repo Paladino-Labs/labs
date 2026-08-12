@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Pencil, Trash2 } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/hooks/useAuth"
-import { formatDateTime, formatBRLFromDecimal } from "@/lib/utils"
+import { formatDateTime, formatBRLFromDecimal, formatPhoneBR } from "@/lib/utils"
 import type {
   Professional,
   Service,
@@ -323,6 +323,20 @@ function PricingOverridesCard({ profId }: { profId: string }) {
   )
 }
 
+/**
+ * Prefill do telefone do convite a partir do cadastro do profissional.
+ * `Professional.phone` é campo LIVRE no backend (e0s28 — sem normalização), então
+ * pode vir com DDI, com máscara ou vazio. Descarta o 55 inicial antes de mascarar,
+ * senão `formatPhoneBR` (que corta em 11 dígitos) truncaria o final do número.
+ */
+function prefillInvitePhone(raw?: string | null): string {
+  let digits = (raw ?? "").replace(/\D/g, "")
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
+  }
+  return digits ? formatPhoneBR(digits) : ""
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function ProfessionalEditorPage() {
@@ -345,7 +359,12 @@ export default function ProfessionalEditorPage() {
   const [linkedUserIds, setLinkedUserIds] = useState<Set<string>>(new Set())
   const [selectedUserId, setSelectedUserId] = useState("")
   const [inviteEmail, setInviteEmail] = useState("")
+  // O convite exige telefone (é o canal por onde ele chega). Prefill do cadastro
+  // do profissional quando existe — quem convida raramente quer outro número.
+  const [invitePhone, setInvitePhone] = useState("")
   const [submittingInvite, setSubmittingInvite] = useState(false)
+  const invitePhoneDigits = invitePhone.replace(/\D/g, "")
+  const invitePhoneValid = invitePhoneDigits.length === 10 || invitePhoneDigits.length === 11
   const [accountBusy, setAccountBusy] = useState(false)
 
   const [whRows, setWhRows] = useState<WhRow[]>(
@@ -384,6 +403,7 @@ export default function ProfessionalEditorPage() {
       setEditSpecialty(profData.specialty ?? "")
       setEditEmail(profData.email ?? "")
       setEditPhone(profData.phone ?? "")
+      setInvitePhone(prefillInvitePhone(profData.phone))
       setWhRows(mergeWh(wh))
       setProfServices(ps)
       setAllServices(svc)
@@ -450,16 +470,18 @@ export default function ProfessionalEditorPage() {
   }
 
   async function handleSendInvite() {
-    if (!inviteEmail) return
+    if (!inviteEmail || !invitePhoneValid) return
     setSubmittingInvite(true)
     try {
       await api.post("/users/invite", {
         email: inviteEmail.trim(),
+        phone: invitePhoneDigits,
         role: "PROFESSIONAL",
         professional_id: profId,
       })
       toast.success("Convite enviado")
       setInviteEmail("")
+      setInvitePhone("")
     } catch (e: unknown) {
       toast.error((e as Error).message ?? "Erro ao enviar convite")
     } finally {
@@ -731,7 +753,7 @@ export default function ProfessionalEditorPage() {
             <Separator />
             <div className="space-y-1">
               <Label>Ou enviar convite</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Input
                   type="email"
                   value={inviteEmail}
@@ -739,12 +761,27 @@ export default function ProfessionalEditorPage() {
                   placeholder="email@profissional.com"
                   className="max-w-xs"
                 />
-                <Button size="sm" onClick={handleSendInvite} disabled={!inviteEmail || submittingInvite}>
+                <Input
+                  type="tel"
+                  inputMode="numeric"
+                  value={invitePhone}
+                  onChange={(e) => setInvitePhone(formatPhoneBR(e.target.value))}
+                  placeholder="(11) 90000-0000"
+                  className="max-w-[11rem]"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSendInvite}
+                  disabled={!inviteEmail || !invitePhoneValid || submittingInvite}
+                >
                   {submittingInvite ? "…" : "Convidar"}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                O convite será enviado com este profissional pré-vinculado.
+                O convite sai por WhatsApp com este profissional pré-vinculado.
+                {invitePhone && !invitePhoneValid
+                  ? " Informe DDD + número (10 ou 11 dígitos)."
+                  : ""}
               </p>
             </div>
           </CardContent>

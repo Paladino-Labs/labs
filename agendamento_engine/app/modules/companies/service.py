@@ -157,6 +157,21 @@ _DEFAULT_TEMPLATES: list[dict] = [
         ),
     },
     {
+        # ⚠️ Sem emoji, aqui e nos outros dois eventos de plataforma: emoji em
+        # mensagem automatizada marca "robô" e este é o primeiro contato do
+        # convidado com o produto. Estrutura e quebra de linha no lugar.
+        "event_type": "user.invitation_sent",
+        "channel": "WHATSAPP",
+        "audience": "CLIENT",
+        "body_template": (
+            "Você foi convidado para acessar a {{company_name}} no Paladino.\n\n"
+            "Crie sua senha e ative sua conta:\n"
+            "{{activation_link}}\n\n"
+            "O convite expira em 48 horas.\n"
+            "Se não reconhece este convite, ignore esta mensagem."
+        ),
+    },
+    {
         "event_type": "user.invitation_sent",
         "channel": "EMAIL",
         "audience": "CLIENT",
@@ -221,13 +236,17 @@ _DEFAULT_TEMPLATES: list[dict] = [
         ),
     },
     {
+        # ⚠️ Este NÃO é transacional — é alerta operacional, em tempo real. Quem
+        # lê está cortando cabelo e olha o celular por três segundos: quem e o
+        # quê precisam caber na PRIMEIRA linha, sem abrir nada. O link vem
+        # depois, para quando der.
         "event_type": "conversation.escalated",
         "channel": "WHATSAPP",
         "audience": "OWNER",
         "body_template": (
-            "Nova conversa escalada para atendimento humano.\n"
-            "Cliente: {{customer_name}} ({{phone}}).\n"
-            "Acesse o painel para responder: {{panel_url}}"
+            "{{customer_name}} pediu para falar com um atendente.\n\n"
+            "WhatsApp: {{phone}}\n"
+            "Responder pelo painel: {{panel_url}}"
         ),
     },
     {
@@ -315,17 +334,12 @@ def create_company(db: Session, data: CompanyCreate) -> Company:
     # (SKIPPED_CHANNEL_DISABLED) e o tenant nascia MUDO: os 18 templates semeados
     # logo abaixo ficavam inalcançáveis.
     #
-    # Cada canal onde ele funciona: o dono recebe o convite por E-MAIL (é o único
-    # canal com template para `user.invitation_sent`, e o provedor está
-    # configurado no Railway); o cliente final recebe confirmação por WHATSAPP
-    # (template + conexão Evolution).
-    #
-    # ⚠️ `channel_preference` fica ["EMAIL", "WHATSAPP"] — EMAIL primeiro, ordem
-    # hardcoded em communication/service.py. Para os eventos do cliente final
-    # (appointment.confirmed e afins) não existe template EMAIL, então o dispatch
-    # busca, não acha e cai para WHATSAPP pelo fallback — que funciona. Custo:
-    # uma busca de template por mensagem. Rever quando a ordem de canal for
-    # revista (produto é WhatsApp-first; está na fila como item próprio).
+    # Desde o S-plataforma-whatsapp a preferência é ["WHATSAPP", "EMAIL"] — o
+    # produto é WhatsApp-first e os três eventos de plataforma (convite, reset e
+    # escalada) passaram a ter template e destinatário WhatsApp. O e-mail
+    # continua ligado como segunda via: um canal só entra na preferência quando
+    # há destinatário para ele, então o usuário sem telefone ainda sai por
+    # e-mail.
     db.add(CommunicationSetting(
         company_id=company.id,
         whatsapp_enabled=True,

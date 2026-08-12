@@ -29,6 +29,10 @@ class UserInvitation(Base):
         index=True,
     )
     email = Column(String(255), nullable=False, index=True)
+    # E.164 sem o '+' — destino WhatsApp do convite; copiado para User.phone na
+    # ativação. Obrigatório na API (InviteUserRequest), nullable no banco porque
+    # convites anteriores ao S-plataforma-whatsapp não têm telefone.
+    phone = Column(String(20), nullable=True)
     role = Column(
         SAEnum(
             "OWNER", "ADMIN", "OPERATOR", "PROFESSIONAL", "CLIENT",

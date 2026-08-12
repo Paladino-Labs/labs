@@ -43,6 +43,15 @@ def handle_conversation_escalated(event) -> None:
             .first()
         )
         if owner is None:
+            # ⚠️ Saía em silêncio. Um alerta que não sai e não avisa que não saiu
+            # é pior que alerta nenhum: cria a impressão de cobertura. Não há
+            # CommunicationLog a gravar aqui (não há destinatário, e o log exige
+            # recipient_id), então o rastro é o log de aplicação.
+            logger.warning(
+                "handle_conversation_escalated: tenant sem OWNER ativo — "
+                "escalada NÃO notificada company_id=%s session_id=%s",
+                company_id, session_id,
+            )
             return
 
         customer_name = "cliente"
@@ -65,9 +74,14 @@ def handle_conversation_escalated(event) -> None:
             company_id=company_id,
             context={
                 "customer_name": customer_name,
+                # `phone` é o telefone DO CLIENTE que pediu atendimento (vai no
+                # corpo da mensagem); `recipient_phone` é o do OWNER, que é para
+                # onde o alerta é entregue. Trocar os dois manda o alerta para o
+                # cliente.
                 "phone": phone or "",
                 "session_id": session_id or "",
                 "panel_url": f"{panel_url}/conversations" if panel_url else "",
+                "recipient_phone": getattr(owner, "phone", None) or "",
                 "recipient_email": getattr(owner, "email", None) or "",
             },
             recipient_id=owner.id,

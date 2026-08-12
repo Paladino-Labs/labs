@@ -70,6 +70,8 @@ class TUser(TestBase):
     active = Column(Boolean, default=True, nullable=False)
     name = Column(String(100), nullable=True)
     last_password_change_at = Column(TIMESTAMP, nullable=True)
+    # Coluna phone adicionada em e0s35_user_phone (S-plataforma-whatsapp)
+    phone = Column(String(20), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow)
 
@@ -89,6 +91,8 @@ class TUserInvitation(TestBase):
     status = Column(String(20), nullable=False, default="PENDING")
     invited_by_user_id = Column(String(36), nullable=False)
     professional_id = Column(_UUIDString(), nullable=True)
+    # Coluna phone adicionada em e0s35_user_phone (S-plataforma-whatsapp)
+    phone = Column(String(20), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
 
@@ -388,7 +392,8 @@ def test_invite_accepts_professional_id_field(client, db_session):
 
     resp = client.post(
         "/users/invite",
-        json={"email": "novo@test.com", "role": "PROFESSIONAL", "professional_id": str(prof.id)},
+        json={"email": "novo@test.com", "role": "PROFESSIONAL",
+              "phone": "62988887777", "professional_id": str(prof.id)},
         headers=auth_header(actor),
     )
     assert resp.status_code == 201

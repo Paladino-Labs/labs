@@ -68,14 +68,20 @@ def test_new_tenant_seeds_whatsapp_templates_reachable_by_the_enabled_channel():
     )
 
 
-def test_dispatch_for_new_tenant_falls_back_to_whatsapp_for_client_events():
+def test_dispatch_for_new_tenant_delivers_client_events_by_whatsapp():
     """O teste que amarra o item 1 ao efeito.
 
     Com o CommunicationSetting que o create_company produz, o dispatch não sai em
-    SKIPPED_CHANNEL_DISABLED. E prova o custo aceito na decisão revisada: como
-    `channel_preference` é ["EMAIL", "WHATSAPP"] e `appointment.confirmed` não tem
-    template EMAIL, há DUAS buscas de template por mensagem — a primeira sempre
-    falha — antes de cair no WhatsApp, que entrega.
+    SKIPPED_CHANNEL_DISABLED e a mensagem do cliente final sai pelo WhatsApp.
+
+    ⚠️ ATUALIZADO no S-plataforma-whatsapp. A versão anterior afirmava o CUSTO da
+    ordem antiga: `channel_preference` era ["EMAIL", "WHATSAPP"], então toda
+    mensagem ao cliente fazia DUAS buscas de template — a de EMAIL sempre falhava
+    — antes de entregar pelo fallback. Aquele teste travava a ineficiência como se
+    fosse contrato.
+
+    A ordem foi invertida (WhatsApp-first, que é o produto), e agora o número de
+    buscas é o sinal oposto: UMA. Se voltar a ser 2, a ordem regrediu.
     """
     from app.modules.communication.service import communication_service
 
@@ -99,8 +105,8 @@ def test_dispatch_for_new_tenant_falls_back_to_whatsapp_for_client_events():
         elif name == "CommunicationTemplate":
             def first():
                 template_lookups.append(len(template_lookups))
-                # 1ª busca = EMAIL → não existe; 2ª = WHATSAPP → existe
-                return None if len(template_lookups) == 1 else whatsapp_template
+                # Com WHATSAPP primeiro, a 1ª busca já acha.
+                return whatsapp_template
             q.filter.return_value.first.side_effect = first
         else:
             q.filter.return_value.first.return_value = None
@@ -126,63 +132,24 @@ def test_dispatch_for_new_tenant_falls_back_to_whatsapp_for_client_events():
     assert entry.channel == "WHATSAPP", "o cliente final tem de sair pelo WhatsApp"
     send_wpp.assert_called_once()
     send_email.assert_not_called()
-    assert len(template_lookups) == 2, (
-        "esperava a busca EMAIL falha antes do fallback WHATSAPP — se virou 1, a "
-        "ordem de canal mudou e o custo descrito na decisão do item 1 sumiu"
+    assert len(template_lookups) == 1, (
+        "esperava UMA busca de template — o WhatsApp é o primeiro canal desde o "
+        "S-plataforma-whatsapp. Se voltou a 2, a ordem de canal regrediu para "
+        "EMAIL-first num produto WhatsApp-first"
     )
 
 
-# ── Item 5 — por que o template WHATSAPP de convite NÃO foi criado ────────────
-
-def test_invitation_dispatch_context_has_no_phone():
-    """⚠️ Documenta o bloqueio do item 5, não um comportamento desejado.
-
-    Um template WHATSAPP para `user.invitation_sent` só pode existir se o contexto
-    do dispatch carregar `recipient_phone` — `_send_whatsapp` levanta
-    `ValueError` sem ele (communication/service.py). Não carrega, e não há de onde:
-    `User` e `UserInvitation` não têm coluna de telefone, e `InviteUserRequest`
-    não tem campo. Criar o template trocaria SKIPPED_NO_TEMPLATE por FAILED —
-    pior, porque parece que tentou.
-
-    Se este teste quebrar porque o contexto passou a ter telefone, o item 5 está
-    destravado: crie o template.
-    """
-    from app.modules.users import service as users_service
-    from app.infrastructure.db.models.user_invitation import UserInvitation
-    from app.infrastructure.db.models.user import User
-
-    assert not hasattr(UserInvitation, "phone")
-    assert not hasattr(User, "phone")
-
-    captured: dict = {}
-
-    def fake_dispatch(**kwargs):
-        captured.update(kwargs)
-        return MagicMock()
-
-    actor = MagicMock()
-    actor.id = uuid.uuid4()
-    actor.company_id = uuid.uuid4()
-    actor.role = "OWNER"
-
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.first.return_value = None
-
-    with patch("app.modules.communication.service.communication_service.dispatch",
-               side_effect=fake_dispatch), \
-         patch.object(users_service, "record_sensitive_action"):
-        users_service.invite_user(
-            db=mock_db,
-            actor=actor,
-            email="dono@barbearianova.com",
-            role="OWNER",
-        )
-
-    assert captured, "invite_user não chegou a chamar o dispatch"
-    assert captured["event_type"] == "user.invitation_sent"
-    assert "recipient_phone" not in captured["context"], (
-        "há telefone no contexto — o item 5 está destravado"
-    )
+# ── Item 5 — DESTRAVADO no S-plataforma-whatsapp ──────────────────────────────
+#
+# `test_invitation_dispatch_context_has_no_phone` vivia aqui. Ele afirmava que
+# `User` e `UserInvitation` não tinham coluna de telefone e que o contexto do
+# dispatch não carregava `recipient_phone` — o bloqueio que impedia criar o
+# template WHATSAPP do convite. O teste foi escrito para QUEBRAR quando o
+# bloqueio caísse, apontando para o próximo passo.
+#
+# Caiu. As colunas existem, o convite exige telefone e o template WHATSAPP foi
+# semeado. A cobertura do caminho destravado está em
+# `tests/test_s_plataforma_whatsapp.py`.
 
 
 # ── Item 3 — o fuso vem do TenantConfig, não de uma constante ─────────────────

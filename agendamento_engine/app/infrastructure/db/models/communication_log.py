@@ -40,6 +40,9 @@ class CommunicationLog(Base):
             "SKIPPED_NO_CONSENT",
             "SKIPPED_CHANNEL_DISABLED",
             "SKIPPED_NO_TEMPLATE",
+            # Canal habilitado e template existente, mas sem endereço para
+            # entregar (usuário sem telefone / sem e-mail no context).
+            "SKIPPED_NO_RECIPIENT",
             "SCHEDULED",
             name="communicationlogstatus",
             create_type=False,

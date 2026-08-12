@@ -54,6 +54,8 @@ class TUser(TestBase):
     # Coluna name adicionada em h2i3j4k5l6m7 — nullable para compatibilidade
     name = Column(String(100), nullable=True)
     last_password_change_at = Column(TIMESTAMP, nullable=True)
+    # Coluna phone adicionada em e0s35_user_phone (S-plataforma-whatsapp)
+    phone = Column(String(20), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow)
 
@@ -73,6 +75,8 @@ class TUserInvitation(TestBase):
     status = Column(String(20), nullable=False, default="PENDING")
     invited_by_user_id = Column(String(36), nullable=False)
     professional_id = Column(String(36), nullable=True)
+    # Coluna phone adicionada em e0s35_user_phone (S-plataforma-whatsapp)
+    phone = Column(String(20), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
 
@@ -363,10 +367,15 @@ class TestInviteUserService:
         owner = make_user(db_session, company.id, "OWNER")
         db_session.commit()
 
-        inv = invite_user(db_session, owner, "new@test.com", "PROFESSIONAL")
+        # phone é obrigatório desde e0s35 — o convite sai por WhatsApp.
+        inv = invite_user(
+            db_session, owner, "new@test.com", "PROFESSIONAL",
+            phone="62988887777",
+        )
         assert inv.email == "new@test.com"
         assert inv.role == "PROFESSIONAL"
         assert inv.status == "PENDING"
+        assert inv.phone == "5562988887777"
 
         # User ainda não foi criado
         user = db_session.query(TUser).filter(TUser.email == "new@test.com").first()
@@ -428,7 +437,10 @@ class TestInviteUserService:
         owner = make_user(db_session, company.id, "OWNER")
         db_session.commit()
 
-        invite_user(db_session, owner, "audit@test.com", "PROFESSIONAL")
+        invite_user(
+            db_session, owner, "audit@test.com", "PROFESSIONAL",
+            phone="62988887777",
+        )
 
         log = db_session.query(TAuditLog).filter(TAuditLog.action == "invite_user").first()
         assert log is not None

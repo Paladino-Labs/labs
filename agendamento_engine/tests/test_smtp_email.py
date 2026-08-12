@@ -170,14 +170,21 @@ class TestDispatchNoTemplate:
 
         assert log.status == "SKIPPED_NO_TEMPLATE"
 
-    def test_dispatch_email_falls_back_to_whatsapp_when_no_email_template(self):
-        """email_enabled=True mas sem template EMAIL; whatsapp_enabled=True com template → WHATSAPP."""
+    def test_dispatch_with_both_channels_enabled_delivers_by_whatsapp(self):
+        """Os dois canais ligados, só template WHATSAPP e só telefone no context.
+
+        ⚠️ ATUALIZADO no S-plataforma-whatsapp. A versão anterior chamava-se
+        `..._falls_back_to_whatsapp_when_no_email_template` e simulava a ordem por
+        ORDINAL ("1ª chamada = EMAIL"). Com a preferência invertida (WhatsApp
+        primeiro) o ordinal deixou de descrever o canal, e o mock devolvia None
+        justamente para o WhatsApp. O mock agora olha o canal, não a ordem.
+        """
         from app.modules.communication.service import CommunicationService
 
         svc = CommunicationService()
         settings = _make_settings(email_enabled=True, whatsapp_enabled=True)
 
-        call_count = [0]
+        channels_queried: list = []
         whatsapp_template = _make_template(channel="WHATSAPP")
 
         def query_side_effect(model_class):
@@ -186,12 +193,15 @@ class TestDispatchNoTemplate:
             if name == "CommunicationSetting":
                 q.filter.return_value.first.return_value = settings
             elif name == "CommunicationTemplate":
-                call_count[0] += 1
-                # Primeira chamada (EMAIL) → None; segunda (WHATSAPP) → template
-                if call_count[0] == 1:
-                    q.filter.return_value.first.return_value = None
-                else:
-                    q.filter.return_value.first.return_value = whatsapp_template
+                def filter_(*criteria):
+                    channel = str(criteria[2].right.value)
+                    channels_queried.append(channel)
+                    inner = MagicMock()
+                    inner.first.return_value = (
+                        whatsapp_template if channel == "WHATSAPP" else None
+                    )
+                    return inner
+                q.filter.side_effect = filter_
             else:
                 q.filter.return_value.first.return_value = None
             return q
@@ -211,6 +221,10 @@ class TestDispatchNoTemplate:
             )
 
         assert log.status == "SENT"
+        assert channels_queried == ["WHATSAPP"], (
+            "sem `recipient_email` no context o canal EMAIL nem entra na "
+            "preferência — e o WhatsApp é o primeiro de qualquer forma"
+        )
         mock_wa.assert_called_once()
         mock_email.assert_not_called()
 

@@ -66,6 +66,8 @@ class TUser(TestBase):
     active = Column(Boolean, default=True, nullable=False)
     name = Column(String(100), nullable=True)
     last_password_change_at = Column(TIMESTAMP, nullable=True)
+    # Coluna phone adicionada em e0s35_user_phone (S-plataforma-whatsapp)
+    phone = Column(String(20), nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow)
 

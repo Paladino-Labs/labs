@@ -95,7 +95,14 @@ class TestQuietHoursBehavior:
                 log = svc.dispatch(
                     event_type=event_type,
                     company_id=settings.company_id,
-                    context={"cliente_nome": "João", "servico": "Corte"},
+                    # `recipient_phone` acrescentado no S-plataforma-whatsapp: um
+                    # canal só entra na preferência quando há endereço para ele,
+                    # e estes casos exercitam quiet_hours num envio WHATSAPP real.
+                    context={
+                        "cliente_nome": "João",
+                        "servico": "Corte",
+                        "recipient_phone": "5562988887777",
+                    },
                     recipient_id=uuid.uuid4(),
                     recipient_type="CLIENT",
                     db=mock_db,

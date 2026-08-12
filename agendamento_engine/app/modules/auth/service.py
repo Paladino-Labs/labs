@@ -141,6 +141,10 @@ def forgot_password(db: Session, email: str) -> None:
                 event_type="auth.password_reset_requested",
                 company_id=user.company_id,
                 context={
+                    # Sempre foi None: a coluna não existia. Desde o
+                    # S-plataforma-whatsapp `User.phone` existe e este contexto
+                    # passa a ter destinatário WhatsApp de fato. Usuário sem
+                    # telefone (todos os anteriores) continua saindo por e-mail.
                     "recipient_phone": getattr(user, "phone", None),
                     "recipient_email": user.email,
                     "email_subject": "Seu código de redefinição de senha — Paladino",

@@ -68,6 +68,11 @@ class User(Base, TimestampMixin):
     )
     active = Column(Boolean, default=True, nullable=False)
     name = Column(String(100), nullable=True)
+    # E.164 sem o '+' (ex.: "5562988887777") — mesma convenção de customers.phone,
+    # que é o formato entregue ao evolution_client. Canal de identidade do público
+    # do produto: é por ele que saem convite, reset de senha e escalada.
+    # Nullable: usuários anteriores ao S-plataforma-whatsapp não têm telefone.
+    phone = Column(String(20), nullable=True)
     # Preenchido sempre que a senha é alterada; usado para invalidar JWTs antigos.
     last_password_change_at = Column(sa.TIMESTAMP(timezone=True), nullable=True)
 

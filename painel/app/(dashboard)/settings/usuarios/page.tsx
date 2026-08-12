@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { UserPlus, Crown, UserMinus, Mail, X } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/context/AuthContext"
-import { formatDateTime } from "@/lib/utils"
+import { formatDateTime, formatPhoneBR } from "@/lib/utils"
 import {
   ROLE_LABELS,
   ROLE_INVITE_HINTS,
@@ -36,6 +36,7 @@ interface User {
   company_id?: string | null
   email: string
   name?: string | null
+  phone?: string | null
   role: string
   active: boolean
 }
@@ -43,6 +44,7 @@ interface User {
 interface Invitation {
   invitation_id: string
   email: string
+  phone?: string | null
   role: string
   status: string
   expires_at: string
@@ -69,15 +71,24 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
   const defaultRole = allowed.includes("PROFESSIONAL") ? "PROFESSIONAL" : (allowed[0] ?? "")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
+  // Obrigatório: o convite sai por WhatsApp, e sem telefone a pessoa fica sem o
+  // caminho de acesso — foi assim que um barbeiro da Le Duc ficou sem entrar.
+  const [phone, setPhone] = useState("")
   const [role, setRole] = useState(defaultRole)
   const [saving, setSaving] = useState(false)
+
+  // 10 (fixo) ou 11 (celular) dígitos — mesmo universo que o backend aceita em
+  // validate_user_phone_input. A validação de DDD (whitelist ANATEL) fica no
+  // backend, fonte única; aqui só barramos o incompleto óbvio.
+  const phoneDigits = phone.replace(/\D/g, "")
+  const phoneValid = phoneDigits.length === 10 || phoneDigits.length === 11
 
   // Vínculo opcional com um cadastro de profissional (só faz sentido em PROFESSIONAL).
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [linkedProfId, setLinkedProfId] = useState("")
 
   useEffect(() => {
-    if (open) { setEmail(""); setName(""); setRole(defaultRole); setLinkedProfId("") }
+    if (open) { setEmail(""); setName(""); setPhone(""); setRole(defaultRole); setLinkedProfId("") }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carrega profissionais sem vínculo quando o Dialog abre.
@@ -93,11 +104,12 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
     : ""
 
   async function handleInvite() {
-    if (!email.trim() || !role) return
+    if (!email.trim() || !role || !phoneValid) return
     setSaving(true)
     try {
       const res = await api.post<{ expires_at: string }>("/users/invite", {
         email: email.trim(),
+        phone: phoneDigits,
         role,
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(role === "PROFESSIONAL" && linkedProfId && linkedProfId !== "__none__"
@@ -124,6 +136,22 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
           <div className="space-y-1.5">
             <Label htmlFor="inv-email">E-mail</Label>
             <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome@empresa.com" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-phone">WhatsApp</Label>
+            <Input
+              id="inv-phone"
+              type="tel"
+              inputMode="numeric"
+              value={phone}
+              onChange={(e) => setPhone(formatPhoneBR(e.target.value))}
+              placeholder="(11) 90000-0000"
+            />
+            <p className="text-xs text-muted-foreground">
+              {phone && !phoneValid
+                ? "Informe DDD + número (10 ou 11 dígitos)."
+                : "O convite é enviado por WhatsApp — é por aqui que a pessoa recebe o acesso."}
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="inv-name">Nome (opcional)</Label>
@@ -170,7 +198,7 @@ function InviteDialog({ open, onOpenChange, actorRole, onDone }: {
         </div>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" />}>Cancelar</DialogClose>
-          <Button onClick={handleInvite} disabled={saving || !email.trim()}>
+          <Button onClick={handleInvite} disabled={saving || !email.trim() || !phoneValid}>
             {saving ? "Enviando…" : "Enviar convite"}
           </Button>
         </DialogFooter>

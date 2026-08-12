@@ -104,6 +104,44 @@ def create_user(db: Session, company_id: UUID, data: UserCreate) -> User:
 
 # ── convite ──────────────────────────────────────────────────────────────────
 
+def _normalize_invite_phone(raw_phone: str) -> str:
+    """Telefone do convite → E.164 sem o '+', pronto para o `evolution_client`.
+
+    Duas etapas, o mesmo idioma dos 4 formulários públicos (A5 §3.1 classifica a
+    separação como legítima):
+
+      1. `validate_user_phone_input` — GATE de formulário: whitelist ANATEL de
+         DDD, rejeita DDI, mensagem de erro legível para quem está digitando.
+      2. `normalize_phone_e164` — a normalização CANÔNICA-ESTRITA: insere o 9º
+         dígito de celular e produz o E.164.
+
+    ⚠️ Existem 4 normalizações de telefone no backend. A quarta
+    (`public/service._normalize_phone`) NÃO insere o 9º dígito e produziria uma
+    chave diferente para o mesmo número — não usar.
+    """
+    from app.modules.identity.resolver import (
+        InvalidUserPhoneError,
+        normalize_phone_e164,
+        validate_user_phone_input,
+    )
+
+    if not (raw_phone or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Telefone é obrigatório no convite — é por ele que a pessoa "
+                   "recebe o acesso.",
+        )
+
+    try:
+        validate_user_phone_input(raw_phone)
+    except InvalidUserPhoneError as exc:
+        raise HTTPException(status_code=422, detail=exc.message)
+
+    phone_e164, _national = normalize_phone_e164(raw_phone)
+    # Convenção do repositório: armazenado sem o '+' (idem customers.phone)
+    return phone_e164.lstrip("+")
+
+
 def invite_user(
     db: Session,
     actor: User,
@@ -113,10 +151,13 @@ def invite_user(
     request_ua: Optional[str] = None,
     name: Optional[str] = None,
     professional_id: Optional[UUID] = None,
+    phone: Optional[str] = None,
 ) -> UserInvitation:
     _assert_not_schema_only(role)
     _assert_not_platform_owner_by_tenant(actor, role)
     _assert_can_invite(actor, role)
+
+    normalized_phone = _normalize_invite_phone(phone or "")
 
     # Actor não pode elevar o próprio papel via convite (convite cria usuário novo,
     # mas a verificação de autoelevação aplica-se a assign_role)
@@ -128,6 +169,7 @@ def invite_user(
         invitation_id=_s(uuid.uuid4()),
         company_id=_s(actor.company_id),  # NULL para PLATFORM_OWNER
         email=email,
+        phone=normalized_phone,
         role=role,
         token=_s(uuid.uuid4()),
         expires_at=datetime.now(timezone.utc) + timedelta(hours=48),
@@ -155,7 +197,7 @@ def invite_user(
     db.commit()
     db.refresh(invitation)
 
-    # Envia email de convite (best-effort — falha não bloqueia a resposta).
+    # Envia o convite (best-effort — falha não bloqueia a resposta).
     try:
         from app.core.config import settings as app_settings
         from app.modules.communication.service import communication_service
@@ -172,10 +214,15 @@ def invite_user(
 
         # Convites sempre usam audience="CLIENT" — o convidado ainda não é
         # um usuário do sistema e um único template cobre todos os roles.
+        #
+        # `recipient_phone` é o telefone DO CONVIDADO — nunca o do dono da
+        # empresa. Sem essa distinção o link de ativação da conta de um
+        # OPERATOR iria para o WhatsApp do OWNER (tomada de conta).
         communication_service.dispatch(
             event_type="user.invitation_sent",
             company_id=actor.company_id,
             context={
+                "recipient_phone": normalized_phone,
                 "recipient_email": email,
                 "email_subject": f"Você foi convidado para {company_name} — Paladino",
                 "activation_link": activation_link,

@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     company_id: Optional[UUID] = None
     email: str
     name: Optional[str] = None
+    phone: Optional[str] = None
     role: str
     active: bool
 
@@ -35,6 +36,11 @@ class UserResponse(BaseModel):
 class InviteUserRequest(BaseModel):
     email: EmailStr
     role: str
+    # OBRIGATÓRIO: o WhatsApp é o canal de identidade do público do produto e o
+    # convite é o caminho pelo qual a pessoa ganha acesso. Quem convida conhece
+    # a pessoa e tem o telefone à mão; opcional criaria o caso permanente
+    # "usuário sem canal". Normalizado no service (normalize_phone_e164).
+    phone: str
     name: Optional[str] = None
     professional_id: Optional[UUID] = None  # só relevante quando role=PROFESSIONAL
 
@@ -56,6 +62,7 @@ class TransferOwnershipRequest(BaseModel):
 class InvitationResponse(BaseModel):
     invitation_id: UUID
     email: str
+    phone: Optional[str] = None
     role: str
     status: str
     expires_at: datetime

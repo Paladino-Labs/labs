@@ -63,6 +63,11 @@ def activate_account(
         role=invitation.role,
         active=True,
         name=name,
+        # O telefone do convite passa para a conta: é o canal por onde este
+        # usuário vai receber reset de senha e — se for OWNER — as escaladas.
+        # Já normalizado em invite_user; convites pré-S-plataforma-whatsapp
+        # não têm telefone e o campo fica None.
+        phone=getattr(invitation, "phone", None),
     )
     db.add(user)
     db.flush()

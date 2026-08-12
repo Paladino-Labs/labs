@@ -134,7 +134,7 @@ class CommunicationService:
             return _log("SKIPPED_CHANNEL_DISABLED", channel="WHATSAPP")
 
         # Canal preferido para logs de early-exit (antes de encontrar template).
-        default_channel = "EMAIL" if email_enabled else "WHATSAPP"
+        default_channel = "WHATSAPP" if whatsapp_enabled else "EMAIL"
 
         # 2. Quiet hours — apenas para eventos automáticos
         is_transactional = event_type in _TRANSACTIONAL_EVENTS
@@ -155,12 +155,32 @@ class CommunicationService:
                 else:
                     return _log("SKIPPED_QUIET_HOURS", channel=default_channel)
 
-        # 3. Seleciona canal e busca template
+        # 3. Seleciona canal e busca template — WHATSAPP PRIMEIRO.
+        #
+        # O produto é WhatsApp-first: é o canal de identidade do dono de
+        # barbearia e do cliente final. A ordem anterior (EMAIL primeiro,
+        # hardcoded) fazia toda mensagem ao cliente pagar uma busca de template
+        # inútil antes de cair no WhatsApp pelo fallback.
+        #
+        # ⚠️ Um canal só entra na preferência se HÁ destinatário para ele no
+        # context. Sem isso a inversão regrediria os usuários que ainda não têm
+        # telefone (todos os atuais): o dispatch escolheria WHATSAPP, o
+        # `_send_whatsapp` levantaria por falta de `recipient_phone` e o reset de
+        # senha viraria FAILED em vez de sair por e-mail. O fallback do passo 3
+        # cobre AUSÊNCIA DE TEMPLATE, nunca falha de envio — então a checagem de
+        # destinatário precisa acontecer aqui, na escolha.
+        has_phone = bool(context.get("recipient_phone"))
+        has_email = bool(context.get("recipient_email"))
+
         channel_preference = []
-        if email_enabled:
-            channel_preference.append("EMAIL")
-        if whatsapp_enabled:
+        if whatsapp_enabled and has_phone:
             channel_preference.append("WHATSAPP")
+        if email_enabled and has_email:
+            channel_preference.append("EMAIL")
+
+        if not channel_preference:
+            # Canal habilitado, mas nenhum endereço para entregar.
+            return _log("SKIPPED_NO_RECIPIENT", channel=default_channel)
 
         template = None
         channel = None

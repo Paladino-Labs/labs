@@ -38,7 +38,8 @@ def invite_user(
     ip = _get_real_ip(request)
     ua = request.headers.get("user-agent")
     invitation = service.invite_user(
-        db, actor, body.email, body.role, ip, ua, body.name, body.professional_id
+        db, actor, body.email, body.role, ip, ua, body.name, body.professional_id,
+        body.phone,
     )
     return schemas.InviteUserResponse(
         invitation_id=invitation.invitation_id,
