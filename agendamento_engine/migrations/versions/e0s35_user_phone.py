@@ -48,22 +48,24 @@ def upgrade() -> None:
     # dos usuários que ainda não têm telefone. Sem um status próprio isso se
     # confundiria com SKIPPED_CHANNEL_DISABLED e a leitura dos logs mentiria.
     #
-    # ⚠️ FORA DA TRANSAÇÃO, de propósito. O `env.py` envolve a execução inteira
-    # em `context.begin_transaction()`, e `ALTER TYPE ... ADD VALUE` só é aceito
-    # dentro de bloco de transação a partir do PostgreSQL 12 — em versões
-    # anteriores levanta "cannot run inside a transaction block" e derruba o
-    # pre-deploy. O Supabase é PG 15, então funcionaria; mas a conexão em
-    # AUTOCOMMIT torna a migration independente da versão, e o custo é uma
-    # linha. Não converta de volta para `op.execute` cru.
+    # ⚠️ NÃO tente rodar isto em AUTOCOMMIT. Já foi tentado e **derrubou o
+    # pre-deploy** (2026-08-13): o `env.py` abre a transação antes de chamar a
+    # migration, e trocar `isolation_level` numa conexão com transação ativa
+    # levanta
+    #   InvalidRequestError: This connection has already initialized a
+    #   SQLAlchemy Transaction() object via begin() or autobegin
+    #
+    # `ALTER TYPE ... ADD VALUE` dentro de bloco de transação é aceito desde o
+    # PostgreSQL 12, e este repo já tem precedente APLICADO em produção:
+    # `psg1a2b3c4d5` adiciona 'PAGSEGURO' ao enum `credentialprovider`
+    # exatamente assim. A forma simples é a que funciona aqui.
     #
     # O valor NÃO é usado nesta migration — e não poderia ser: PostgreSQL só
     # permite usar um valor de enum depois que a transação que o criou committa.
-    bind = op.get_bind()
-    with bind.execution_options(isolation_level="AUTOCOMMIT") as autocommit:
-        autocommit.execute(sa.text(
-            "ALTER TYPE communicationlogstatus ADD VALUE IF NOT EXISTS "
-            "'SKIPPED_NO_RECIPIENT'"
-        ))
+    op.execute(sa.text(
+        "ALTER TYPE communicationlogstatus ADD VALUE IF NOT EXISTS "
+        "'SKIPPED_NO_RECIPIENT'"
+    ))
 
 
 # ⚠️ O downgrade NÃO remove o valor do enum: PostgreSQL não suporta
