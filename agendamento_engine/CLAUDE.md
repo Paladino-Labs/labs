@@ -137,7 +137,39 @@ que existe, e serve demais como caminho para o que não deveria ser tocado.
 **Para saber o que está configurado, pergunte ao Silva** ou consulte o painel do
 Railway. Não infira do repositório.
 
+### ⚠️ `scripts/run_dev_api.py` — a única forma segura de subir o backend local
+
+**O `.env` versionado aponta para produção.** `uvicorn app.main:app` direto roda
+contra o banco real.
+
+Use o runner: ele carrega `.env.dev`, **aborta se a URL for de produção**, e
+**falha fechado** se o `.env.dev` não existir.
+
+⚠️ Enquanto o `.env` versionado não for removido do repositório e as credenciais
+rotacionadas (item da fila), este runner é a mitigação prática do risco.
+
 ## Migrations / Alembic (S-cadeia)
+
+### ⚠️ Migration com DDL não-trivial é aplicada no dev ANTES do merge
+
+Teste de aplicação cobre coluna simples. **Enum, constraint, índice, tipo e
+`ON DELETE` têm comportamento de banco que só o banco responde** — e vão direto
+para produção no deploy seguinte, porque o pre-deploy aplica sozinho.
+
+**Se o Supabase de dev estiver pausado, despause.** Ele pausa após 7 dias sem
+uso, e o sintoma (`tenant/user not found`) é idêntico ao de projeto removido —
+já confundiu antes. Despausar é um clique; seguir sem o teste custa o boot
+travado, que já aconteceu com a cadeia do Alembic.
+
+**O que verificar no dev:** `alembic upgrade head` limpo, o DDL no
+`information_schema`, e o ciclo **down/up** — uma migration que sobe mas não
+desce é uma que não se reverte sob pressão.
+
+⚠️ **`ALTER TYPE ... ADD VALUE` precisa de AUTOCOMMIT** (o `env.py:112` envolve
+tudo em transação, e o PostgreSQL só aceita dentro de bloco a partir da 12). E o
+valor novo **não pode ser usado na mesma migration** — o banco só o libera depois
+do commit que o criou. (História completa em "⚠️ `ALTER TYPE ... ADD VALUE`
+precisa de AUTOCOMMIT", no S-plataforma-whatsapp — se mexer numa, mexa na outra.)
 
 ### ⚠️ Migration aplicada em produção não se apaga revertendo código
 
@@ -757,6 +789,56 @@ conteúdo fora de escopo).
 **Consequência de desenho:** branch que nasce de cima de outra ainda não mesclada
 acopla as duas no revert. Se um trabalho pode precisar voltar atrás sozinho, ele
 deve sair de `main`.
+
+## S-painel-telemetria — ler e rotular as conversas (e0s36)
+
+### O painel de plataforma = telemetria do bot
+
+Decisão do Silva: o painel anterior não era útil. A telemetria passou a ser a
+tela principal, e o resto **saiu do menu**.
+
+⚠️ **Só a navegação saiu. O backend está intacto** — rotas, serviços,
+impersonation e gestão de tenant continuam funcionando, e as cinco telas
+(`tenants`, `impersonation`, `sistema`, `settings`, `audit`) **continuam
+alcançáveis por URL** (verificado uma a uma).
+
+**Isto é deliberado, não descuido.** Este repo tem três ocorrências *acidentais*
+de "tela existe, caminho não existe"; esta é intencional, e o motivo está num
+comentário no topo do `NAV` em `OwnerSidebar.tsx` — dizendo ao próximo leitor
+para **não "consertar"** restaurando os itens.
+
+O impersonation em particular é o caminho de dar suporte a um tenant; removê-lo
+deixaria o Silva sem entrada.
+
+Quando o painel definitivo for desenhado, o que ressuscitar sai do que fez falta.
+
+### Marcação de conversa — o dado que vira o catálogo novo
+
+A tela permite rotular, por mensagem do cliente: **o bot entendeu?**
+(sim/não/errado), **o que era?** e observação livre.
+
+⚠️ **Marcar é opcional por mensagem.** O que está certo fica em branco — exigir
+marcar tudo faria o leitor desistir na décima conversa.
+
+#### ⚠️ O label morre com o trace — exporte antes de 2026-09-07
+
+A FK é `ON DELETE CASCADE`, então os labels herdam a retenção de 30 dias do
+trace. As primeiras linhas expiram por volta de **07/09/2026**.
+
+É deliberado: **label órfão não é analisável** — o texto, o estado e a
+classificação que o justificaram sumiram junto.
+
+**O artefato durável é o CSV da query (c)**, não a tabela. Depois de ler e
+marcar, **exporte** — senão o trabalho de rotulagem evapora.
+
+#### `expected_intent` é VARCHAR, não enum — de propósito
+
+O catálogo de intenções é **exatamente o que esta leitura vai redesenhar**. Enum
+obrigaria migration a cada rótulo novo, e fixar as categorias no schema antes de
+olhar os dados seria decidir a resposta antes da pergunta.
+
+Validação na API, com a lista num ponto único (`telemetry_service.EXPECTED_INTENTS`)
+que a tela consome. **Acrescentar rótulo é editar uma tupla.**
 
 ## Bot S-bot-1 — telemetria ponta a ponta + reações (e0s34)
 

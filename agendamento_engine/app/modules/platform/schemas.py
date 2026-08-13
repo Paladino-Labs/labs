@@ -26,3 +26,19 @@ class SettingUpdate(BaseModel):
 
 class RedispatchRequest(BaseModel):
     reason: str
+
+
+class MessageLabelUpdate(BaseModel):
+    """Rótulo de UMA mensagem do cliente (S-painel-telemetria).
+
+    Os três campos são opcionais: marcar é opcional por mensagem, e o que está
+    certo fica em branco. Todos vazios = apagar o rótulo.
+
+    Os valores aceitos NÃO são um Literal aqui de propósito — o catálogo vive
+    em `telemetry_service.EXPECTED_INTENTS`, servido por `GET
+    /platform/telemetry/catalog`, para poder crescer durante a leitura sem
+    tocar em schema nem em migration.
+    """
+    understood: Optional[str] = None       # YES | NO | WRONG
+    expected_intent: Optional[str] = None  # ver EXPECTED_INTENTS
+    note: Optional[str] = None

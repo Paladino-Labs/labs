@@ -6,11 +6,7 @@ import { usePathname } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
 import { cn } from "@/lib/utils"
 import {
-  Building2,
-  KeyRound,
-  Activity,
-  Settings,
-  ScrollText,
+  MessagesSquare,
   LogOut,
   type LucideIcon,
 } from "lucide-react"
@@ -21,12 +17,29 @@ type OwnerNavItem = {
   icon: LucideIcon
 }
 
+/**
+ * ⚠️ O MENU FOI REDUZIDO DE PROPÓSITO — isto NÃO é descuido.
+ *
+ * Decisão do Silva (S-painel-telemetria): o painel de plataforma atual não é
+ * útil, e a telemetria passa a ser a tela principal. As demais telas saíram
+ * do menu, mas **continuam existindo e alcançáveis por URL**:
+ *
+ *   /owner/tenants · /owner/tenants/[id] · /owner/tenants/[id]/flags
+ *   /owner/impersonation · /owner/sistema · /owner/settings · /owner/audit
+ *
+ * ⚠️ **Só a navegação mudou. Nenhuma rota, página ou endpoint foi removido.**
+ * O backend `/platform/*` está intacto — inclusive o impersonation, que é o
+ * caminho de dar suporte a um tenant, e pode haver função em uso que não é
+ * óbvia.
+ *
+ * Isto cria deliberadamente o padrão "tela existe, caminho não existe" — que
+ * este repo já tem em três ocorrências ACIDENTAIS (ver `/settings` órfão no
+ * CLAUDE.md). Aqui é intencional e temporário: quando o painel definitivo for
+ * desenhado, o Silva decide o que ressuscitar com base no que sentiu falta.
+ * Não "conserte" restaurando os itens sem essa decisão.
+ */
 const NAV: OwnerNavItem[] = [
-  { title: "Tenants",        url: "/owner/tenants",       icon: Building2 },
-  { title: "Impersonation",  url: "/owner/impersonation", icon: KeyRound },
-  { title: "Sistema",        url: "/owner/sistema",       icon: Activity },
-  { title: "Configurações",  url: "/owner/settings",      icon: Settings },
-  { title: "Auditoria",      url: "/owner/audit",         icon: ScrollText },
+  { title: "Telemetria", url: "/owner/telemetria", icon: MessagesSquare },
 ]
 
 function isActive(pathname: string, url: string): boolean {

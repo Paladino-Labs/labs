@@ -19,10 +19,11 @@ from app.core.deps import require_role
 from app.infrastructure.db.models import Company, ImpersonationGrant, User
 from app.infrastructure.db.models.audit_log import AuditLog
 from app.infrastructure.db.session import get_db
-from app.modules.platform import service
+from app.modules.platform import service, telemetry_service
 from app.modules.platform.schemas import (
     FlagUpdate,
     ImpersonationGrantCreate,
+    MessageLabelUpdate,
     RedispatchRequest,
     SettingUpdate,
     TenantStatusUpdate,
@@ -246,4 +247,60 @@ def redispatch_communication(
         "new_log_id": str(new_log.log_id),
         "status": new_log.status,
         "original_log_id": str(log_id),
+    }
+
+
+# ── Telemetria do bot — ler as conversas e rotular (S-painel-telemetria) ──────
+#
+# Leitura + rotulagem das conversas coletadas por `bot_message_traces`. Acesso
+# pelo perfil de plataforma que já existe: a dependency PLATFORM_OWNER está no
+# router inteiro, então um usuário de tenant recebe 403 aqui como em qualquer
+# outra rota /platform. Nenhum papel novo foi criado.
+
+@router.get("/telemetry/conversations")
+def telemetry_conversations(
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Lista de conversas — mais recente primeiro. Filtro: só data."""
+    items = telemetry_service.list_conversations(db, date_from, date_to)
+    return {"total": len(items), "items": items}
+
+
+@router.get("/telemetry/conversations/{whatsapp_hash}")
+def telemetry_conversation(
+    whatsapp_hash: str,
+    db: Session = Depends(get_db),
+):
+    """A conversa inteira, em ordem, com diagnóstico e rótulo por mensagem."""
+    return telemetry_service.get_conversation(db, whatsapp_hash)
+
+
+@router.put("/telemetry/labels/{trace_id}")
+def telemetry_upsert_label(
+    trace_id: UUID,
+    body: MessageLabelUpdate,
+    actor: User = Depends(_platform_owner),
+    db: Session = Depends(get_db),
+):
+    """Grava/corrige/apaga o rótulo de uma mensagem (upsert pelo trace_id).
+
+    Os três campos vazios apagam o rótulo — é como a tela desfaz uma marcação.
+    """
+    return telemetry_service.upsert_label(
+        db, trace_id, body.understood, body.expected_intent, body.note, actor.id,
+    )
+
+
+@router.get("/telemetry/catalog")
+def telemetry_catalog():
+    """O vocabulário de rotulagem, servido pela API.
+
+    A tela NÃO repete esta lista: acrescentar um rótulo durante a leitura é
+    editar `EXPECTED_INTENTS` — sem migration e sem mexer no frontend.
+    """
+    return {
+        "expected_intents": list(telemetry_service.EXPECTED_INTENTS),
+        "understood": list(telemetry_service.UNDERSTOOD_VALUES),
     }

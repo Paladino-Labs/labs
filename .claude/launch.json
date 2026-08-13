@@ -2,6 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "Backend DEV (Supabase dev)",
+      "runtimeExecutable": "C:/dev/paladino/agendamento_engine/venv/Scripts/python.exe",
+      "runtimeArgs": ["scripts/run_dev_api.py"],
+      "cwd": "C:/dev/paladino/agendamento_engine",
+      "port": 8000,
+      "autoPort": false
+    },
+    {
       "name": "Backend (FastAPI)",
       "runtimeExecutable": "C:/dev/paladino/agendamento_engine/venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload"],

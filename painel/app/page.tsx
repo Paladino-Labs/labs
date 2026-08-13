@@ -33,7 +33,9 @@ function LoginContent() {
   useEffect(() => {
     if (hydrated && token) {
       // PLATFORM_OWNER (company_id=null) entra no Painel Owner; demais no painel do tenant.
-      router.replace(companyId == null ? "/owner/tenants" : "/dashboard")
+      // Destino do owner é a Telemetria — a tela principal desde o
+      // S-painel-telemetria. /owner/tenants continua existindo, fora do menu.
+      router.replace(companyId == null ? "/owner/telemetria" : "/dashboard")
     }
   }, [hydrated, token, companyId, router])
 
@@ -55,7 +57,7 @@ function LoginContent() {
         )
         isOwner = payload.company_id == null
       } catch { /* fallback abaixo */ }
-      router.replace(isOwner ? "/owner/tenants" : "/dashboard")
+      router.replace(isOwner ? "/owner/telemetria" : "/dashboard")
     } catch (err: unknown) {
       const status = (err as { status?: number }).status
       setError(
