@@ -10,10 +10,15 @@ Seleção de canal em dispatch():
   Faz fallback para WHATSAPP se whatsapp_enabled=True e existe template WHATSAPP.
 
 Distinção de quiet_hours por tipo de evento:
-  Transacionais (appointment.confirmed, appointment.cancelled):
-    bypass quiet_hours — cliente acabou de agir; atrasar até 8h é experiência ruim.
+  Transacionais (appointment.confirmed, appointment.cancelled, conversation.escalated):
+    bypass quiet_hours — alguém acabou de agir e espera resposta AGORA;
+    atrasar até 8h (ou descartar) é experiência ruim.
   Automáticos (appointment.reminder_*, appointment.no_show):
     respeitam quiet_hours — lembrete → SCHEDULED; no_show → SCHEDULED (não descartado).
+  Demais eventos: descartados (SKIPPED_QUIET_HOURS).
+
+⚠️ A janela de quiet_hours é avaliada no FUSO DA EMPRESA (Company.timezone),
+não em UTC. Ver `_company_timezone`.
 """
 import logging
 import re
@@ -41,10 +46,27 @@ _QUIET_HOURS_SCHEDULED_EVENTS = {
 }
 
 # Eventos transacionais: bypass completo de quiet_hours.
+#
+# ⚠️ `conversation.escalated` entrou aqui, e NÃO em
+# _QUIET_HOURS_SCHEDULED_EVENTS, por dois motivos:
+#   1. Adiar um alerta de "tem cliente esperando atendimento AGORA" é errado por
+#      natureza — quando a janela terminar às 08:00 o cliente já foi embora.
+#   2. SCHEDULED só entrega se alguém drenar a fila, e o worker Celery que faz
+#      isso nunca rodou em produção (INV Observabilidade). Adiar seria descartar
+#      com outro nome.
+# Antes deste sprint o evento não estava em NENHUMA das duas listas: caía no
+# `else` do passo 2 e virava SKIPPED_QUIET_HOURS — descartado em silêncio.
 _TRANSACTIONAL_EVENTS = {
     "appointment.confirmed",
     "appointment.cancelled",
+    "conversation.escalated",
 }
+
+# Fuso usado quando a empresa não tem `timezone` utilizável. O produto é
+# brasileiro e todo o resto do código assume o mesmo default
+# (whatsapp/helpers.py, bot_service.py) — cair em UTC aqui reproduziria em
+# silêncio o defeito que este sprint corrige (janela deslocada em 3h).
+_DEFAULT_TIMEZONE = "America/Sao_Paulo"
 
 
 def _in_quiet_hours(now_time: time, start: time, end: time) -> bool:
@@ -64,18 +86,75 @@ def _render_template(template: str, context: dict) -> str:
     return re.sub(r"\{\{(.*?)\}\}", replacer, template)
 
 
-def _next_quiet_hours_end(now_utc: datetime, end_time: time) -> datetime:
-    """Calcula o próximo horário em que quiet_hours termina (mesmo dia ou dia seguinte)."""
-    candidate = now_utc.replace(
+def _company_timezone(db: Session, company_id: UUID) -> str:
+    """Fuso IANA da empresa, com fallback explícito para _DEFAULT_TIMEZONE.
+
+    ⚠️ Consulta preguiçosa: só é chamada quando o passo 2 do dispatch REALMENTE
+    vai avaliar quiet_hours (evento não-transacional + quiet_hours_enabled).
+    Evento transacional e tenant com quiet_hours desligado não pagam a query.
+
+    Falhas de leitura (db mockado, Company ausente, valor nulo ou fuso inválido)
+    caem no default com log — nunca derrubam o dispatch.
+    """
+    tz_str = None
+    try:
+        from app.infrastructure.db.models import Company
+
+        company = db.query(Company).filter(Company.id == company_id).first()
+        tz_str = getattr(company, "timezone", None) if company is not None else None
+    except Exception:  # noqa: BLE001 — quiet_hours nunca derruba o dispatch
+        logger.warning(
+            "_company_timezone: falha ao ler Company.timezone company_id=%s — "
+            "usando %s", company_id, _DEFAULT_TIMEZONE,
+        )
+        return _DEFAULT_TIMEZONE
+
+    if not isinstance(tz_str, str) or not tz_str.strip():
+        return _DEFAULT_TIMEZONE
+
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(tz_str)
+    except Exception:  # noqa: BLE001 — fuso inválido gravado no tenant
+        logger.warning(
+            "_company_timezone: Company.timezone inválido %r company_id=%s — "
+            "usando %s", tz_str, company_id, _DEFAULT_TIMEZONE,
+        )
+        return _DEFAULT_TIMEZONE
+
+    return tz_str
+
+
+def _to_tz(dt: datetime, tz_str: str) -> datetime:
+    """Converte um datetime aware para `tz_str`; devolve o original se falhar."""
+    try:
+        from zoneinfo import ZoneInfo
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo(tz_str))
+    except Exception:  # noqa: BLE001
+        return dt
+
+
+def _next_quiet_hours_end(now_utc: datetime, end_time: time, tz_str: str) -> datetime:
+    """Próximo instante (em UTC) em que quiet_hours termina.
+
+    ⚠️ `end_time` é hora LOCAL do tenant (Time naive do CommunicationSetting).
+    O candidato é construído no fuso da empresa e só então convertido de volta
+    para UTC — construí-lo em UTC deslocava o agendamento pelo offset do fuso.
+    """
+    from datetime import timedelta
+
+    now_local = _to_tz(now_utc, tz_str)
+    candidate = now_local.replace(
         hour=end_time.hour,
         minute=end_time.minute,
         second=0,
         microsecond=0,
     )
-    if candidate <= now_utc:
-        from datetime import timedelta
+    if candidate <= now_local:
         candidate += timedelta(days=1)
-    return candidate
+    return candidate.astimezone(timezone.utc)
 
 
 class CommunicationService:
@@ -140,13 +219,18 @@ class CommunicationService:
         is_transactional = event_type in _TRANSACTIONAL_EVENTS
         if not is_transactional and comm_settings.quiet_hours_enabled:
             now_utc = datetime.now(timezone.utc)
-            now_time = now_utc.time()
+            # ⚠️ `quiet_hours_start`/`_end` são Time NAIVE — hora local do tenant.
+            # Comparar com `now_utc.time()` deslocava a janela pelo offset do
+            # fuso: o default 22:00–08:00 valia de fato das 19:00 às 05:00 em
+            # Brasília, matando todo evento automático no pico da barbearia.
+            tz_str = _company_timezone(db, company_id)
+            now_time = _to_tz(now_utc, tz_str).time()
             qs = comm_settings.quiet_hours_start
             qe = comm_settings.quiet_hours_end
 
             if _in_quiet_hours(now_time, qs, qe):
                 if event_type in _QUIET_HOURS_SCHEDULED_EVENTS:
-                    scheduled_send_at = _next_quiet_hours_end(now_utc, qe)
+                    scheduled_send_at = _next_quiet_hours_end(now_utc, qe, tz_str)
                     return _log(
                         "SCHEDULED",
                         channel=default_channel,

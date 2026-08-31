@@ -73,8 +73,12 @@ def _make_db(settings=None, template=None, conn=None, customer=None) -> MagicMoc
 
 class TestQuietHoursBehavior:
 
-    # ─ Horário fixo DENTRO de quiet_hours: 23:00 UTC ──────────────────────────
-    _INSIDE_QUIET = datetime(2026, 1, 15, 23, 0, 0, tzinfo=timezone.utc)
+    # ─ Horário fixo DENTRO de quiet_hours ─────────────────────────────────────
+    # ⚠️ A janela 22:00–08:00 é hora LOCAL do tenant (America/Sao_Paulo, UTC-3).
+    # O valor antigo — 23:00 UTC — é 20:00 em Brasília, ou seja FORA da janela:
+    # os dois casos abaixo só passavam porque o dispatch comparava em UTC.
+    # 02:00 UTC = 23:00 BRT do dia anterior → dentro da janela de verdade.
+    _INSIDE_QUIET = datetime(2026, 1, 16, 2, 0, 0, tzinfo=timezone.utc)
 
     def _dispatch_with_fixed_time(
         self,
@@ -143,8 +147,10 @@ class TestQuietHoursBehavior:
 
     def test_automatic_event_outside_quiet_hours_does_not_schedule(self):
         """Evento automático FORA de quiet_hours não retorna SCHEDULED diretamente."""
-        # 10:00 UTC — fora de [22:00, 08:00)
-        outside_quiet = datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        # ⚠️ 10:00 UTC = 07:00 BRT, que está DENTRO de [22:00, 08:00) local — o
+        # valor antigo testava o contrário do que o nome do teste promete.
+        # 15:00 UTC = 12:00 BRT → fora da janela.
+        outside_quiet = datetime(2026, 1, 15, 15, 0, 0, tzinfo=timezone.utc)
         settings = _make_comm_settings(quiet_hours_enabled=True)
         template = _make_template("appointment.reminder_due")
 
