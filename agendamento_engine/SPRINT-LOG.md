@@ -1,5 +1,35 @@
 # SPRINT-LOG — agendamento_engine
 
+## S3 — quiet_hours para eventos operacionais (2026-08-31)
+
+**Branch:** `feat/s3-quiet-hours-operacionais` · **Commit:** `4d6c0fa`
+**Fecha:** K26 do mapa. **Desbloqueia:** S2 (risco R1) e S16.
+
+`conversation.escalated` era descartado entre 19:00 e 05:00 BRT por dois
+defeitos somados: não estava em nenhuma lista de exceção, e a comparação
+era em UTC contra `Time` naive.
+
+**Correções:** evento em `_TRANSACTIONAL_EVENTS` (não em `SCHEDULED` — o
+worker nunca rodou); comparação no fuso do tenant, com leitura preguiçosa
+(só quando a janela vai ser avaliada); `_next_quiet_hours_end` também
+construía o candidato em UTC.
+
+**Dois testes existentes codificavam o defeito** e foram corrigidos:
+23:00 UTC era tratado como dentro da janela, 10:00 UTC como fora.
+
+⚠️ **Erro do auditor:** o prompt pedia teste às 21:00 BRT esperando
+`SCHEDULED` — hora da janela velha. Executor corrigiu para 23:00.
+
+⚠️ **Passivo de dado:** `scheduled_send_at` gravado antes deste deploy usa
+a fórmula antiga e está deslocado do offset do tenant. Inerte enquanto o
+beat não rodar; **entrega em horário errado se o beat for ligado sem
+limpar a fila**. Some-se à lista de "decidir antes de ligar o beat".
+
+**1551 passed.** Validado em dev com dispatch real: 20:00 BRT era
+`SKIPPED_QUIET_HOURS`, é `SENT`.
+
+---
+
 ## Sprint S0.1 — Webhook Asaas + confirm() — 2026-07-19
 
 **Status:** ✅ Aprovado pelo auditor (diff de CLAUDE.md aplicado; push autorizado pelo Silva)
