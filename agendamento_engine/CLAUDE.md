@@ -495,6 +495,19 @@ alvo é o que o **cliente** diz.
 | inline em `_assert_slot_available` | 🔴 diverge (`or` em vez de `isinstance`; não captura `ValueError`) |
 | `_get_company_tz` (`notifications.py`) | ✅ delega ao canônico (S-onboarding) |
 
+### quiet_hours é avaliado no fuso do tenant (desde S3)
+
+`communication/service.dispatch` lê `Company.timezone` e compara a hora
+local, não UTC. Fallback explícito: `America/Sao_Paulo`, com log.
+A leitura é preguiçosa — só ocorre em evento não-transacional com
+`quiet_hours_enabled`.
+
+⚠️ Ao escrever teste de `quiet_hours`, converta: `23:00 UTC` é `20:00 BRT`
+e está **fora** do default `22:00–08:00`. Dois testes antigos passavam por
+codificarem o defeito.
+
+⚠️ `conversation.escalated` é transacional: nunca é adiado nem descartado.
+
 ## S-plataforma-whatsapp + escalada + status de log (deploy 2026-08-12)
 
 Três sprints no mesmo deploy. Migration única: `e0s35_user_phone`.
@@ -1170,6 +1183,14 @@ LLM real — o curto-circuito acontece depois de `llm_latency_ms` ser medido.
     produção). Cria PLATFORM_OWNER, company barbearia-dev via create_company(),
     OWNER, 2 services, 1 professional c/ escala, 2 customers, 1 product,
     1 package. Senha dev: DevPaladino2026.
+
+⚠️ **O tenant `Barbearia Dev` nasce com os dois canais desligados.**
+`whatsapp_enabled` e `email_enabled` estão em `False` — ele foi semeado antes do
+S-onboarding, que passou a criar tenant novo falando. Qualquer validação de
+comunicação em dev precisa ligá-los primeiro (e restaurar depois), senão o
+`dispatch` sai em `SKIPPED_CHANNEL_DISABLED` no passo 1, **antes** de avaliar
+quiet_hours, consent ou template — e o que se queria medir nunca é alcançado.
+
   ⚠️ DRIFT DE PRODUÇÃO detectado 2026-07-07: integration_credentials em
     produção NÃO tem as colunas provider/status (migration e ORM as definem;
     tabela com 0 linhas em produção). Corrigir em janela de manutenção:
@@ -2370,8 +2391,10 @@ Asaas sandbox rejeita criação de subconta sem todos os campos obrigatórios. M
     processed_idempotency_keys.key → evita dupla execução de consumer (infra)
 - Credenciais armazenadas criptografadas via Fernet — nunca plaintext no banco
 - `secret_encrypted` nunca retornado em respostas de API — apenas `masked_preview` + `config`
-- Quiet hours: transacionais (appointment.confirmed, appointment.cancelled) → bypass → SENT;
-  automáticos (appointment.reminder_due, appointment.no_show) → respeita → SCHEDULED
+- Quiet hours: transacionais (appointment.confirmed, appointment.cancelled,
+  conversation.escalated) → bypass → SENT; automáticos (appointment.reminder_due,
+  appointment.no_show) → respeita → SCHEDULED. Avaliado no fuso do tenant desde o
+  S3 — ver "quiet_hours é avaliado no fuso do tenant"
 - Senha de usuário: mínimo 8 chars + 1 maiúscula + 1 número (validado no backend)
 - Token de reset: 6 dígitos numéricos, TTL 15min, invalidado imediatamente após uso
 - forgot_password requer template "auth.password_reset_requested" cadastrado no tenant
