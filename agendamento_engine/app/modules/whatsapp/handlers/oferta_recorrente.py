@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.booking.engine import booking_engine
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,10 @@ def handle(
     predicted = ctx.get("predicted_slot")
 
     if not payload:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="oferta_recorrente.handle", user_input=user_input,
+        )
         return
 
     if payload == "opt_confirmar_oferta" and predicted:
@@ -127,4 +131,7 @@ def handle(
         start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
 
-    sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+    fallback.not_understood(
+        session, instance, whatsapp_id,
+        origin="oferta_recorrente.handle", user_input=user_input,
+    )

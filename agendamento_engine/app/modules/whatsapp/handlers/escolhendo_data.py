@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.helpers import first_name
 from app.modules.booking.engine import booking_engine
 from app.core.config import settings
@@ -37,7 +38,11 @@ def send_escolher_data(
     prof_id_raw = ctx.get("professional_id")
 
     if not svc_id_raw:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="escolhendo_data.send_escolher_data", options=[],
+            reason=fallback.REASON_NO_OPTIONS,
+        )
         return
 
     svc_id      = UUID(svc_id_raw)
@@ -119,7 +124,10 @@ def handle(
     payload = resolve_input(user_input, ctx.get("last_list", []))
 
     if not payload:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="escolhendo_data.handle", user_input=user_input,
+        )
         return
 
     # Navegação de página — não seleciona data

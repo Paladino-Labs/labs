@@ -26,6 +26,14 @@ from app.modules.whatsapp.helpers import is_back_command, resolve_input
 # para BACK. O título espelha o texto visual (match de voto de enquete).
 _BACK_ROW = {"row_id": "nav_voltar", "payload": "nav_voltar", "title": "← Voltar"}
 
+# Os três botões que o formatter envia em AWAITING_CONFIRMATION (_send_confirmation_summary),
+# na mesma ordem — fonte única do matching numérico e da reexibição no fallback.
+_CONFIRMATION_ROWS = (
+    {"row_id": "confirm",        "payload": "confirm",        "title": "Confirmar"},
+    {"row_id": "change",         "payload": "change",         "title": "Alterar horário"},
+    {"row_id": "cancel_booking", "payload": "cancel_booking", "title": "Cancelar"},
+)
+
 # ── Constante exportada — usada em bot_service.py ────────────────────────────
 BOOKING_STATES: frozenset[str] = frozenset({
     "AWAITING_SERVICE",
@@ -192,8 +200,26 @@ class WhatsAppInputParser:
         entrada sintética no mesmo índice faz o número digitado resolver BACK.
         Retorna (action, {row_key}) ou None.
         """
-        if not items:
+        last_list = self._options_by_list(items, title_field)
+        if not last_list:
             return None
+        row_key = resolve_input(user_input, last_list)
+        if row_key == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
+        if row_key:
+            return (action, {"row_key": row_key})
+        return None
+
+    # ── Construtores da LISTA VISÍVEL ─────────────────────────────────────────
+    # ⚠️ Fonte única do que o cliente está vendo, na ordem em que viu. Servem a
+    # dois consumidores: o matching (parse) e a REEXIBIÇÃO no fallback (S2).
+    # Enquanto forem os mesmos, o número que o cliente digita e a linha que ele
+    # lê não podem divergir — foi por divergirem que o F3 achou o desalinhamento
+    # de índice na paginação de horários.
+
+    def _options_by_list(self, items: list[dict], title_field: str) -> list[dict]:
+        if not items:
+            return []
         last_list = [
             {
                 "row_id":  item["row_key"],
@@ -203,12 +229,32 @@ class WhatsAppInputParser:
             for item in items
         ]
         last_list.append(dict(_BACK_ROW))
-        row_key = resolve_input(user_input, last_list)
-        if row_key == _BACK_ROW["payload"]:
-            return (BookingAction.BACK, {})
-        if row_key:
-            return (action, {"row_key": row_key})
-        return None
+        return last_list
+
+    def visible_options(
+        self, state: str, ctx: dict, company_tz: str = "America/Sao_Paulo",
+    ) -> list[dict]:
+        """A lista que o cliente está vendo neste estado, na ordem exibida.
+
+        Formato `[{row_id, payload, title}]` — o mesmo de
+        `session.context["last_list"]` dos handlers legados, para que o
+        `fallback` renderize os dois pipelines sem saber de qual veio.
+
+        Lista vazia = não há o que reexibir (o fallback trata).
+        """
+        if state == "AWAITING_SERVICE":
+            return self._options_by_list(ctx.get("last_listed_services", []), "name")
+        if state == "AWAITING_PROFESSIONAL":
+            return self._options_by_list(ctx.get("last_listed_professionals", []), "name")
+        if state == "AWAITING_DATE":
+            return self._options_dates(ctx)
+        if state == "AWAITING_SHIFT":
+            return self._options_shifts(ctx)
+        if state == "AWAITING_TIME":
+            return self._options_slots(ctx, company_tz)
+        if state == "AWAITING_CONFIRMATION":
+            return [dict(r) for r in _CONFIRMATION_ROWS]
+        return []
 
     def _parse_shift(
         self, user_input: str, ctx: dict
@@ -222,14 +268,9 @@ class WhatsAppInputParser:
         (_send_shifts) — inclusive "— indisponível" — para resolver voto de
         enquete, e "← Voltar" é a última linha (número exibido = linha visível).
         """
-        shifts = ctx.get("last_listed_shifts", [])
-        if not shifts:
+        last_list = self._options_shifts(ctx)
+        if not last_list:
             return None
-        last_list = [
-            {"row_id": s["row_key"], "payload": s["row_key"], "title": _shift_title(s)}
-            for s in shifts
-        ]
-        last_list.append(dict(_BACK_ROW))
         resolved = resolve_input(user_input, last_list)
         if resolved == _BACK_ROW["payload"]:
             return (BookingAction.BACK, {})
@@ -241,18 +282,9 @@ class WhatsAppInputParser:
         self, user_input: str, ctx: dict
     ) -> tuple[BookingAction, dict] | None:
         """Resolve input contra a lista de datas disponíveis."""
-        dates = ctx.get("last_listed_dates", [])
-        if not dates:
+        last_list = self._options_dates(ctx)
+        if not last_list:
             return None
-        # Exibir apenas datas com disponibilidade para matching
-        available = [d for d in dates if d.get("has_availability", False)]
-        if not available:
-            available = dates  # fallback: tentar contra todas
-        last_list = [
-            {"row_id": d["row_key"], "payload": d["row_key"], "title": d.get("label", "")}
-            for d in available
-        ]
-        last_list.append(dict(_BACK_ROW))
         row_key = resolve_input(user_input, last_list)
         if row_key == _BACK_ROW["payload"]:
             return (BookingAction.BACK, {})
@@ -287,7 +319,59 @@ class WhatsAppInputParser:
             return None
         tz = _tz(company_tz)
 
-        # ── Espelho da página do formatter (_send_slots) ──────────────────────
+        last_list = self._options_slots(ctx, company_tz)
+        resolved  = resolve_input(user_input, last_list)
+        if resolved == "nav_mais_cedo":
+            return (BookingAction.MORE_SLOTS_EARLIER, {})
+        if resolved == "nav_mais_tarde":
+            return (BookingAction.MORE_SLOTS_LATER, {})
+        if resolved == _BACK_ROW["payload"]:
+            return (BookingAction.BACK, {})
+        if resolved:
+            return (BookingAction.SELECT_TIME, {"row_key": resolved})
+
+        # ── Fallback: clique em mensagem antiga (slot fora da página atual) ────
+        # Só row_id/título exato — número NUNCA resolve fora da página visível.
+        for s in slots:
+            if t and (s["row_key"].lower() == t or _slot_title(s, tz).lower() == t):
+                return (BookingAction.SELECT_TIME, {"row_key": s["row_key"]})
+        return None
+
+    def _options_dates(self, ctx: dict) -> list[dict]:
+        dates = ctx.get("last_listed_dates", [])
+        if not dates:
+            return []
+        # Exibir apenas datas com disponibilidade para matching
+        available = [d for d in dates if d.get("has_availability", False)]
+        if not available:
+            available = dates  # fallback: tentar contra todas
+        last_list = [
+            {"row_id": d["row_key"], "payload": d["row_key"], "title": d.get("label", "")}
+            for d in available
+        ]
+        last_list.append(dict(_BACK_ROW))
+        return last_list
+
+    def _options_shifts(self, ctx: dict) -> list[dict]:
+        shifts = ctx.get("last_listed_shifts", [])
+        if not shifts:
+            return []
+        last_list = [
+            {"row_id": s["row_key"], "payload": s["row_key"], "title": _shift_title(s)}
+            for s in shifts
+        ]
+        last_list.append(dict(_BACK_ROW))
+        return last_list
+
+    def _options_slots(self, ctx: dict, company_tz: str) -> list[dict]:
+        """[F3] Espelho exato da PÁGINA exibida pelo formatter (_send_slots):
+        linhas de navegação + slots da página + "← Voltar", na mesma ordem —
+        o número digitado seleciona a linha que o cliente vê."""
+        slots = ctx.get("last_listed_slots", [])
+        if not slots:
+            return []
+        tz = _tz(company_tz)
+
         page_size = settings.BOT_MAX_SLOTS_DISPLAYED
         offset    = int(ctx.get("slot_offset", 0))
         page_slots = slots[offset : offset + page_size]
@@ -312,23 +396,7 @@ class WhatsAppInputParser:
             last_list.append({"row_id": "nav_mais_tarde", "payload": "nav_mais_tarde",
                               "title": "Mais tarde →"})
         last_list.append(dict(_BACK_ROW))
-
-        resolved = resolve_input(user_input, last_list)
-        if resolved == "nav_mais_cedo":
-            return (BookingAction.MORE_SLOTS_EARLIER, {})
-        if resolved == "nav_mais_tarde":
-            return (BookingAction.MORE_SLOTS_LATER, {})
-        if resolved == _BACK_ROW["payload"]:
-            return (BookingAction.BACK, {})
-        if resolved:
-            return (BookingAction.SELECT_TIME, {"row_key": resolved})
-
-        # ── Fallback: clique em mensagem antiga (slot fora da página atual) ────
-        # Só row_id/título exato — número NUNCA resolve fora da página visível.
-        for s in slots:
-            if t and (s["row_key"].lower() == t or _slot_title(s, tz).lower() == t):
-                return (BookingAction.SELECT_TIME, {"row_key": s["row_key"]})
-        return None
+        return last_list
 
     def _parse_confirmation(
         self, user_input: str
@@ -353,12 +421,7 @@ class WhatsAppInputParser:
             return (BookingAction.RESET, {})
 
         # Matching via lista numerada (fallback texto)
-        last_list = [
-            {"row_id": "confirm",        "payload": "confirm",        "title": "Confirmar"},
-            {"row_id": "change",         "payload": "change",         "title": "Alterar horário"},
-            {"row_id": "cancel_booking", "payload": "cancel_booking", "title": "Cancelar"},
-        ]
-        payload = resolve_input(user_input, last_list)
+        payload = resolve_input(user_input, [dict(r) for r in _CONFIRMATION_ROWS])
         if payload == "confirm":
             return (BookingAction.CONFIRM, {})
         if payload == "change":

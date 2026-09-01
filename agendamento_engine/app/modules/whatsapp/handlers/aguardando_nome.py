@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.helpers import first_name
 from app.modules.customers import service as customer_svc
 
@@ -80,4 +81,11 @@ def handle_confirmando_nome(
         sender.send_text(instance, whatsapp_id, messages.PEDIR_NOME_NOVAMENTE)
         return
 
-    sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+    fallback.not_understood(
+        session, instance, whatsapp_id,
+        origin="aguardando_nome.handle_confirmando_nome", user_input=user_input,
+        options=[
+            {"row_id": "1", "payload": "1", "title": "Sim"},
+            {"row_id": "2", "payload": "2", "title": "Corrigir"},
+        ],
+    )

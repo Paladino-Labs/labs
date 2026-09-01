@@ -13,9 +13,60 @@ import logging
 
 from app.modules.whatsapp import evolution_client
 from app.modules.whatsapp import trace
+from app.modules.whatsapp.helpers import PROTECTED_ROW_IDS
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ─── Guard de formato (S2) ────────────────────────────────────────────────────
+# Os limites do WhatsApp estavam só nos docstrings do evolution_client (:213,
+# :249) e não eram aplicados em lugar nenhum: send_list repassava `rows` inteiro
+# e send_buttons repassava `buttons` inteiro. Passar do limite falha no envio —
+# e o fallback de texto numerado aceita qualquer tamanho, então a falha só
+# apareceria no WhatsApp do cliente.
+#
+# Vira problema real com o S2: acrescentar a opção de atendimento a uma lista de
+# 10 linhas a leva a 11.
+MAX_LIST_ROWS   = 10
+MAX_BUTTONS     = 3
+
+
+def _truncate_rows(items: list[dict], limit: int, id_key: str, what: str) -> list[dict]:
+    """Corta a lista ao limite do WhatsApp PRESERVANDO as linhas de navegação.
+
+    ⚠️ Cortar pelo fim (`items[:limit]`) descartaria justamente "← Voltar" e
+    "💬 Falar com atendente", que são sempre as últimas — e no caso da opção de
+    atendimento isso apagaria o objetivo inteiro do fallback. O corte sai do
+    CONTEÚDO: as linhas protegidas são reservadas primeiro, o resto preenche o
+    que sobra, e a ordem original é mantida.
+
+    Truncar em silêncio troca um defeito por outro — sempre loga.
+    """
+    if len(items) <= limit:
+        return items
+
+    # Trabalha com ÍNDICES, não com os dicts: dois itens podem ser iguais em
+    # valor (ou o mesmo objeto repetido) e um `in`/`id()` escolheria errado.
+    prot_idx = [
+        n for n, i in enumerate(items)
+        if str(i.get(id_key, "")) in PROTECTED_ROW_IDS
+    ]
+    cont_idx = [
+        n for n, i in enumerate(items)
+        if str(i.get(id_key, "")) not in PROTECTED_ROW_IDS
+    ]
+
+    # Lista só de protegidas maior que o limite não deveria existir; se existir,
+    # o limite manda — melhor entregar algo que falhar o envio.
+    keep = set(prot_idx[:limit]) | set(cont_idx[: max(0, limit - len(prot_idx))])
+    result = [items[n] for n in sorted(keep)][:limit]
+
+    logger.warning(
+        "guard de formato: %s truncado de %d para %d (protegidas mantidas: %s)",
+        what, len(items), len(result),
+        [str(i.get(id_key, "")) for i in result if str(i.get(id_key, "")) in PROTECTED_ROW_IDS],
+    )
+    return result
 
 
 def send_text(instance: str, to: str, text: str) -> None:
@@ -38,6 +89,8 @@ def send_buttons(instance: str, to: str, text: str, buttons: list[dict]) -> None
     - BOT_USE_BUTTONS=True→ botões interativos (Cloud API)
     - fallback            → texto numerado
     """
+    buttons = _truncate_rows(buttons, MAX_BUTTONS, "buttonId", "botões")
+
     if settings.BOT_USE_POLLS:
         values = [
             btn.get("buttonText", {}).get("displayText", f"Opção {i + 1}")
@@ -81,6 +134,8 @@ def send_list(
     - BOT_USE_POLLS=True → enquete WhatsApp (nativo Baileys)
     - fallback           → texto numerado
     """
+    rows = _truncate_rows(rows, MAX_LIST_ROWS, "rowId", "linhas da lista")
+
     if settings.BOT_USE_POLLS:
         values = [row.get("title", f"Opção {i + 1}") for i, row in enumerate(rows)]
         poll_name = title[:255]

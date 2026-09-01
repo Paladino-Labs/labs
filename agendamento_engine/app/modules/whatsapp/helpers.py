@@ -167,6 +167,21 @@ def extract_reaction(data: dict) -> Optional[dict]:
     }
 
 
+# ── Opção de atendimento humano oferecida no fallback (S2) ───────────────────
+# Uma única definição, compartilhada por três módulos que precisam concordar:
+#   fallback.py  — monta a linha e a anexa à lista reexibida
+#   sender.py    — protege a linha do truncamento de formato
+#   bot_service  — reconhece a escolha (via is_universal_command) e escala
+HUMAN_OPTION_ROW_ID = "opt_humano"
+HUMAN_OPTION_TITLE  = "💬 Falar com atendente"
+
+# Linhas que NUNCA podem ser cortadas pelo guard de formato do sender: são
+# navegação, não conteúdo. Cortar "← Voltar" prende o cliente no passo; cortar
+# "Falar com atendente" apaga justamente a saída que o fallback existe para
+# oferecer.
+PROTECTED_ROW_IDS = frozenset({HUMAN_OPTION_ROW_ID, "nav_voltar"})
+
+
 def is_universal_command(text: str) -> Optional[str]:
     """Detecta comandos globais independente do estado atual.
 
@@ -184,7 +199,11 @@ def is_universal_command(text: str) -> Optional[str]:
         return "menu"
     if t in ("ver agendamentos", "meus agendamentos", "agendamentos"):
         return "ver_agendamentos"
-    if t in ("atendente", "humano", "ajuda", "suporte"):
+    # S2: o rowId e o título exato da opção oferecida no fallback entram aqui —
+    # é o que faz o CLIQUE na linha "💬 Falar com atendente" escalar em qualquer
+    # estado, sem que os 22 sites de fallback saibam escalar.
+    if t in ("atendente", "humano", "ajuda", "suporte",
+             HUMAN_OPTION_ROW_ID, HUMAN_OPTION_TITLE.lower()):
         return "humano"
     return None
 

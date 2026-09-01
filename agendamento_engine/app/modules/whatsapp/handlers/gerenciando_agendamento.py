@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.helpers import to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.appointments import service as appointment_svc
@@ -152,7 +153,11 @@ def handle(
     if payload == "reagendar_mudar":
         if not start_escolhendo_servico:
             # Fallback: comportamento de "mesmo serviço" se função não injetada
-            sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+            fallback.not_understood(
+                session, instance, whatsapp_id,
+                origin="gerenciando_agendamento.handle", user_input=user_input,
+                reason=fallback.REASON_INVALID_SELECTION,
+            )
             return
 
         ctx = dict(ctx)
@@ -167,4 +172,7 @@ def handle(
         start_escolhendo_servico(db, session, company_id, instance, whatsapp_id)
         return
 
-    sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+    fallback.not_understood(
+        session, instance, whatsapp_id,
+        origin="gerenciando_agendamento.handle", user_input=user_input,
+    )

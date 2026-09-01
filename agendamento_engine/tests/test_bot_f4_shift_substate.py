@@ -37,6 +37,7 @@ from app.modules.booking.actions import BookingAction, InvalidActionError
 from app.modules.booking.engine import BookingEngine, _BACK_STATE, booking_engine
 from app.modules.booking.schemas import ShiftOption, SlotOption
 from app.modules.whatsapp import bot_service
+from app.modules.whatsapp.helpers import HUMAN_OPTION_TITLE
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp.handlers import inicio as h_inicio
@@ -457,7 +458,16 @@ def test_gibberish_in_substate_keeps_substate(captured, monkeypatch):
         db, session, COMPANY_ID, "inst", "5511999@s.whatsapp.net", "xyzzy", TZ,
     )
 
-    assert captured[-1] == ("text", messages.ESCOLHA_OPCAO_OPS)
+    # [S2] Este assert dizia `("text", ESCOLHA_OPCAO_OPS)` — codificava o defeito:
+    # o bot respondia UMA linha apontando para uma lista que já tinha rolado para
+    # fora da tela. Agora o "Não entendi" é o cabeçalho de uma resposta que
+    # REEXIBE o menu de turnos e oferece atendimento humano.
+    kind, title, rows = captured[-1]
+    assert kind == "list"
+    assert title == messages.ESCOLHA_OPCAO_OPS
+    titles = [r["title"] for r in rows]
+    assert "Manhã (6 horários)" in titles          # a lista voltou
+    assert titles[-1] == HUMAN_OPTION_TITLE        # e é a ÚLTIMA linha
     assert bs.context[bot_service.BOT_SUBSTATE_KEY] == bot_service.SUBSTATE_SHIFT
 
 

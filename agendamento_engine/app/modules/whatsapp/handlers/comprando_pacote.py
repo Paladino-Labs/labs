@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.db.models import BotSession
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.intent import telemetry as intent_telemetry
 from app.modules.whatsapp.session import reset_session
 from app.modules.packages import service as packages_service
@@ -76,13 +77,20 @@ def handle_escolhendo_pacote(
     ctx = session.context or {}
     payload = resolve_input(user_input, ctx.get("last_list", []))
     if not payload:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="comprando_pacote.handle_escolhendo_pacote", user_input=user_input,
+        )
         return
 
     try:
         package = packages_service._get_package_or_404(UUID(payload), company_id, db)
     except Exception:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="comprando_pacote.handle_escolhendo_pacote", user_input=user_input,
+            reason=fallback.REASON_INVALID_SELECTION,
+        )
         return
 
     ctx = dict(ctx)
