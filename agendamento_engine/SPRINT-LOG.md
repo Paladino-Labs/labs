@@ -1,5 +1,95 @@
 # SPRINT-LOG — agendamento_engine
 
+## S0 — Exportação do corpus do bot — 2026-08-31
+
+**Status:** ✅ Aprovado pelo auditor; push autorizado pelo Silva
+**Branch:** `feat/s0-export-corpus-bot` (sai de `main` @ `b87e6ec`) · commit `8c48490`
+**Refs:** `docs/plano-classificador-bot.md` (S0), achado K7 do mapa desenho×código
+**Escopo:** script de leitura. Zero arquivo de `app/` modificado.
+**Suíte:** 1554 passed, 6 skipped, 1 xfailed — nenhuma regressão.
+
+Primeiro sprint do plano de redesenho do classificador. Prazo duro: 07/09/2026,
+quando o expurgo de 30 dias destrói `bot_message_traces` e, por CASCADE, os
+rótulos manuais.
+
+### Achados
+
+**Duas colunas do enunciado não existiam** — `bot_message_labels.labeled_at`
+(é `created_at`/`updated_at`) e `intent_outcomes.recorded_at` (é `outcome_at`).
+Corrigidas contra o DDL das migrations e cobertas por teste dedicado: se
+voltarem, a suíte quebra antes de a exportação falhar contra produção.
+
+**Ampliação de escopo aceita:** o conjunto 1 exporta `t.*` em vez da lista de
+colunas. Sub-exportar seria irreversível.
+
+**Correção de premissa do auditor:** o `webhook` **não** expõe o telefone do
+cliente — `trace.sanitize` mascara por sufixo de JID e `key.remoteJid` tem
+sufixo (verificado empiricamente). Mas `number`/`sender` passam em claro, e o
+evento `connection.update` traz o telefone do **tenant**. A sanitização é
+parcial por construção e nada registra que passou incompleta. Achado de
+segurança registrado para a Parte 10 do desenho; fora do escopo do S0.
+
+### Teste de fumaça (dev)
+
+4/4 conjuntos executam, contagens batem, JSONB serializa como objeto (não
+string escapada), `LEFT JOIN` exercitado com e sem rótulo, falas conhecidas
+encontradas. Dev foi alinhado de `e0s33` para `e0s36` no processo — faltavam
+`e0s34_bot_message_traces`, `e0s35_user_phone` e `e0s36_bot_message_labels`,
+todas já em produção.
+
+### Execução em produção (2026-08-31)
+
+7.456 traces, 91 classificações, **1.043 mensagens de cliente com texto em 88
+conversas** (o resto é `messages.update`, 5.840, e `connection.update`, 310).
+Falas conhecidas encontradas. Intervalo 09/08–31/08 — **nada expurgado ainda**;
+o trace mais antigo tem 22 dias e o primeiro expurgo cai por volta de 08/09.
+
+🔴 `bot_message_labels` com **zero linhas**. Não é falta de merge — o
+S-painel-telemetria está em `origin/main` (`b87e6ec`) e o backend em produção
+(prova: `e0s36`, migration do próprio commit, aplicada). A tela e o
+`PUT /platform/telemetry/labels/{trace_id}` existem e funcionam. **A causa é
+usabilidade:** a tela ficou confusa e não foi usada. A reorganização vem depois
+do desenho, junto com o catálogo de rotulagem.
+
+⚠️ Consequência para a Parte 4 do desenho: a "marcação manual" que o §4.2 chama
+de fonte forte **nunca produziu dado**. A calibragem conta com duas fontes, não
+três — e o S13 e o S22 apoiam limiares nela.
+
+**Execução 2 suspensa** até haver rotulagem a exportar. A execução 1 salvou o
+corpus completo.
+
+### §2.5/§9.3 — fila de espera
+
+Zero ocorrências genuínas na janela medida: 2 acertos em 1.043 mensagens, ambos
+falso positivo da sonda (`"uma vaga pra mim hoje"` é AGENDAR; `"vou esperar mais
+um pouco"` é adiamento). **Não promover a intenção agora.** A única fala
+conhecida — *"Se por acaso surgir horário para os dois c me avisa"* — é anterior
+a 09/08, portanto anterior à instrumentação: a leitura é "não há sinal na janela
+medida", não "não acontece". Revisável quando houver mais corpus.
+
+⚠️ `WaitlistEntry.source_channel` já declara `BOT` e nunca é escrito — segue
+declaração sem implementação.
+
+### Itens gerados para a fila
+
+1. **S1 muda de natureza.** Acrescentar `atraso` a
+   `telemetry_service.EXPECTED_INTENTS` continua necessário (hoje a API devolve
+   422 para ele), mas **não é suficiente**: rótulo novo em tela não usável não
+   produz rotulagem. O que destrava é a reorganização da tela, e ela vem depois
+   do desenho — o catálogo redesenhado é o que ela precisa refletir.
+2. **`restricao_horario`** também não existe no catálogo de rotulagem, e é o
+   rótulo natural de *"Só posso após as 20 hrs"* — caso motivador do parser de
+   `faixa` (A11). Sem ele a fala cai em `outro` e a distinção se perde justo
+   onde importa. Decisão pertence ao desenho da tela, não ao S1 solto: catálogo
+   de rotulagem e catálogo de intenções precisam ser desenhados juntos, senão
+   viram a quinta e a sexta fontes de verdade.
+3. **Aritmética do S13 a recalcular:** 1.043 mensagens / 22 dias ≈ **47/dia**,
+   não as ~5,6 falas livres/dia estimadas. Pode tornar a janela por contagem
+   viável de verdade. Insumo, não conclusão.
+4. **Sanitização parcial do trace** (ver Achados) — Parte 10.
+
+---
+
 ## S3 — quiet_hours para eventos operacionais (2026-08-31)
 
 **Branch:** `feat/s3-quiet-hours-operacionais` · **Commit:** `4d6c0fa`
