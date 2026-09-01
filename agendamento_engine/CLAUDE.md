@@ -215,6 +215,17 @@ Cadeia correta após este sprint:
 e0s30_intent_telemetry → e0s31_bot_inbound_messages → e0s32_bot_conversation_leases → e0s33_worker_heartbeats (renumerada para e0s33 no S-renumerar)
 ```
 
+### Dev estava três migrations atrás (corrigido 2026-08-31)
+
+Dev estava em `e0s33`; head é `e0s36`. Faltavam `e0s34_bot_message_traces`,
+`e0s35_user_phone` e `e0s36_bot_message_labels` — todas já em produção.
+Aplicadas. ⚠️ Conferir `alembic current` em dev antes de cada sprint que
+mexa em schema.
+
+Descoberto no S0: o exportador falhou em dev com `relation
+"bot_message_traces" does not exist` enquanto produção já tinha a tabela há
+semanas. Drift de dev não avisa — só aparece quando alguma coisa o toca.
+
 ## Registro de tasks do Celery — `conf.imports` é obrigatório (S-registro)
 
 O worker de produção sobe com
@@ -844,6 +855,22 @@ classificação que o justificaram sumiram junto.
 **O artefato durável é o CSV da query (c)**, não a tabela. Depois de ler e
 marcar, **exporte** — senão o trabalho de rotulagem evapora.
 
+⚠️ O exportador existe desde o S0: `scripts/export_bot_corpus.py` (ver abaixo).
+
+#### Exportação do corpus do bot
+
+`scripts/export_bot_corpus.py` (S0). Read-only, standalone, sem `import app.*`.
+Roda duas vezes antes de 07/09/2026 — a segunda depois do S1 e da rotulagem.
+
+⚠️ O arquivo exportado tem `user_input` em claro (conversa real de cliente) e o
+telefone do tenant via `webhook`. Destino obrigatoriamente fora do repositório
+e fora de nuvem sincronizada; o script aborta se estiver dentro do repo.
+
+⚠️ Usa `set_config('app.current_company_id', '', true)` — o sentinel de bypass
+da RLS. Quando o branch `OR current_setting = ''` for removido das policies,
+este script passa a exportar zero linha. A verificação das falas conhecidas
+detecta isso.
+
 #### `expected_intent` é VARCHAR, não enum — de propósito
 
 O catálogo de intenções é **exatamente o que esta leitura vai redesenhar**. Enum
@@ -923,6 +950,22 @@ leitura é por SQL.
 
 ⚠️ `ConsentRecord.DATA_PROCESSING` existe no enum e **não tem consumidor no
 código**. Formalmente nada autoriza nem proíbe esta gravação.
+
+#### ⚠️ A sanitização é parcial por construção
+
+O parágrafo acima ("telefone mascarado") vale para o **cliente**, não para todo
+número no payload.
+
+`trace.sanitize` (`whatsapp/trace.py:119`) mascara por **sufixo de JID**.
+`key.remoteJid` tem sufixo → o telefone do cliente sai mascarado, inclusive
+no `webhook` cru.
+
+⚠️ Campos de número **sem** sufixo passam inteiros: `number`, `sender`.
+`connection_service.py:271` lê `data.get("number")` no evento
+`connection.update` — **o telefone do tenant vaza em claro no `webhook`**.
+Nenhum trace registra que a sanitização passou incompleta.
+
+Medido no S0: dos 7.456 traces em produção, 310 são `connection.update`.
 
 ### Reações do WhatsApp — e a classe de mensagens que reinicia o bot
 
@@ -1126,6 +1169,16 @@ tocados; a coleta apenas para.
 ⚠️ **Ao ler os dados:** linhas `FALLBACK` têm `llm_provider` preenchido mesmo sem
 LLM real — o curto-circuito acontece depois de `llm_latency_ms` ser medido.
 **Filtre por `source`, nunca por `llm_provider`.**
+
+## Colunas de telemetria do bot — nomes reais
+
+Conferir contra o DDL das migrations, não contra os modelos ORM.
+
+- `bot_message_labels`: `created_at` / `updated_at`. **Não existe `labeled_at`.**
+- `intent_outcomes`: `outcome_at`. **Não existe `recorded_at`.**
+- `appointments`: `client_id`. **Não existe `customer_id`.**
+  ⚠️ A *relationship* do ORM chama-se `customer` e aponta para `client_id` —
+  é a origem da confusão.
 
 ## Telemetria de intenção — avisos de qualidade de dados
   - Filtrar por source (REGEX|LLM|FALLBACK), NÃO por llm_provider: linhas
