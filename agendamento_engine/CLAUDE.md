@@ -1010,6 +1010,99 @@ sintoma**: áudio, imagem, sticker, vídeo, documento, localização, contato e
 estão chegando; a **query 6** do relatório é o insumo para decidir entre
 tratamento genérico ("não entendi esse tipo de mensagem") e remendo por tipo.
 
+⚠️ Desde o S2: reexibe o menu apenas em `INICIO`/`MENU_PRINCIPAL`. Nos demais
+estados passa pelo fallback e grava `reason=no_text_to_parse` — o que dá a
+medição por estado que o S23 vai consumir.
+
+## Bot S2 — fallback: reexibir, oferecer atendente, gravar o motivo (9fdafba)
+
+### Fallback do bot — uma fonte, cinco motivos
+
+`whatsapp/fallback.not_understood` é o caminho único quando o bot não
+entende. Nenhum handler monta a lista: `input_parser.visible_options(state,
+ctx, tz)` é a **mesma** função que o matching consome.
+
+⚠️ **Nunca reexibir a partir de outra fonte.** Se o que se reexibe divergir
+do que se casa, o número que o cliente digita aponta para outra linha — foi
+exatamente esse desalinhamento que o F3 achou na paginação de horários.
+
+Valores de `reason` (série histórica — não renomear sem migração de leitura):
+`unrecognized_input` · `no_text_to_parse` · `no_options_in_context` ·
+`invalid_selection` · `invalid_action`
+
+⚠️ **`no_text_to_parse` NÃO é `empty_input`, e a diferença é deliberada.** O
+gate do classificador grava `empty_input` desde o F5a (handler
+`classifier_skipped`), com outro significado: lá o classificador **não rodou**
+por falta de texto; aqui o handler **não conseguiu parsear**. Os dois convivem
+na mesma tabela, e um `GROUP BY reason` sem o `handler` — que é como qualquer
+um vai agregar primeiro — os somaria. Nomes distintos tornam a leitura correta
+o caminho fácil, em vez de depender de disciplina de quem consulta.
+
+Quem cedeu foi o valor sem custo: o do classificador já tem série histórica
+gravada, o do fallback não tinha nada. **Ao criar `reason` novo em qualquer
+ponto do bot, confira colisão com os valores já gravados.**
+
+`handler` é sempre `fallback_nao_entendi`; quem separa os 22 sites é
+`detail.origin`, e o estado vem da coluna `fsm_state`.
+
+⚠️ **O fallback MUTA estado** — grava `fallback_offer` em `session.context`, o
+marcador que faz o **número** da linha escalar (o clique no rowId e o título
+exato já são comando universal). Ele é consumido no dispatcher **antes** do
+guard de comandos universais, que é o que dá saída ao `CONFIRMAR_NOME` — o
+único estado onde os universais estão desligados de propósito.
+
+A oferta vale **uma mensagem**: `take_offer` consome o marcador aceito ou não.
+Quem chamar o fallback de um caminho novo precisa garantir `save_session`
+depois — hoje todos os 22 passam pelo `try` do dispatcher, cujo `save_session`
+roda inclusive no caminho de exceção.
+
+### Guard de formato do sender
+
+`send_list` trunca em 10 linhas e `send_buttons` em 3 — os limites da
+Evolution, que antes só existiam em docstring do `evolution_client` (`:213`,
+`:249`) e não eram aplicados em lugar nenhum.
+
+⚠️ **O corte sai do conteúdo, nunca do fim.** `helpers.PROTECTED_ROW_IDS`
+reserva `opt_humano` e `nav_voltar`; a ordem original é mantida. Um
+`rows[:10]` descartaria justamente a opção de atendimento, que é sempre a
+última — apagando o objetivo do S2.
+
+⚠️ `AWAITING_TIME` cheio ocupa exatamente 10 linhas
+(`BOT_MAX_SLOTS_DISPLAYED=6` + 2 de navegação + voltar + atendente).
+Aumentar o page size faz o guard cortar slot real. Há teste travando isso
+(`BOT_MAX_SLOTS_DISPLAYED + 4 <= MAX_LIST_ROWS`).
+
+⚠️ **O fallback usa sempre `send_list`, nunca botões** — o teto de 3 não
+comporta a lista reexibida mais a opção de atendimento. Em
+`AWAITING_CONFIRMATION` isso significaria escolher entre "Cancelar" e "Falar
+com atendente".
+
+### Teste de persistência com fake in-memory é vacuoso
+
+Com `FakeDB`, o objeto de sessão é o mesmo em memória entre uma mensagem e
+outra — o dado "sobrevive" com ou sem commit. Um teste que apenas relê o
+objeto **não prova persistência nenhuma**.
+
+Para provar: spy no `save_session` com snapshot do `context` no instante da
+chamada, ou ida e volta real com `expunge_all()` + releitura.
+
+Vale para tudo que escreve em `BotSession.context` — marcadores, `last_list`,
+`intent_track`.
+
+⚠️ O teste vacuoso **passa**, então ninguém descobre por falha. Quando escrever
+um, escreva junto o guarda dele: um caso onde o dado NÃO deveria estar, que
+falharia se o assert fosse insensível. Exemplo em
+`tests/test_bot_s2_nao_entendi.py::TestPersistenciaDoMarcador::test_o_spy_nao_e_vacuoso`.
+
+### `BOT_FALLBACK_MAX_COUNT` não existe mais
+
+Declarava "Fallbacks antes de oferecer atendente humano" e era a única
+ocorrência no repositório — o contador nunca foi implementado. A decisão D6 é
+oferecer na **primeira** falha, sem contador: insistir cansa e passa sensação
+de bot burro. Manter a constante criaria uma terceira fonte de verdade sobre o
+fallback. Há teste varrendo o repo (`.py`, `.env`, `.example`) contra o retorno
+dela.
+
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
   com o web) NÃO conhece turno — engine com ZERO mudanças.
