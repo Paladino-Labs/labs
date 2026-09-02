@@ -107,7 +107,23 @@ OFERTA_EXPIRADA = (
  
 ESCOLHA_OPCAO = "Escolha uma das opções acima 👆"
  
-ESCOLHA_OPCAO_OPS = "Não entendi 😅\n\nEscolhe uma das opções ali em cima 👆"
+# ⚠️ S2 — mudou de PAPEL, não só de texto. Antes era a resposta inteira: uma
+# linha apontando para uma lista que podia estar três mensagens e cinco minutos
+# acima. Agora é apenas o CABEÇALHO da resposta que REEXIBE a lista logo abaixo.
+# Quem monta essa resposta é whatsapp/fallback.py — nenhum handler deve enviar
+# esta constante sozinha via sender.send_text.
+ESCOLHA_OPCAO_OPS = "Não entendi 😅"
+
+# Corpo da resposta de fallback, logo acima das opções reexibidas.
+NAO_ENTENDI_DESCRICAO = "Dá uma olhada nas opções aqui embaixo 👇"
+
+# Fallback sem lista para reexibir (contexto perdido/expirado). O cliente
+# continua com duas saídas — o menu, ou uma pessoa.
+NAO_ENTENDI_SEM_LISTA = (
+    "Não entendi 😅\n\n"
+    "Digite *0* para voltar ao menu principal, "
+    "ou *atendente* para falar com uma pessoa 💬"
+)
 
 
 # ─── CHAMADO_HUMANO ───────────────────────────────────────────────────────

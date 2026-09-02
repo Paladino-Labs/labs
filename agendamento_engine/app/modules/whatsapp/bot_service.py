@@ -36,6 +36,7 @@ from app.infrastructure.db.models import BotSession, WhatsAppConnection, Company
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
 from app.modules.whatsapp import trace
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.helpers import (
     extract_message_type,
     extract_reaction,
@@ -667,7 +668,15 @@ def _handle_booking_state(
     )
 
     if parse_result is None:
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        # A lista visível vem do próprio parser (visible_options espelha, linha a
+        # linha, o que o formatter exibiu) — nenhum `if` por estado aqui.
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="booking_fsm.parse", user_input=user_input,
+            options=whatsapp_input_parser.visible_options(
+                parse_state, booking_ctx, company_timezone,
+            ),
+        )
         return
 
     action, payload = parse_result
@@ -729,7 +738,14 @@ def _handle_booking_state(
         return
     except InvalidActionError as e:
         logger.warning("InvalidActionError state=%s action=%s: %s", state, action, e)
-        sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+        fallback.not_understood(
+            session, instance, whatsapp_id,
+            origin="booking_fsm.update", user_input=user_input,
+            options=whatsapp_input_parser.visible_options(
+                parse_state, booking_session.context or {}, company_timezone,
+            ),
+            reason=fallback.REASON_INVALID_ACTION,
+        )
         return
     except Exception:
         logger.exception("booking_engine.update error state=%s whatsapp_id=%s", state, whatsapp_id)
@@ -1254,6 +1270,25 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
     # Estado da FSM NA CHEGADA da mensagem — sem isto não se distingue
     # "o handler não soube tratar" de "a mensagem chegou no estado errado".
     trace.note_context(fsm_state=state, user_input=user_input)
+
+    # ── Resposta à opção de atendimento oferecida no fallback (S2) ────────────
+    # Vale em QUALQUER estado, inclusive AGUARDANDO_NOME/CONFIRMAR_NOME, onde os
+    # comandos universais estão desligados de propósito (um cliente chamado
+    # "Ajuda" não deve ser escalado). É seguro porque o marcador só existe
+    # quando a mensagem ANTERIOR foi um fallback que ofereceu atendimento — e
+    # `take_offer` o consome sempre, aceito ou não: a oferta vale uma mensagem.
+    #
+    # O rowId e o título exatos já são tratados por `is_universal_command`; este
+    # caminho existe para quem digita o NÚMERO da linha, que é o formato que a
+    # Evolution entrega hoje (BOT_USE_POLLS e BOT_USE_BUTTONS desligados).
+    if fallback.take_offer(session, user_input):
+        trace.note_dispatch("fallback_offer_accepted")
+        _escalate_to_human(
+            db, session, company_id, instance_name, whatsapp_id,
+            text=user_input, trigger="FALLBACK", whatsapp_message_id=message_id,
+        )
+        save_session(db, session)
+        return
 
     # ── Atendimento humano encerrado (Sprint 2.7) ─────────────────────────────
     # Sessão em RESOLVIDA → o bot reassume no MENU_PRINCIPAL na primeira mensagem

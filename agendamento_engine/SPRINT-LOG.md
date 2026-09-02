@@ -1,5 +1,120 @@
 # SPRINT-LOG — agendamento_engine
 
+## S2 — "Não entendi": reexibir, oferecer atendimento, gravar `reason` — 2026-09-01
+
+**Status:** ✅ Aprovado pelo auditor; push autorizado pelo Silva
+**Branch:** `feat/s2-nao-entendi` (sai de `main` @ `68fd3fa`) · commit `9fdafba`
+**Refs:** `docs/plano-classificador-bot.md` (S2, decisão D6) · fecha K13, K14, K15
+**Instrumenta:** S15, S18a, S20, S22 — sem o `reason`, os quatro são avaliados no escuro.
+**Suíte:** 1604 passed, 6 skipped, 1 xfailed — nenhuma regressão.
+
+Módulo novo `whatsapp/fallback.py`. Os 22 sites de `ESCOLHA_OPCAO_OPS` viraram
+substituições mecânicas, sem lógica própria.
+
+### Decisão arquitetural do executor, melhor que a pedida
+
+O enunciado deixou em aberto ("procure a forma que evita tanto a duplicação
+quanto um `if` gigante"). A saída foi uma terceira coisa: `visible_options()`
+foi **extraída do `input_parser`** e é consumida tanto pelo `parse` quanto pelo
+fallback. Matching e reexibição saem da mesma função.
+
+O argumento fecha: se o que se reexibe divergir do que se casa, o número que o
+cliente digita passa a apontar para outra linha — e foi exatamente essa
+divergência que o F3 achou na paginação de horários. Agora é impossível **por
+construção**, não por disciplina.
+
+### Guard de formato
+
+`send_list` trunca em 10 linhas, `send_buttons` em 3 — limites que só existiam
+em docstring do `evolution_client`. O corte sai do **conteúdo**, com
+`helpers.PROTECTED_ROW_IDS` (`opt_humano`, `nav_voltar`). Um `rows[:10]` teria
+descartado justamente a opção de atendimento, que é sempre a última.
+
+⚠️ `AWAITING_TIME` cheio dá **exatamente 10 linhas**, sem folga
+(`BOT_MAX_SLOTS_DISPLAYED=6` + 2 de navegação + voltar + atendente). Teste trava:
+`BOT_MAX_SLOTS_DISPLAYED + 4 <= MAX_LIST_ROWS` — quem aumentar o page size
+descobre no CI, não no WhatsApp do cliente.
+
+### Colisão de `reason` resolvida na revisão
+
+O valor do fallback para mensagem sem texto **não** é `empty_input`: é
+`no_text_to_parse`. O gate do classificador já grava `empty_input` desde o F5a,
+com outro significado — lá o classificador **não rodou**, aqui o handler **não
+conseguiu parsear**. Num `GROUP BY reason` sem o `handler` — que é como qualquer
+um vai agregar primeiro — os dois se somariam, medindo uma coisa achando que
+mede outra. Nomes distintos tornam a leitura correta o caminho fácil.
+
+O valor do classificador foi **mantido**: ele já tem série histórica em produção.
+
+Cinco valores, cada um respondendo uma pergunta que os outros não respondem:
+`unrecognized_input` · `no_text_to_parse` · `no_options_in_context` ·
+`invalid_selection` · `invalid_action`.
+
+### O fallback deixou de ser envio puro — e isso foi provado, não argumentado
+
+`not_understood` grava `fallback_offer` em `session.context` (é o que faz o
+**número** da linha escalar; o clique no rowId já é comando universal). Pergunta
+do auditor: algum dos 22 sites retorna sem `save_session`?
+
+Não. O `try` do dispatcher envolve todos os branches — legados e
+`_handle_booking_state`, que tem chamador único — e o `save_session` vem depois,
+inclusive no caminho de exceção. Mas isso é leitura de código; a prova são
+testes que dirigem `handle_inbound_message` de ponta a ponta, com **spy no
+`save_session`** conferindo que o commit que segue o fallback já enxerga o
+marcador. ⚠️ Sem o spy os testes seriam vacuosos: no FakeDB o objeto vive em
+memória e "sobreviveria" sem commit nenhum. Há um teste guardando o guarda.
+
+Fechado também no **Postgres de dev**, com ida e volta real: fallback →
+`save_session` → `expunge` → releitura → marcador no JSONB, nos dois pipelines,
+e o consumo (a oferta vale uma mensagem) também persiste.
+
+### Um teste existente quebrou e estava errado
+
+`test_bot_f4_shift_substate::test_gibberish_in_substate_keeps_substate`
+asseverava `("text", ESCOLHA_OPCAO_OPS)` — dizia literalmente que a resposta
+certa é uma linha solta, a coisa que o sprint existe para eliminar. Corrigido,
+não preservado. Mesmo precedente do S3.
+
+`test_bot_f3_back_navigation` e `test_sprint26_bot_integration`, os outros dois
+candidatos previstos, passaram sem alteração.
+
+### Validação (dev)
+
+31 checks em 5 estados (AWAITING_SERVICE/DATE/CONFIRMATION, sub-estado de turno,
+legado) + 11 checks de persistência real. Nada rodou contra produção — os dois
+scripts reusam o guard do `run_dev_api.py`, e a validação limpa o que cria.
+
+### Achados laterais (não corrigidos)
+
+⚠️ **A oferta por número vale UMA mensagem** — o marcador é consumido mesmo
+quando recusado. É escolha, não consequência: um número solto não pode
+significar "quero atendente" para sempre. Atenuante: o clique no rowId e o
+título exato **não** têm essa janela (são comando universal e valem sempre). A
+janela só afeta quem digita o número, que é o formato de hoje porque
+`BOT_USE_POLLS` e `BOT_USE_BUTTONS` estão desligados — ligar os botões faz o
+problema sumir.
+
+🟡 **O caminho legado não tem `← Voltar` na `last_list`**, então a reexibição
+herda a ausência. Divergência pré-existente entre os dois dispatchers, só ficou
+visível agora. É o F6.
+
+🟢 `.env.example` ainda referenciava `BOT_FALLBACK_MAX_COUNT` (comentado).
+Removido — foi o teste de varredura que o encontrou, não o grep do enunciado,
+que cobria só `.py`.
+
+### Depois do deploy
+
+```sql
+SELECT dispatch->'detail'->>'reason' AS motivo, fsm_state, count(*)
+FROM bot_message_traces
+WHERE event = 'messages.upsert' AND received_at > now() - interval '7 days'
+GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+Se só aparecer `no_customer_id` (o valor antigo, gravado quando o classificador
+nem tentou), a instrumentação não pegou.
+
+
 ## S0 — Exportação do corpus do bot — 2026-08-31
 
 **Status:** ✅ Aprovado pelo auditor; push autorizado pelo Silva

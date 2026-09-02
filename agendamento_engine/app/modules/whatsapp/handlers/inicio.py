@@ -9,6 +9,7 @@ from app.infrastructure.db.models import BotSession
 from app.modules.booking.engine import BookingEngine
 from app.modules.whatsapp import messages
 from app.modules.whatsapp import sender
+from app.modules.whatsapp import fallback
 from app.modules.whatsapp.helpers import first_name, to_company_tz
 from app.modules.whatsapp.session import reset_session
 from app.modules.customers import service as customer_svc
@@ -76,7 +77,10 @@ def handle(
         payload = resolve_input(user_input, last_list)
 
         if not payload:
-            sender.send_text(instance, whatsapp_id, messages.ESCOLHA_OPCAO_OPS)
+            fallback.not_understood(
+                session, instance, whatsapp_id,
+                origin="inicio.handle", user_input=user_input,
+            )
             return
 
         if payload == "opt_agendar":

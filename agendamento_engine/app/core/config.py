@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     BOT_MAX_SLOTS_DISPLAYED: int = 6            # Máximo de horários exibidos por página
     DATE_WINDOW_SIZE: int = 7                   # Dias por página na seleção de data
     DATE_MAX_ADVANCE_DAYS: int = 60             # Limite máximo de antecedência para agendamento online (dias)
-    BOT_FALLBACK_MAX_COUNT: int = 3             # Fallbacks antes de oferecer atendente humano
     BOT_USE_BUTTONS: bool = False               # True quando Evolution API entregar botões interativos (Cloud API)
     BOT_USE_POLLS: bool = False                 # Usa sendPoll (nativo Baileys) no lugar de sendButtons/sendList
 
