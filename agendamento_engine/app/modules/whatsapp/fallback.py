@@ -197,6 +197,51 @@ def not_understood(
     )
 
 
+def offer_human_only(
+    session,
+    instance: str,
+    whatsapp_id: str,
+    *,
+    origin: str,
+    header: str,
+    body: str,
+    reason: str,
+) -> None:
+    """Repete a pergunta do estado e oferece atendimento — sem lista a reexibir.
+
+    ⚠️ Existe porque `AGUARDANDO_NOME` (S5) não tem `last_list`: a pergunta é
+    texto puro, e `not_understood` com `options=[]` cairia em
+    `NAO_ENTENDI_SEM_LISTA`, que manda "digite *0*" e "*atendente*" — as duas
+    palavras que NÃO funcionam ali, porque os comandos universais estão
+    desligados nesse estado de propósito (um cliente chamado "Ajuda" não deve
+    escalar). O cliente receberia uma saída que não abre.
+
+    A saída que abre é o MARCADOR: uma lista de UMA linha
+    ("💬 Falar com atendente") mais o `fallback_offer` no contexto, consumido
+    pelo dispatcher ANTES do guard de comandos universais. O cliente escapa
+    clicando a linha, digitando "1", ou escrevendo "atendente" — e continua
+    livre para simplesmente digitar o nome, que é o caminho esperado.
+
+    `header`/`body` são do chamador porque "Não entendi 😅" seria falso aqui:
+    o bot entendeu que "Tudo bem?" é cortesia; o que falta é a resposta.
+    """
+    trace.note_dispatch(TRACE_HANDLER, reason=reason, origin=origin, options=0)
+
+    row = human_row()
+    ctx = dict(getattr(session, "context", None) or {})
+    ctx[OFFER_KEY] = {
+        "index":  1,
+        "row_id": row["row_id"],
+        "title":  row["title"],
+    }
+    session.context = ctx
+
+    sender.send_list(
+        instance, whatsapp_id, header, body,
+        [{"rowId": row["row_id"], "title": row["title"], "description": ""}],
+    )
+
+
 def take_offer(session, user_input: str) -> bool:
     """True se o input é a resposta à opção de atendimento oferecida no fallback.
 
@@ -207,6 +252,13 @@ def take_offer(session, user_input: str) -> bool:
     reconhecidos por `is_universal_command`, em qualquer estado. Este marcador
     cobre o fallback de texto numerado, que é o formato que a Evolution entrega
     hoje (BOT_USE_POLLS e BOT_USE_BUTTONS estão desligados).
+
+    ⚠️ S5 — a palavra solta ("atendente", "humano") também é aceita AQUI, e não
+    só por `is_universal_command`. Em `AGUARDANDO_NOME`/`CONFIRMAR_NOME` os
+    universais estão desligados, então quem responde à oferta escrevendo a
+    palavra seria cadastrado com o nome "atendente". O marcador existe apenas na
+    mensagem seguinte a uma oferta, o que mantém o alcance dessa aceitação
+    exatamente na janela em que a palavra é resposta, e não nome.
     """
     ctx = getattr(session, "context", None) or {}
     offer = ctx.get(OFFER_KEY)
@@ -221,6 +273,10 @@ def take_offer(session, user_input: str) -> bool:
     if not text:
         return False
     if text in (str(offer.get("row_id", "")).lower(), str(offer.get("title", "")).lower()):
+        return True
+
+    from app.modules.whatsapp.helpers import is_universal_command
+    if is_universal_command(text) == "humano":
         return True
 
     import re
