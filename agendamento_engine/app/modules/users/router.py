@@ -62,6 +62,28 @@ def assign_role(
     return service.assign_role(db, actor, user_id, body.role, ip, ua)
 
 
+# ── PATCH /users/{id}/phone ──────────────────────────────────────────────────
+
+@router.patch("/{user_id}/phone", response_model=schemas.UserResponse)
+def update_user_phone(
+    user_id: UUID,
+    body: schemas.UpdateUserPhoneRequest,
+    request: Request,
+    actor: User = Depends(_owner_admin),
+    db: Session = Depends(get_db),
+):
+    """Corrige o WhatsApp de um membro do próprio tenant (OWNER/ADMIN).
+
+    Rota específica, não um PATCH /users/{id} genérico: o único campo de
+    terceiro que este sprint torna editável é o telefone, e uma rota estreita
+    não vira porta para editar role/email por engano. O próprio usuário usa
+    PATCH /auth/profile.
+    """
+    ip = _get_real_ip(request)
+    ua = request.headers.get("user-agent")
+    return service.update_user_phone(db, actor, user_id, body.phone, ip, ua)
+
+
 # ── DELETE /users/{id} (desativa) ────────────────────────────────────────────
 
 @router.delete("/{user_id}", response_model=schemas.UserResponse)

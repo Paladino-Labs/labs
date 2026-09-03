@@ -79,17 +79,40 @@ def update_profile(
     """Atualiza o perfil do usuário autenticado (qualquer role).
 
     Apenas campos de perfil pessoal — email, role e company_id são imutáveis aqui.
-    Se name=None no body, o campo é limpo (nullable aceito).
-    Se name não for enviado ({}) o nome existente é preservado.
+
+    `name`:  ausente OU null preserva o valor atual (comportamento pré-S4; o
+             docstring anterior dizia que null limpava, o que o código nunca fez).
+    `phone`: ausente preserva; null ou "" limpa; valor válido é normalizado
+             para E.164 sem o '+', o mesmo formato gravado pelo convite.
     """
+    from app.modules.identity.resolver import normalize_phone_for_storage
+
+    changed = False
+
     if body.name is not None:
         user.name = body.name
+        changed = True
+
+    # `phone` só é tocado se veio no corpo — {} preserva, null/"" limpa.
+    # `model_fields_set` é o que distingue "não enviei" de "enviei vazio";
+    # sem isso, o PATCH que só muda o nome apagaria o telefone.
+    if "phone" in body.model_fields_set:
+        raw = (body.phone or "").strip()
+        # Mesma normalização do convite (users/service._normalize_invite_phone)
+        # → E.164 sem o '+'. Divergir daqui faria o mesmo usuário ter dois
+        # formatos conforme o caminho, e quem lê o campo não saberia.
+        user.phone = normalize_phone_for_storage(raw) if raw else None
+        changed = True
+
+    if changed:
         db.commit()
         db.refresh(user)
+
     return {
         "id": str(user.id),
         "email": user.email,
         "name": user.name,
+        "phone": user.phone,
         "company_id": str(user.company_id) if user.company_id else None,
         "role": user.role,
     }

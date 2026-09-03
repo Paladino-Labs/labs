@@ -1,5 +1,94 @@
 # SPRINT-LOG — agendamento_engine
 
+## S4 — `users.phone` editável — 2026-09-03
+
+**Status:** ✅ Aprovado pelo Silva; mesclado em `main`
+**Branch:** `feat/s4-users-phone` (sai de `main` @ `44cc98c`) · commit `312e2bb`
+**Desbloqueia:** S16 (cadeia de destinatário do alerta)
+**Suíte:** 1634 passed, 6 skipped, 1 xfailed — nenhuma regressão. Sem migration.
+
+`users.phone` era write-once no convite. Medido em produção: `owners_ativos = 1`
+e `owners_com_telefone = 0` nos dois tenants, com `whatsapp_enabled = true` — o
+canal ligado e sem destino, a escalada caindo no e-mail, e nenhuma forma de
+consertar pela interface.
+
+### Duas premissas do enunciado estavam desatualizadas
+
+1. **`main` não tinha o S5.** Tinha S0, S3 e S2; o S5 seguia só em
+   `feat/s5-validacao-nome`, não mesclado. Sem consequência para o S4 (não toca
+   o bot), mas a verificação era de um comando.
+2. **As duas vulnerabilidades cross-tenant já estavam corrigidas.** `assign_role`
+   e `deactivate_user` já filtram por `company_id` — o S0.2 está em `main` desde
+   `553c1ba`. O enunciado mandava não copiar aquele padrão; ele é hoje o padrão
+   **certo**, e foi o que se copiou.
+
+### O formato ficou igual por construção, não por disciplina
+
+O risco nomeado no enunciado era um usuário com dois formatos conforme o
+caminho. A saída não foi escrever a mesma validação duas vezes com cuidado: foi
+extrair `normalize_phone_for_storage` (`identity/resolver`) como fonte única, e
+fazer o **convite** passar a delegar a ela. Os três caminhos — convite, perfil
+próprio, rota de terceiro — chamam a mesma função.
+
+O teste afirma os dois lados na mesma linha:
+`alvo.phone == _normalize_invite_phone(raw)`.
+
+**Fixo é preservado sem o nono dígito** — `551132251234` é correto.
+
+### A rota de terceiro
+
+`PATCH /users/{id}/phone`, não um `PATCH /users/{id}` genérico: rota estreita não
+vira porta para editar role/email por engano. Três camadas — `require_role` no
+router, filtro `company_id + active` no service (404 indistinguível de "não
+existe"), e `_assert_can_invite`, o mesmo `INVITE_PERMISSION` do `assign_role`.
+
+⚠️ **ADMIN não alcança o telefone de um OWNER.** Trocar aquele número redireciona
+a escalada — tem o peso de atribuir papel, e leva `record_sensitive_action` pelo
+mesmo motivo.
+
+### O painel
+
+Coluna WhatsApp com edição inline; o próprio usuário vai por `/auth/profile`,
+terceiro pela rota nova. Ausência é exibida como **"Sem WhatsApp"** em alerta, não
+um traço — telefone faltando é a informação que o dono precisa ver para agir, e um
+`—` seria indistinguível de "não carregou".
+
+### O que a verificação em dev provou
+
+Editar → salvar → **recarregar** → `55DDNNNNNNNNN` persistido, o formato do
+convite. E, ligando os canais do `Barbearia Dev`: com telefone preenchido a
+escalada gravou `communication_logs.channel = 'WHATSAPP'`; com ele nulo, **EMAIL**.
+A contraprova é o que mostra que o campo alcança o gate de escolha de canal.
+
+Dev restaurado — telefones a `NULL`, canais desligados, zero linha de hoje em
+`communication_logs`. ⚠️ Uma linha ficou e não pode sair: o `audit_logs` da
+verificação. A tabela é append-only por trigger, e o banco recusou o DELETE —
+comportamento correto.
+
+🔴 **Risco criado, para o S16:** o gate de canal checa **presença** de
+telefone, não **alcançabilidade** — e o formato não permite inferir uma da
+outra (linhas virtuais usam estrutura de fixo e têm WhatsApp). A única
+fonte de verdade é a Evolution devolvendo `exists: false`, e essa resposta
+hoje é descartada: a task reporta sucesso e o alerta some sem trilha.
+**Tratar o `exists: false` como sinal é item do S16.**
+
+### Achados laterais
+
+- 🟡 O docstring de `PATCH /auth/profile` dizia que `name=None` limpava o campo.
+  O código faz `if body.name is not None` e nunca limpou. Corrigido **só o texto**
+  — deixar um docstring falso ao lado da semântica nova de `phone` seria pior.
+- 🟢 `deactivate_user` segue sem `record_sensitive_action` (dívida do S0.2).
+- 🟢 `professionals.phone` sem validação nenhuma: confirmado, trilha própria.
+
+### O padrão que apareceu três vezes neste sprint
+
+`main` sem o S5, as vulnerabilidades já corrigidas, e o formato do telefone: nos
+três casos a informação estava disponível e foi **deduzida do artefato** em vez de
+verificada. O enunciado é um artefato; o `.env` é um artefato; o formato de um
+número é um artefato. Nenhum deles é o sistema.
+
+---
+
 ## S5 — Validação de nome e mídia em AGUARDANDO_NOME (2026-09-01)
 
 **Status:** ✅ Aprovado pelo auditor; calibragem limpa; push autorizado pelo Silva

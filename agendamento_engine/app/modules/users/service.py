@@ -107,23 +107,12 @@ def create_user(db: Session, company_id: UUID, data: UserCreate) -> User:
 def _normalize_invite_phone(raw_phone: str) -> str:
     """Telefone do convite → E.164 sem o '+', pronto para o `evolution_client`.
 
-    Duas etapas, o mesmo idioma dos 4 formulários públicos (A5 §3.1 classifica a
-    separação como legítima):
-
-      1. `validate_user_phone_input` — GATE de formulário: whitelist ANATEL de
-         DDD, rejeita DDI, mensagem de erro legível para quem está digitando.
-      2. `normalize_phone_e164` — a normalização CANÔNICA-ESTRITA: insere o 9º
-         dígito de celular e produz o E.164.
-
-    ⚠️ Existem 4 normalizações de telefone no backend. A quarta
-    (`public/service._normalize_phone`) NÃO insere o 9º dígito e produziria uma
-    chave diferente para o mesmo número — não usar.
+    O formato vem de `normalize_phone_for_storage` (identity/resolver), a mesma
+    função usada pela edição do telefone em `PATCH /auth/profile` e
+    `PATCH /users/{id}/phone`. Aqui só se acrescenta a regra própria do convite:
+    telefone é OBRIGATÓRIO — é por ele que a pessoa recebe o acesso.
     """
-    from app.modules.identity.resolver import (
-        InvalidUserPhoneError,
-        normalize_phone_e164,
-        validate_user_phone_input,
-    )
+    from app.modules.identity.resolver import normalize_phone_for_storage
 
     if not (raw_phone or "").strip():
         raise HTTPException(
@@ -132,14 +121,7 @@ def _normalize_invite_phone(raw_phone: str) -> str:
                    "recebe o acesso.",
         )
 
-    try:
-        validate_user_phone_input(raw_phone)
-    except InvalidUserPhoneError as exc:
-        raise HTTPException(status_code=422, detail=exc.message)
-
-    phone_e164, _national = normalize_phone_e164(raw_phone)
-    # Convenção do repositório: armazenado sem o '+' (idem customers.phone)
-    return phone_e164.lstrip("+")
+    return normalize_phone_for_storage(raw_phone)
 
 
 def invite_user(
@@ -289,6 +271,84 @@ def assign_role(
             company_id=actor.company_id,
             before_snapshot={"role": old_role},
             after_snapshot={"role": new_role},
+            ip_address=request_ip,
+            user_agent=request_ua,
+        ),
+        db,
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+# ── update phone ─────────────────────────────────────────────────────────────
+
+def update_user_phone(
+    db: Session,
+    actor: User,
+    target_user_id: UUID,
+    raw_phone: Optional[str],
+    request_ip: Optional[str] = None,
+    request_ua: Optional[str] = None,
+) -> User:
+    """OWNER/ADMIN corrige o WhatsApp de um membro do PRÓPRIO tenant.
+
+    Existe porque `users.phone` era write-once no convite: quem nunca entrou
+    sozinho (o caso medido — OWNER sem telefone e canal WhatsApp ligado) não
+    tinha como ganhar um canal. O caminho do próprio usuário é
+    `PATCH /auth/profile`; esta rota é o mínimo para o dono consertar o
+    cadastro de terceiro.
+
+    Posse do alvo: mesmo tenant do ator, filtrando por company_id — o padrão de
+    `assign_role`/`deactivate_user`. 404 idêntico ao de "não existe", para não
+    revelar a existência de usuários de outros tenants.
+
+    Hierarquia: reusa INVITE_PERMISSION via `_assert_can_invite` — um ADMIN
+    mexe no telefone de OPERATOR/PROFESSIONAL, não no de um OWNER. Trocar o
+    telefone de um OWNER redireciona a escalada, então tem o mesmo peso de
+    atribuir papel.
+
+    `raw_phone` vazio/None limpa o campo.
+    """
+    from app.modules.identity.resolver import normalize_phone_for_storage
+
+    company_scope = str(actor.company_id) if actor.company_id else None
+    target = (
+        db.query(User)
+        .filter(
+            User.id == str(target_user_id),
+            User.company_id == company_scope,
+            User.active == True,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    # Quem o ator pode gerenciar. Editar o próprio telefone por aqui é
+    # permitido a quem já passa no gate (OWNER); o caminho canônico do próprio
+    # usuário continua sendo PATCH /auth/profile.
+    _assert_can_invite(actor, target.role)
+
+    stripped = (raw_phone or "").strip()
+    # MESMA normalização do convite (_normalize_invite_phone) — E.164 sem '+'.
+    new_phone = normalize_phone_for_storage(stripped) if stripped else None
+
+    old_phone = target.phone
+    target.phone = new_phone
+
+    # O telefone é o destino da escalada e do reset de senha; trocá-lo redireciona
+    # ambos. Auditável pelo mesmo motivo que assign_role é.
+    record_sensitive_action(
+        SensitiveAuditContext(
+            actor_id=actor.id,
+            actor_role=actor.role,
+            action="update_user_phone",
+            resource_type="User",
+            resource_id=target.id,
+            company_id=actor.company_id,
+            before_snapshot={"phone": old_phone},
+            after_snapshot={"phone": new_phone},
             ip_address=request_ip,
             user_agent=request_ua,
         ),
