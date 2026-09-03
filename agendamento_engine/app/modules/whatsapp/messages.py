@@ -49,6 +49,36 @@ def confirmar_nome(nome: str) -> str:
  
  
 PEDIR_NOME_NOVAMENTE = "Pode me dizer seu nome novamente? 😊"
+
+# ─── S5 — o que o cliente digitou não parece um nome ──────────────────────────
+# ⚠️ NÃO reusa o "Não entendi 😅" do S2 de propósito. Aqui o bot entendeu muito
+# bem — a cliente disse "Tudo bem?" e o bot sabe que é cortesia. Dizer "não
+# entendi" seria falso e culparia a cliente. O que falta é a resposta à
+# pergunta, e a dica é o que faz a segunda tentativa acertar: sem ela o cliente
+# repete a mesma coisa e o loop se fecha.
+NOME_INVALIDO_TITULO = "Só falta o seu nome 😊"
+NOME_INVALIDO_DICA = (
+    "Pode mandar só o primeiro nome mesmo — depois a gente marca tudo!"
+)
+
+# ─── S5 — chegou mídia em AGUARDANDO_NOME ────────────────────────────────────
+# ⚠️ Áudio e imagem NÃO são o mesmo caso, e tratá-los igual foi o defeito.
+#
+# Áudio é a mensagem INTEIRA: sem transcrição o bot não sabe nada do que foi
+# dito, então precisa pedir por escrito. (Transcrição é decisão diferida; o
+# pré-requisito dela não é o Whisper, é processamento assíncrono no bot.)
+NOME_AUDIO = (
+    "Ainda não consigo ouvir áudios por aqui 🙉\n\n"
+    "Me manda o seu nome escrito que eu já continuo!"
+)
+
+# Imagem é COMPLEMENTO: a foto do corte de referência não era uma tentativa de
+# dizer o nome. Pedir o nome "de novo" trata a cliente como se ela tivesse
+# errado. Reconhecer o recebimento e seguir de onde estava é o que ela esperava.
+NOME_MIDIA_RECEBIDA = (
+    "Recebi sua foto! 📸\n\n"
+    "Só preciso do seu nome primeiro pra continuar 😊"
+)
  
  
 def boas_vindas_nome_confirmado(first_name: str) -> str:

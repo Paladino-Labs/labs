@@ -1103,6 +1103,66 @@ de bot burro. Manter a constante criaria uma terceira fonte de verdade sobre o
 fallback. Há teste varrendo o repo (`.py`, `.env`, `.example`) contra o retorno
 dela.
 
+## Bot S5 — validação de nome e mídia em AGUARDANDO_NOME (3c70ee3)
+
+### Validação de nome — erra para o lado de aceitar
+
+`whatsapp/name_validator.py`. Três camadas: descascar embalagem
+("meu nome é X"), sinais fortes (interrogação, dígito, URL, >6 palavras
+ou >60 chars, sem letra), e léxico explícito.
+
+⚠️ **O léxico de pedido só vale em entrada de 2+ palavras.** É o que faz
+palavra isolada e desconhecida ser aceita **por construção** — a garantia
+estrutural de que nome curto e incomum passa. **Não remova essa guarda.**
+
+⚠️ **`de`/`da`/`dos`/`junior` ficaram fora do léxico de propósito:** "Maria
+da Silva" e "Pascoal Júnior" precisam passar inteiros.
+
+**Trade-off conhecido:** `"Tarde"` sozinha passa como nome. É o preço da
+guarda acima, e está travado por teste.
+
+⚠️ Falso positivo custa mais que dado sujo: rejeitar nome legítimo prende
+o cliente novo antes do primeiro agendamento.
+
+#### Léxico de vocativos — a exceção que alcança palavra isolada
+
+`mano`, `amigo`, `príncipe`, `chefe`, `parceiro` e afins, casando frase
+inteira, palavra isolada **e token dentro de frase**. Acrescentado depois
+da calibragem: `'Opa mano'` era descascado para `'mano'` e **aceito**.
+
+É seguro alcançar palavra isolada porque é **enumeração fechada**, não
+heurística — `Tobin` passa por não estar na lista, não por parecer nome.
+Mesmo mecanismo da cortesia, que já rejeitava `"Blz"` sozinho.
+
+⚠️ **`rei` e `cara` estão deliberadamente FORA** — `rei` é sobrenome,
+`cara` é nome próprio noutras línguas. `rei` só é alcançado na frase
+`"meu rei"`. **A dúvida resolve para NÃO acrescentar:** o custo de deixar
+passar um vocativo é dado feio; o de pegar um nome é cliente preso num loop.
+
+### AGUARDANDO_NOME e CONFIRMAR_NOME não têm comandos universais
+
+`bot_service.py:1275` os desliga nos dois estados — um cliente chamado
+"Ajuda" não deve escalar.
+
+⚠️ **Consequência:** a mensagem `NAO_ENTENDI_SEM_LISTA` manda digitar *0* e
+*atendente*, e **nenhuma das duas funciona ali**. Use
+`fallback.offer_human_only`, que envia uma lista de uma linha.
+
+⚠️ `take_offer` aceita a palavra "atendente" **apenas** dentro da janela da
+oferta: sem isso, quem responde "atendente" à oferta vira um cliente com
+esse nome.
+
+### Calibrar a regra contra a base real
+
+`scripts/calibrate_name_validator.py` — read-only, aplica a regra a todo
+`customers.name` e lista os rejeitados com o motivo. **Rode antes de mexer
+em qualquer uma das listas**, e procure nome de PESSOA entre os rejeitados.
+
+⚠️ O corte de 6 palavras tem margem de UMA: `"André Victor Marques Do
+Nascimento"` é cliente real com 5. Nome completo de 7 cairia. Se aparecer,
+`MAX_WORDS` sobe para 8 — há asserção travando o valor para obrigar quem o
+mudar a atualizar a justificativa.
+
 ## Bot F4 — turno como SUB-ESTADO do canal bot (b534605)
   Decisão D1: o turno vive na CAMADA DE ADAPTAÇÃO do bot. O FSM (compartilhado
   com o web) NÃO conhece turno — engine com ZERO mudanças.
@@ -1985,6 +2045,31 @@ Alembic **linear, head único `e0s25f_product_extras`** (sem multi-head). Suite:
 - Testes: tests/test_sprint_a_identity.py (32 testes, FakeDB in-memory)
 
 **HEAD migration:** e0sA3_customers_identity_link
+
+### `consent_records` é append-only no banco
+
+O trigger `consent_records_no_update` recusa **DELETE e UPDATE**. Como
+`paladino_identities` é referenciada por `consent_records` com FK
+`NO ACTION`, **a identidade também não se apaga** — a linha de consent
+teria de sair primeiro, e ela não sai.
+
+⚠️ São **dois** mecanismos, não um, e a diferença importa para limpeza de
+dado: `paladino_identities` **não tem trigger nenhum**, então corrigir
+`name` por UPDATE é livre. O que está travado é apagar, não corrigir.
+
+| Operação | Resultado |
+|---|---|
+| `UPDATE paladino_identities.name` | ✅ livre |
+| `DELETE paladino_identities` (com consent) | ❌ ForeignKeyViolation |
+| `UPDATE`/`DELETE consent_records` | ❌ trigger append-only |
+
+**Consequência:** limpeza de identidade contaminada é **corretiva
+(`UPDATE`), nunca destrutiva** — e o histórico de consentimento fica
+íntegro, que é o ponto do append-only.
+
+⚠️ Vale em qualquer ambiente. **Não desabilite o trigger** para contornar:
+o invariante é real, e a limitação precisa ser conhecida antes de aparecer
+em produção. Medido no S5 ao limpar o dev.
 
 ## Sprint B — Link de gestão com token único (2026-06-11)
 - `appointments.manage_token_hash` (SHA-256; cru NUNCA persiste) +

@@ -1402,8 +1402,14 @@ async def handle_inbound_message(db: Session, instance_name: str, data: dict) ->
             )
 
         elif state == STATE_AGUARDANDO_NOME:
+            # ⚠️ S5 — único handler que recebe o TIPO da mensagem. Não é
+            # generalização: em AGUARDANDO_NOME a mídia precisa de resposta
+            # diferente por tipo (áudio ≠ imagem), e a informação já existe em
+            # `extract_message_type`. Tratamento genérico de mídia nos demais
+            # estados é o S23, e é decisão dele — não deste ponto.
             h_nome.handle_aguardando_nome(
                 db, session, company_id, whatsapp_id, instance_name, user_input,
+                message_type=extract_message_type(data),
             )
 
         elif state == STATE_CONFIRMAR_NOME:

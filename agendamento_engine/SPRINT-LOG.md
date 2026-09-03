@@ -1,5 +1,87 @@
 # SPRINT-LOG — agendamento_engine
 
+## S5 — Validação de nome e mídia em AGUARDANDO_NOME (2026-09-01)
+
+**Status:** ✅ Aprovado pelo auditor; calibragem limpa; push autorizado pelo Silva
+**Branch:** `feat/s5-validacao-nome` (sai de `main` @ `44cc98c`) · commits `5515bc4` + `3c70ee3`
+**Fecha:** K17. **Precede:** S19.
+**Suíte:** 1669 passed, 6 skipped, 1 xfailed — nenhuma regressão.
+
+Prevenção da contaminação de `customers.name` e `PaladinoIdentity.name`,
+em produção desde abril (10 registros conhecidos, todos com agendamento ativo).
+
+**A regra:** descascar → sinais fortes → léxico explícito. ⚠️ **A guarda de
+2+ palavras no léxico de pedido é o que faz "erra para o lado de aceitar"
+ser estrutural**: palavra isolada e desconhecida passa por construção.
+
+**Trade-off medido e aceito:** `"Tarde"` sozinha passa como nome.
+Rejeitá-la exigiria aplicar o léxico a palavra isolada, e `Tobin` cairia
+junto. Está como teste, não como acidente.
+
+**Mídia:** áudio e imagem tratados diferente — áudio é a mensagem inteira,
+imagem é complemento. `reason=no_text_to_parse` (o valor do S2), com
+`message_type` no detail para o S23 medir.
+
+⚠️ **`take_offer` passou a aceitar a palavra "atendente"** dentro da janela
+da oferta — sem isso, quem respondesse "atendente" seria cadastrado com
+esse nome. Teste-guarda prova que fora da janela nada mudou.
+
+**Nenhum teste quebrou.** A permissividade estava medida no `inv-gate §6
+L3`, mas nenhum teste a asseverava.
+
+**Léxico de vocativos** acrescentado após a calibragem: `mano`, `amigo`,
+`príncipe`, `chefe`, `parceiro` e afins, alcançando frase inteira, palavra
+isolada e token dentro de frase. Achado do Silva na leitura: `'Opa mano'`
+→ `'mano'` era falso aceite.
+⚠️ `rei` e `cara` deliberadamente **fora** — `rei` é sobrenome, `cara` é nome
+próprio noutras línguas. Regra escrita no código: **a dúvida resolve para
+NÃO acrescentar.**
+
+### A calibragem — 322 nomes reais, lidos um a um
+
+Duas rodadas. A segunda difere da primeira em **exatamente uma linha**
+(`[vocative] 'Opa mano'`), e nenhum nome de pessoa entrou na lista.
+
+Os dois rejeitados que **pareciam** nome são a regra acertando, e estão
+travados por teste **junto com a asserção de que o que os clientes
+responderam depois passa** — para ninguém "consertar" a regra olhando a
+lista de rejeitados:
+
+| Rejeitado | Motivo | O cliente respondeu depois |
+|---|---|---|
+| `'Eduardo Godoy 
+Fernando Scabora'` | dois nomes colados por `
+` | `"Eduardo Godoy"` ✅ |
+| `'Lucas, quais horários tem hj?'` | nome dentro do pedido | `"Lucas"` ✅ |
+
+⚠️ **Rejeitar não é recusar atendimento:** é repetir a pergunta com uma
+dica, agora com saída para atendente na primeira vez. O custo é uma mensagem.
+
+⚠️ **Nenhum `too_long`.** O corte de 6 palavras está bem calibrado nesta
+base — `"André Victor Marques Do Nascimento"` passa com 5. A margem é de
+UMA palavra; se um nome de 7 aparecer, `MAX_WORDS` sobe para 8.
+
+### Achados que este sprint produziu — nenhum é dele
+
+🔴 **A contaminação é ~5× maior que o medido:** 53 de 322 clientes rejeitados
+(~48 reais, 4 fixtures + o `'Opa mano'`). A query anterior filtrava por
+comprimento e saudação inicial e não pegava `'Tem horário hj ?'` nem
+`'Qual valor corte'`. **Redimensiona a trilha de limpeza.**
+
+⚠️ **`consent_records` é append-only por trigger no banco**, e
+`paladino_identities` é referenciada por ele — identidade contaminada
+**não se apaga**, só se corrige por UPDATE. A limpeza é corretiva, não
+destrutiva. Mecanismo detalhado no `CLAUDE.md`; verificado no dev.
+
+🔴 **Anomalia a investigar:** `'Desculpe, não entendi. Por favor, selecione
+uma das opções:'` gravado como nome em 31/08. **Não é texto do nosso bot**
+(o nosso é `"Não entendi 😅"`). Origem desconhecida, e é recente — é a que
+se olha primeiro.
+
+🟡 **4 fixtures em produção:** `FT3`, `Back9`, `Teste6`, `Teste Fase1`, de
+20/04. Somam-se aos resíduos já catalogados.
+
+
 ## S2 — "Não entendi": reexibir, oferecer atendimento, gravar `reason` — 2026-09-01
 
 **Status:** ✅ Aprovado pelo auditor; push autorizado pelo Silva
