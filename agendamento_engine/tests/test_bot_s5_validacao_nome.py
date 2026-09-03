@@ -248,6 +248,45 @@ class TestRegraContraOsCorpora:
         ok, motivo, _ = name_validator.validate_name("Tobin")
         assert ok, f"Tobin foi rejeitado por {motivo} — a regra está apertada demais"
 
+    def test_rejeicoes_corretas_da_calibragem(self):
+        """Dois casos reais que a calibragem levantou — e são a regra ACERTANDO.
+
+        ⚠️ Estão aqui para não serem "consertados" depois por quem vir a lista
+        de rejeitados e reconhecer um nome de gente dentro deles.
+
+        `'Eduardo Godoy \\nFernando Scabora'` — DOIS nomes colados por quebra de
+        linha. Aceitar cadastraria o cliente com o nome de duas pessoas; ele
+        respondeu "Eduardo Godoy" limpo na segunda pergunta.
+
+        `'Lucas, quais horários tem hj?'` — o nome DENTRO do pedido, que é
+        exatamente o defeito que o sprint existe para prevenir.
+
+        ⚠️ Rejeitar não é recusar atendimento: é repetir a pergunta com uma
+        dica, agora com saída para atendente. O custo é uma mensagem.
+        """
+        ok, motivo, _ = name_validator.validate_name("Eduardo Godoy \nFernando Scabora")
+        assert not ok and motivo == name_validator.R_TOO_LONG
+        # ...e o que ele respondeu depois passa.
+        assert name_validator.validate_name("Eduardo Godoy")[0]
+
+        ok, motivo, _ = name_validator.validate_name("Lucas, quais horários tem hj?")
+        assert not ok and motivo == name_validator.R_QUESTION
+        assert name_validator.validate_name("Lucas")[0]
+
+    def test_nome_completo_longo_do_corpus_passa(self):
+        """⚠️ O ponto de atenção do corte de 6 palavras.
+
+        `"André Victor Marques Do Nascimento"` é cliente real, 5 palavras — uma
+        a menos que o corte. Nenhum nome de pessoa foi rejeitado por
+        `too_long` na calibragem (322 nomes), mas a margem é de UMA palavra:
+        um nome de 7 (`"Maria da Conceição dos Santos Silva Júnior"`) cairia.
+        Se aparecer na próxima calibragem, `MAX_WORDS` sobe para 8.
+        """
+        assert name_validator.validate_name("André Victor Marques Do Nascimento")[0]
+        assert name_validator.MAX_WORDS == 6, (
+            "se este valor mudou, foi por calibragem — atualize a docstring"
+        )
+
     def test_nome_composto_com_particula_passa(self):
         """`da`, `de`, `dos` ficam fora do léxico de pedido de propósito."""
         for nome in ("Maria da Silva", "Pascoal Júnior", "Ana Beatriz de Souza Lima Ferreira"):
@@ -275,6 +314,60 @@ class TestRegraContraOsCorpora:
         for entrada in ("Oi", "Ola", "Bom dia", "Beleza"):
             ok, _, _ = name_validator.validate_name(entrada)
             assert not ok, f"{entrada!r} passou"
+
+    @pytest.mark.parametrize("entrada", [
+        "Opa mano",           # o caso que a calibragem achou
+        "Fala meu querido",
+        "Bom dia príncipe",
+        "Beleza amigo",       # ⚠️ nenhum outro sinal pega este
+        "ajuda demais mano",
+        "Pode man",
+        "mano",
+        "meu rei",
+        "irmão",
+    ])
+    def test_vocativos_sao_rejeitados(self, entrada):
+        """Achado da calibragem contra a base real (322 clientes).
+
+        `"Opa mano"` era ACEITO: o descascador removia "Opa" e sobrava `"mano"`,
+        palavra isolada e desconhecida — aceita por construção. Falso aceite, o
+        lado seguro, mas errado, e a família é frequente no corpus.
+        """
+        ok, motivo, limpo = name_validator.validate_name(entrada)
+        assert not ok, f"aceito como nome: {entrada!r} (virou {limpo!r})"
+        assert motivo == name_validator.R_VOCATIVE
+
+    def test_o_lexico_de_vocativos_nao_ameaca_o_tobin(self):
+        """⚠️ A razão de o vocativo poder alcançar palavra isolada.
+
+        Ele é ENUMERAÇÃO FECHADA, não heurística: `Tobin` passa por não estar
+        na lista, não por "parecer nome". Mesmo mecanismo da cortesia, que já
+        rejeitava `"Blz"` sozinho sem nunca ter ameaçado nome curto.
+        """
+        for nome in NOMES_REAIS + ["Amanda", "Rei", "Cara", "Zyrtec"]:
+            ok, motivo, _ = name_validator.validate_name(nome)
+            assert ok, f"{nome!r} rejeitado por {motivo}"
+
+    def test_termos_ambiguos_ficaram_fora_da_lista(self):
+        """⚠️ `rei` e `cara` são nome/sobrenome em algum lugar — ficaram fora.
+
+        `rei` só é alcançado na frase `"meu rei"`; `cara` não entrou de todo.
+        A dúvida resolve para NÃO acrescentar: o custo de deixar passar um
+        vocativo é dado feio; o de pegar um nome é cliente preso num loop.
+        """
+        assert "rei" not in name_validator._VOCATIVE_TOKENS
+        assert "cara" not in name_validator._VOCATIVE_TOKENS
+        assert "meu rei" in name_validator._VOCATIVE_PHRASES
+        assert name_validator.validate_name("Rei")[0]
+        assert not name_validator.validate_name("meu rei")[0]
+
+    def test_nenhum_vocativo_colide_com_nome_real_conhecido(self):
+        """Guarda de manutenção: quem acrescentar termo à lista roda isto."""
+        conhecidos = {name_validator._norm(n) for n in NOMES_REAIS} | {
+            "amanda", "lucas", "andre", "eduardo", "godoy", "rei", "cara",
+            "silva", "santos", "junior", "vitor", "victor",
+        }
+        assert not (name_validator._VOCATIVE_TOKENS & conhecidos)
 
     def test_o_lexico_de_pedido_nao_alcanca_palavra_isolada(self):
         """⚠️ A guarda que protege o `Tobin`, escrita como invariante.

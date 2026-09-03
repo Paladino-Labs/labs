@@ -22,6 +22,7 @@ A coluna `motivo` diz qual sinal disparou, e cada um tem endereço em
 `app/modules/whatsapp/name_validator.py`:
 
   courtesy_phrase → tire a palavra de `_COURTESY`
+  vocative        → tire o termo de `_VOCATIVE_TOKENS` / `_VOCATIVE_PHRASES`
   request_words   → tire a palavra de `_REQUEST_WORDS`
   too_long        → suba `MAX_WORDS` / `MAX_CHARS`
   has_digits / question_mark / has_url → sinal forte; um nome real que dispare

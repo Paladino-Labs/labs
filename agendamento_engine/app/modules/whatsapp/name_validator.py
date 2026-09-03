@@ -38,14 +38,24 @@ O DESENHO EM TRÊS CAMADAS
    falso positivo caro numa aceitação correta.
 2. **Rejeitar por sinal forte** — interrogação, dígito, URL, tamanho. Nenhum
    deles aparece em nome de gente.
-3. **Rejeitar por léxico explícito** — cortesia (frase inteira) e palavras de
-   pedido (só em entrada de 2+ palavras). ⚠️ Lista explícita, não heurística:
-   esta é a família mais frequente E a mais fácil de confundir com nome real.
+3. **Rejeitar por léxico explícito** — cortesia (frase inteira), vocativos
+   (frase inteira OU token), e palavras de pedido (só em entrada de 2+
+   palavras). ⚠️ Listas explícitas, não heurística: esta é a família mais
+   frequente E a mais fácil de confundir com nome real.
 
-⚠️ Por que o léxico de pedido NÃO vale para entrada de uma palavra só: uma
-palavra desconhecida e isolada é quase sempre o nome. O léxico existe para
-frases ("Queria marcar um horário"), e é justamente em palavra isolada que ele
-teria o poder de rejeitar um `Tobin`.
+⚠️ Por que o léxico de PEDIDO não vale para entrada de uma palavra só: uma
+palavra desconhecida e isolada é quase sempre o nome. Ele existe para frases
+("Queria marcar um horário"), e é justamente em palavra isolada que teria o
+poder de rejeitar um `Tobin`.
+
+⚠️ Cortesia e vocativo são a exceção deliberada a isso — eles alcançam palavra
+isolada. É seguro porque são ENUMERAÇÕES fechadas de termos que nunca são nome
+de gente: `Tobin` passa por não estar na lista, não por não parecer vocativo.
+A guarda continua sendo a natureza da lista, não o tamanho da entrada.
+
+⚠️ Os vocativos entraram DEPOIS, pela calibragem contra a base real: `"Opa
+mano"` era aceito como `"mano"` — falso aceite, o lado seguro, mas errado. A
+família é frequente ("Fala meu querido", "Bom dia príncipe", "Beleza amigo").
 """
 import re
 import unicodedata
@@ -64,6 +74,7 @@ R_URL         = "has_url"
 R_NO_LETTERS  = "no_letters"
 R_COURTESY    = "courtesy_phrase"
 R_REQUEST     = "request_words"
+R_VOCATIVE    = "vocative"
 
 
 def _strip_accents(text: str) -> str:
@@ -185,6 +196,35 @@ _REQUEST_WORDS = frozenset({
     "blz", "tudo", "bem", "site", "sites", "whatsapp", "zap",
 })
 
+# ─── Camada 3c: vocativos (achado da calibragem) ──────────────────────────────
+# Formas de TRATAMENTO. `"Opa mano"` passou na primeira versão: o descascador
+# removeu "Opa" e sobrou `"mano"` — palavra isolada e desconhecida, aceita por
+# construção. Foi **falso aceite**, o lado seguro, mas ainda assim errado.
+#
+# ⚠️ Esta é a ÚNICA lista que alcança palavra isolada além da cortesia, e é
+# seguro justamente porque é ENUMERAÇÃO EXPLÍCITA, não heurística: nenhum nome
+# de gente está aqui, então `Tobin` continua passando por não estar na lista.
+# É o mesmo mecanismo que já rejeita `"Blz"` e `"Sim"` sozinhos.
+#
+# ⚠️ Ao acrescentar termo: só entra o que NUNCA pode ser nome de pessoa. `rei`
+# ficou de fora como token solto (existe como sobrenome) e só é alcançado na
+# frase `"meu rei"`; `cara` ficou de fora inteiro (é nome próprio em outras
+# línguas). A dúvida resolve para NÃO acrescentar — o custo de deixar passar um
+# vocativo é dado feio; o de pegar um nome é cliente preso num loop.
+_VOCATIVE_TOKENS = frozenset({
+    "mano", "man", "mana", "brother", "bro", "irmao", "irma",
+    "amigo", "amiga", "amigao", "parceiro", "parceira", "parca",
+    "chefe", "chefia", "patrao", "chefinho",
+    "querido", "querida", "principe", "princesa",
+    "campeao", "guerreiro", "monstro", "lenda", "craque",
+})
+
+# Vocativos que só existem como frase — o token isolado seria arriscado demais.
+_VOCATIVE_PHRASES = frozenset({
+    "meu rei", "meu amigo", "meu querido", "meu chefe", "meu parceiro",
+    "minha rainha", "minha querida", "minha amiga", "meu irmao",
+})
+
 _URL_RE   = re.compile(r"(https?://|www\.|\.com|\.br/|@\w+\.)", re.IGNORECASE)
 _DIGIT_RE = re.compile(r"\d")
 
@@ -240,6 +280,14 @@ def validate_name(raw: str) -> Tuple[bool, Optional[str], str]:
     flat = " ".join(words)
     if flat in _COURTESY:
         return False, R_COURTESY, name
+
+    # ── Camada 3c: vocativo ───────────────────────────────────────────────────
+    # Alcança palavra ISOLADA (é o caso do `"Opa mano"` descascado) e também
+    # token dentro de frase (`"Beleza amigo"`, que nenhum outro sinal pega).
+    if flat in _VOCATIVE_PHRASES or flat in _VOCATIVE_TOKENS:
+        return False, R_VOCATIVE, name
+    if any(w in _VOCATIVE_TOKENS for w in words):
+        return False, R_VOCATIVE, name
 
     # ── Camada 3b: palavras de pedido, só com 2+ palavras ─────────────────────
     # ⚠️ A guarda de 2+ palavras é o que protege `Tobin`, `Ivan`, `Thayná`: uma
