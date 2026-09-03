@@ -62,6 +62,14 @@ class ChangePasswordRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
+    # WhatsApp do próprio usuário. Aceito CRU (com máscara, com ou sem DDI) —
+    # a normalização para E.164 sem '+' é do backend, em
+    # `identity.resolver.normalize_phone_for_storage`, a MESMA do convite.
+    #
+    # Campo ausente ({}) preserva o valor atual; enviado como null limpa o
+    # campo. A distinção é feita no handler por `model_fields_set` — sem ela
+    # não haveria como apagar um telefone digitado errado.
+    phone: Optional[str] = Field(None, max_length=32)
     # Expansão futura: outros campos de perfil do próprio usuário
 
 

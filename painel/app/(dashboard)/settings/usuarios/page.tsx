@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { UserPlus, Crown, UserMinus, Mail, X } from "lucide-react"
+import { UserPlus, Crown, UserMinus, Mail, X, Pencil, Check, AlertTriangle } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/context/AuthContext"
 import { formatDateTime, formatPhoneBR } from "@/lib/utils"
@@ -55,6 +55,26 @@ interface Invitation {
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
+}
+
+/**
+ * `users.phone` é gravado em E.164 SEM o '+' ("5562985657312") — a convenção do
+ * backend (models/user.py:70-75), a mesma para quem chega pelo convite e para
+ * quem é editado aqui. Descarta o 55 antes de mascarar: `formatPhoneBR` corta em
+ * 11 dígitos e truncaria o final. Mesmo tratamento de `prefillInvitePhone` em
+ * professionals/[id].
+ */
+function stripBRCountryCode(raw?: string | null): string {
+  const digits = (raw ?? "").replace(/\D/g, "")
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    return digits.slice(2)
+  }
+  return digits
+}
+
+function displayPhoneBR(raw?: string | null): string {
+  const digits = stripBRCountryCode(raw)
+  return digits ? formatPhoneBR(digits) : ""
 }
 
 /* ------------------------------ Convidar usuário ------------------------------ */
@@ -281,6 +301,121 @@ function TransferDialog({ open, onOpenChange, members, onDone }: {
   )
 }
 
+/* ------------------------------- Célula WhatsApp ------------------------------- */
+/**
+ * O telefone é o destino da escalada ("tem cliente esperando") e do reset de
+ * senha. Ele era write-once no convite: quem não tinha caía no e-mail, e não
+ * havia como consertar pela interface — este sprint existe por causa disso.
+ *
+ * Dois caminhos, os mesmos do backend:
+ *   próprio usuário → PATCH /auth/profile
+ *   terceiro        → PATCH /users/{id}/phone (OWNER/ADMIN, mesmo tenant)
+ *
+ * A validação de 10–11 dígitos aqui é a mesma do convite; a whitelist ANATEL de
+ * DDD fica no backend, fonte única — daí a mensagem de erro vir de lá.
+ */
+function PhoneCell({ user, isSelf, canEdit, onSaved }: {
+  user: User
+  isSelf: boolean
+  canEdit: boolean
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const digits = draft.replace(/\D/g, "")
+  // Vazio é válido: limpar um telefone digitado errado é caso legítimo.
+  const valid = digits.length === 0 || digits.length === 10 || digits.length === 11
+
+  function startEdit() {
+    setDraft(displayPhoneBR(user.phone))
+    setEditing(true)
+  }
+
+  async function save() {
+    if (!valid) return
+    setSaving(true)
+    try {
+      // Envia os dígitos crus; a normalização para E.164 sem '+' é do backend
+      // (identity/resolver.normalize_phone_for_storage), a MESMA do convite.
+      if (isSelf) {
+        await api.patch("/auth/profile", { phone: digits || null })
+      } else {
+        await api.patch(`/users/${user.id}/phone`, { phone: digits || null })
+      }
+      toast.success(digits ? "WhatsApp atualizado" : "WhatsApp removido")
+      setEditing(false)
+      onSaved()
+    } catch (err: unknown) {
+      toast.error((err as Error).message ?? "Erro ao salvar o WhatsApp")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <Input
+            autoFocus
+            type="tel"
+            inputMode="numeric"
+            className="h-8 w-40"
+            value={draft}
+            onChange={(e) => setDraft(formatPhoneBR(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save()
+              if (e.key === "Escape") setEditing(false)
+            }}
+            placeholder="(11) 90000-0000"
+          />
+          <Button size="sm" variant="ghost" onClick={save} disabled={saving || !valid}
+            aria-label="Salvar WhatsApp">
+            <Check className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}
+            aria-label="Cancelar">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        {!valid && (
+          <p className="text-xs text-destructive">DDD + número (10 ou 11 dígitos).</p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {user.phone ? (
+        <span className="text-muted-foreground">{displayPhoneBR(user.phone)}</span>
+      ) : (
+        // ⚠️ Não é um traço. Telefone ausente é a informação que o dono precisa
+        // ver para agir — um "—" seria indistinguível de "não carregou".
+        <Tooltip>
+          <TooltipTrigger render={<span />}>
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-500">
+              <AlertTriangle className="h-3.5 w-3.5" /> Sem WhatsApp
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            Sem WhatsApp, os avisos deste usuário — inclusive &quot;tem cliente
+            esperando&quot; — saem por e-mail.
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {canEdit && (
+        <Button size="sm" variant="ghost" onClick={startEdit}
+          aria-label={user.phone ? "Editar WhatsApp" : "Adicionar WhatsApp"}>
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
 /* ---------------------------------- Página ---------------------------------- */
 export default function UsuariosPage() {
   const { role: actorRole, userId } = useAuth()
@@ -398,6 +533,7 @@ export default function UsuariosPage() {
                     <tr>
                       <th className="px-4 py-3 text-left font-medium">Nome</th>
                       <th className="px-4 py-3 text-left font-medium">E-mail</th>
+                      <th className="px-4 py-3 text-left font-medium">WhatsApp</th>
                       <th className="px-4 py-3 text-left font-medium">Papel</th>
                       <th className="px-4 py-3 text-left font-medium">Ativo</th>
                       <th className="px-4 py-3 text-right font-medium">Ações</th>
@@ -412,11 +548,19 @@ export default function UsuariosPage() {
                       const roleOptions = Array.from(new Set([...assignableRoles, u.role]))
                       const isLastOwner = u.role === "OWNER" && u.active && activeOwners <= 1
                       const canDeactivate = !isSelf && u.active && !isLastOwner
+                      // Espelha o gate do backend: o próprio usuário sempre pode
+                      // (PATCH /auth/profile); para terceiro vale INVITE_PERMISSION
+                      // — por isso ADMIN não alcança o telefone de um OWNER.
+                      // Usuário inativo não é alvo (o service filtra active).
+                      const canEditPhone = u.active && (isSelf || assignableRoles.includes(u.role))
                       const rowBusy = busy === u.id
                       return (
                         <tr key={u.id} className="transition-colors hover:bg-muted/30">
                           <td className="px-4 py-3 font-medium">{u.name || "—"}</td>
                           <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
+                          <td className="px-4 py-3">
+                            <PhoneCell user={u} isSelf={isSelf} canEdit={canEditPhone} onSaved={load} />
+                          </td>
                           <td className="px-4 py-3">
                             {canManageRole ? (
                               <Select value={u.role} onValueChange={(v) => v && handleChangeRole(u, v)} disabled={rowBusy}>

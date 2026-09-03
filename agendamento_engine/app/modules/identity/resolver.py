@@ -283,3 +283,36 @@ class PhoneIdentityResolver:
 
 
 resolver = PhoneIdentityResolver()
+
+
+def normalize_phone_for_storage(raw_phone: str) -> str:
+    """Telefone digitado em formulário → E.164 SEM o '+', a convenção de
+    armazenamento de `users.phone` (e de `customers.phone`).
+
+    Fonte ÚNICA do formato. Usada pelo convite (`users/service`) e pela edição
+    do telefone (`auth/router` e `users/router`) — se cada caminho normalizasse
+    por conta própria, o mesmo usuário teria dois formatos conforme por onde
+    passou, e quem lê o campo (`conversation_handler`, `auth/service`) não sabe
+    disso.
+
+    Duas etapas, o mesmo idioma dos formulários públicos:
+
+      1. `validate_user_phone_input` — GATE de formulário: whitelist ANATEL de
+         DDD, rejeita DDI, mensagem de erro legível para quem está digitando.
+      2. `normalize_phone_e164` — a normalização CANÔNICA-ESTRITA: insere o 9º
+         dígito de celular e produz o E.164.
+
+    ⚠️ Existem 4 normalizações de telefone no backend. A quarta
+    (`public/service._normalize_phone`) NÃO insere o 9º dígito e produziria uma
+    chave diferente para o mesmo número — não usar.
+
+    Levanta HTTPException 422 se o telefone for inválido.
+    """
+    try:
+        validate_user_phone_input(raw_phone)
+    except InvalidUserPhoneError as exc:
+        raise HTTPException(status_code=422, detail=exc.message)
+
+    phone_e164, _national = normalize_phone_e164(raw_phone)
+    # Convenção do repositório: armazenado sem o '+' (idem customers.phone)
+    return phone_e164.lstrip("+")

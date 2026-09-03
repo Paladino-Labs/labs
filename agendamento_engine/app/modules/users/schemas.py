@@ -54,6 +54,13 @@ class AssignRoleRequest(BaseModel):
     role: str
 
 
+class UpdateUserPhoneRequest(BaseModel):
+    # Aceito CRU (com máscara ou não). A normalização para E.164 sem o '+' é do
+    # backend — `identity.resolver.normalize_phone_for_storage`, a MESMA função
+    # que o convite usa. null/"" limpa o campo.
+    phone: Optional[str] = Field(None, max_length=32)
+
+
 class TransferOwnershipRequest(BaseModel):
     new_owner_user_id: UUID
     current_owner_new_role: str = "ADMIN"
