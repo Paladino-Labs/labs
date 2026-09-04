@@ -546,6 +546,44 @@ valor entregue ao `evolution_client.send_text`.
 ⚠️ **NÃO use** `public/service._normalize_phone` (não insere o 9º dígito) nem
 `customers/service.normalize_phone` (não exige DDD).
 
+**Fixo é preservado sem o nono dígito** — `551132251234` é correto.
+⚠️ **Não infira alcançabilidade do formato:** linhas virtuais seguem a
+estrutura de fixo e têm conta no WhatsApp. Qualquer número pode ou não
+receber, e só a Evolution sabe (`exists: false`).
+⚠️ O gate de canal (`communication/service.py:172-179`) checa apenas
+presença — e o `exists: false` é hoje descartado, com a task reportando
+sucesso.
+
+### S4 — o telefone deixou de ser write-once
+
+Era gravado no convite e nada o alterava depois. Medido: `owners_ativos = 1`,
+`owners_com_telefone = 0` nos dois tenants, com `whatsapp_enabled = true` — o
+canal ligado e sem destino.
+
+Dois caminhos, e **nenhum normaliza por conta própria**:
+
+| Caminho | Rota | Quem |
+|---|---|---|
+| Próprio usuário | `PATCH /auth/profile` (campo `phone`) | qualquer role |
+| Terceiro | `PATCH /users/{id}/phone` | OWNER/ADMIN, mesmo tenant |
+
+⚠️ **`identity/resolver.normalize_phone_for_storage` é a fonte ÚNICA do formato.**
+O convite (`users/service._normalize_invite_phone`) passou a **delegar** a ela —
+antes tinha a lógica própria. Ao acrescentar um caminho que grave telefone de
+usuário, chame essa função; duas normalizações divergentes é a família de achado
+já catalogada (`mask_cpf_cnpj`, `calculate_commission`).
+
+⚠️ **A rota de terceiro reusa `INVITE_PERMISSION`**, não só `require_role`: um
+ADMIN não edita o telefone de um OWNER. Trocar aquele número **redireciona a
+escalada**, então tem o peso de `assign_role` — e grava `record_sensitive_action`
+pelo mesmo motivo.
+
+⚠️ `PATCH /auth/profile` distingue "não enviei" de "enviei vazio" por
+`model_fields_set`: `{}` preserva, `null`/`""` limpa. Sem isso, o PATCH que só
+muda o nome apagaria o telefone. (O `name` **não** segue essa regra — `null`
+preserva, comportamento pré-S4; o docstring que dizia o contrário estava errado
+e foi corrigido.)
+
 #### ⚠️ A ordem de canal agora depende do destinatário, não só do tenant
 
 `channel_preference` era `["EMAIL", "WHATSAPP"]` hardcoded. Inverter cruamente
